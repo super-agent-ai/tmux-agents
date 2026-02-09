@@ -191,7 +191,7 @@ html, body {
 .column {
     display: flex; flex-direction: column;
     border-right: 1px solid var(--vscode-panel-border);
-    min-width: 180px; min-height: 120px;
+    min-width: 180px; min-height: 200px;
 }
 .column:last-child { border-right: none; }
 .column-header {
@@ -218,12 +218,15 @@ html, body {
 }
 .column-add:hover { opacity: 1; background: rgba(255,255,255,0.08); }
 .column-body {
-    flex: 1; overflow-y: auto; padding: 6px 8px 8px;
+    flex: 1; overflow-y: auto; padding: 10px 10px 20px;
     display: flex; flex-direction: column; gap: 6px;
-    transition: background 0.15s;
+    transition: background 0.2s, box-shadow 0.2s;
+    min-height: 80px;
 }
 .column-body.drag-over {
-    background: var(--vscode-list-hoverBackground, rgba(255,255,255,0.04));
+    background: var(--vscode-list-hoverBackground, rgba(90,160,255,0.06));
+    box-shadow: inset 0 0 0 2px var(--vscode-focusBorder);
+    border-radius: 4px;
 }
 
 /* ── Card ───────────────────────────────────────────────────────────────── */
@@ -325,7 +328,8 @@ html, body {
 
 .empty-col {
     display: flex; align-items: center; justify-content: center;
-    font-size: 11px; opacity: 0.25; padding: 20px 0; font-style: italic;
+    font-size: 11px; opacity: 0.25; padding: 40px 0; font-style: italic;
+    flex: 1;
 }
 
 .drop-indicator {
