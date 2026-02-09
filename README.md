@@ -53,7 +53,7 @@ tmux-agents turns VS Code into a control plane for concurrent AI coding agents. 
 
 ### Multi-server
 - Monitor local + remote servers simultaneously
-- SSH config support (custom keys, ports, config files)
+- SSH config file support (`-F` flag)
 - Per-server session tree with connection testing
 - Dynamic SSH server discovery via external script (daemon polling)
 
@@ -131,14 +131,56 @@ To launch AI agents:
 
 ## Configuration
 
-In VS Code Settings (`tmuxAgents.*`):
+All settings live under `tmuxAgents.*` and support nested objects:
+
+```json
+{
+  "tmuxAgents.sshServers": {
+    "servers": [
+      { "label": "mac-mini", "host": "mac-mini", "configFile": "~/.ssh/config" }
+    ],
+    "script": {
+      "path": "~/.config/tmux-agents/servers.sh",
+      "interval": 300,
+      "timeout": 10
+    }
+  },
+  "tmuxAgents.showLocalSessions": true,
+  "tmuxAgents.daemonRefresh": {
+    "enabled": true,
+    "lightInterval": 10000,
+    "fullInterval": 60000
+  },
+  "tmuxAgents.paneCapture": {
+    "enabled": true,
+    "lines": 50
+  },
+  "tmuxAgents.orchestrator": {
+    "enabled": true,
+    "pollingInterval": 5000,
+    "autoDispatch": true
+  },
+  "tmuxAgents.aiProviders": {
+    "claude": {
+      "command": "claude",
+      "pipeCommand": "claude",
+      "args": ["--dangerously-skip-permissions"],
+      "forkArgs": ["--continue"],
+      "defaultWorkingDirectory": "~/projects/my-app",
+      "env": { "ANTHROPIC_API_KEY": "sk-ant-..." }
+    }
+  }
+}
+```
+
+### Settings reference
 
 | Setting | Default | Description |
 |---|---|---|
-| `sshServers` | `[]` | Remote SSH servers to monitor |
-| `sshServersScript` | `""` | Path to script that outputs SSH server JSON array |
-| `sshServersScript.interval` | `300` | Re-run interval for the script (seconds, min 10) |
-| `sshServersScript.timeout` | `10` | Max wait for the script (seconds, 1-60) |
+| `sshServers.servers` | `[]` | Static SSH server list |
+| `sshServers.script.path` | `""` | Script that outputs SSH server JSON array |
+| `sshServers.script.interval` | `300` | Script re-run interval (seconds, min 10) |
+| `sshServers.script.timeout` | `10` | Script timeout (seconds, 1-60) |
 | `showLocalSessions` | `true` | Show local tmux sessions |
 | `daemonRefresh.enabled` | `true` | Background auto-refresh |
 | `daemonRefresh.lightInterval` | `10000` | Light refresh interval (ms) |
@@ -149,83 +191,57 @@ In VS Code Settings (`tmuxAgents.*`):
 | `orchestrator.pollingInterval` | `5000` | Agent polling interval (ms) |
 | `orchestrator.autoDispatch` | `true` | Auto-dispatch tasks to idle agents |
 
-### AI provider commands
+### AI provider settings
 
-Each provider (claude, gemini, codex) can be fully customized:
+Each provider (claude, gemini, codex) supports:
 
 | Setting | Default | Description |
 |---|---|---|
-| `aiProviders.<provider>.command` | `claude` / `gemini` / `codex` | CLI binary for interactive tmux sessions |
-| `aiProviders.<provider>.pipeCommand` | `claude` / `gemini` / `codex` | CLI binary for pipe mode (AI Generate, summaries) |
-| `aiProviders.<provider>.args` | `""` | Extra arguments for launch |
-| `aiProviders.<provider>.forkArgs` | `"--continue"` (claude) | Arguments for fork/continue |
-| `aiProviders.<provider>.env` | `{}` | Environment variables as key-value pairs |
+| `command` | provider name | CLI binary for interactive tmux sessions |
+| `pipeCommand` | same as `command` | CLI binary for pipe mode (AI Chat, AI Generate, summaries) |
+| `args` | `[]` | Extra arguments for launch |
+| `forkArgs` | `["--continue"]` (claude) | Arguments for fork/continue |
+| `env` | `{}` | Environment variables |
+| `defaultWorkingDirectory` | workspace folder | Working directory for pipe mode operations |
 
-The `command` setting is used for interactive sessions in tmux windows. The `pipeCommand` setting is used for pipe mode operations (AI Generate, task summaries) where input is piped via stdin. This allows using different binaries or wrappers for each mode.
+The `command` is used for interactive sessions in tmux windows. The `pipeCommand` is used for pipe mode operations where input is piped via stdin. This allows using different binaries for each mode.
 
-Example — Claude with custom binary and model flag:
+### SSH server configuration
+
+Static and script-based servers are unified under `tmuxAgents.sshServers`:
 
 ```json
 {
-  "tmuxAgents.aiProviders.claude.command": "claude",
-  "tmuxAgents.aiProviders.claude.pipeCommand": "claude",
-  "tmuxAgents.aiProviders.claude.args": ["--model", "opus", "--verbose"],
-  "tmuxAgents.aiProviders.claude.env": {
-    "ANTHROPIC_API_KEY": "sk-ant-..."
+  "tmuxAgents.sshServers": {
+    "servers": [
+      {
+        "label": "Dev Box",
+        "host": "dev.example.com",
+        "user": "deploy",
+        "configFile": "~/.ssh/config"
+      }
+    ],
+    "script": {
+      "path": "~/.config/tmux-agents/servers.sh",
+      "interval": 300,
+      "timeout": 10
+    }
   }
 }
 ```
 
-Example — Codex with custom binary and sandbox mode:
-
-```json
-{
-  "tmuxAgents.aiProviders.codex.command": "codex",
-  "tmuxAgents.aiProviders.codex.args": ["--approval-mode", "full-auto"]
-}
-```
-
-Args accept both a string (`"--model opus"`) or an array (`["--model", "opus"]`).
-
-The resulting tmux command will be: `ANTHROPIC_API_KEY=sk-ant-... claude --model opus --verbose`
-
-### SSH server configuration
-
-Static servers in settings:
-
-```json
-{
-  "tmuxAgents.sshServers": [
-    {
-      "label": "Dev Box",
-      "host": "dev.example.com",
-      "user": "deploy",
-      "identityFile": "~/.ssh/id_ed25519"
-    }
-  ]
-}
-```
-
-Dynamic servers via script (daemon polling, non-blocking):
-
-```json
-{
-  "tmuxAgents.sshServersScript": "~/.config/tmux-agents/servers.sh",
-  "tmuxAgents.sshServersScript.interval": 300,
-  "tmuxAgents.sshServersScript.timeout": 10
-}
-```
-
-The script must output a JSON array to stdout:
+The script must output a JSON array to stdout (same format as `servers`):
 
 ```json
 [
   { "label": "Dev Box", "host": "dev.example.com", "user": "deploy" },
-  { "label": "Staging", "host": "staging.example.com" }
+  { "label": "Staging", "host": "staging.example.com", "configFile": "~/.ssh/config" }
 ]
 ```
 
-Servers from the script are merged with static `sshServers`. The script runs as a background daemon and only triggers a refresh when results change.
+Static `servers` take precedence. The script runs as a background daemon and only triggers a refresh when results change.
+
+**Server fields:** `label` (required), `host` (required), `user`, `port` (default 22), `configFile` (SSH `-F` flag), `enabled` (default true).
 
 ## Architecture
 
