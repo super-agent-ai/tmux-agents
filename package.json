@@ -25,257 +25,183 @@
       "title": "Tmux Agents",
       "properties": {
         "tmuxAgents.sshServers": {
-          "type": "array",
-          "default": [],
-          "description": "SSH remote servers to monitor for tmux sessions.",
-          "items": {
-            "type": "object",
-            "required": [
-              "label",
-              "host"
-            ],
-            "properties": {
-              "label": {
-                "type": "string",
-                "description": "Display name for this server in the tree view (e.g., 'Production', 'Dev Box')."
-              },
-              "host": {
-                "type": "string",
-                "description": "SSH hostname or IP address."
-              },
-              "port": {
-                "type": "number",
-                "default": 22,
-                "description": "SSH port number. Defaults to 22."
-              },
-              "user": {
-                "type": "string",
-                "description": "SSH username. If omitted, the system default or ~/.ssh/config will be used."
-              },
-              "identityFile": {
-                "type": "string",
-                "description": "Absolute path to the SSH private key file (e.g., '~/.ssh/id_rsa'). If omitted, default SSH keys are used."
-              },
-              "configFile": {
-                "type": "string",
-                "description": "Absolute path to a custom SSH config file (e.g., '~/.ssh/config_custom'). If omitted, the default SSH config is used."
-              },
-              "enabled": {
-                "type": "boolean",
-                "default": true,
-                "description": "Whether this server is active. Set to false to temporarily disable without removing the entry."
+          "type": "object",
+          "default": { "servers": [], "script": {} },
+          "description": "SSH remote servers. Static list and/or dynamic script-based discovery.",
+          "properties": {
+            "servers": {
+              "type": "array",
+              "default": [],
+              "description": "Static SSH server list.",
+              "items": {
+                "type": "object",
+                "required": ["label", "host"],
+                "properties": {
+                  "label": { "type": "string", "description": "Display name in the tree view" },
+                  "host": { "type": "string", "description": "SSH hostname or IP address" },
+                  "port": { "type": "number", "default": 22, "description": "SSH port. Default: 22" },
+                  "user": { "type": "string", "description": "SSH username" },
+                  "configFile": { "type": "string", "description": "Path to SSH config file (-F flag)" },
+                  "enabled": { "type": "boolean", "default": true, "description": "Whether this server is active" }
+                },
+                "additionalProperties": false
               }
             },
-            "additionalProperties": false
-          }
-        },
-        "tmuxAgents.sshServersScript": {
-          "type": "string",
-          "default": "",
-          "description": "Path to a script that outputs SSH server JSON array. The script stdout must be a valid JSON array of objects with at least { label, host }. Merged with tmuxAgents.sshServers. Example: '~/.config/tmux-agents/servers.sh'"
-        },
-        "tmuxAgents.sshServersScript.interval": {
-          "type": "number",
-          "default": 300,
-          "minimum": 10,
-          "description": "How often (in seconds) to re-run the sshServersScript. Default: 300 (5 minutes). Minimum: 10."
-        },
-        "tmuxAgents.sshServersScript.timeout": {
-          "type": "number",
-          "default": 10,
-          "minimum": 1,
-          "maximum": 60,
-          "description": "Maximum time (in seconds) to wait for the script to complete. Default: 10."
+            "script": {
+              "type": "object",
+              "default": {},
+              "description": "Script-based SSH server discovery. Script must output JSON array of { label, host, ... } to stdout.",
+              "properties": {
+                "path": { "type": "string", "description": "Path to the script (e.g., '~/.config/tmux-agents/servers.sh')" },
+                "interval": { "type": "number", "default": 300, "minimum": 10, "description": "Re-run interval in seconds. Default: 300" },
+                "timeout": { "type": "number", "default": 10, "minimum": 1, "maximum": 60, "description": "Max wait for script in seconds. Default: 10" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
         },
         "tmuxAgents.showLocalSessions": {
           "type": "boolean",
           "default": true,
           "description": "Whether to show local tmux sessions. Disable if you only want to monitor remote servers."
         },
-        "tmuxAgents.daemonRefresh.lightInterval": {
-          "type": "number",
-          "default": 10000,
-          "description": "Light refresh interval in milliseconds (checks for changes)"
+        "tmuxAgents.daemonRefresh": {
+          "type": "object",
+          "default": { "enabled": true, "lightInterval": 10000, "fullInterval": 60000 },
+          "description": "Background auto-refresh configuration.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable daemon-pattern background refresh with change detection"
+            },
+            "lightInterval": {
+              "type": "number",
+              "default": 10000,
+              "description": "Light refresh interval in milliseconds (checks for changes)"
+            },
+            "fullInterval": {
+              "type": "number",
+              "default": 60000,
+              "description": "Full refresh interval in milliseconds (complete tree rebuild)"
+            }
+          },
+          "additionalProperties": false
         },
-        "tmuxAgents.daemonRefresh.fullInterval": {
-          "type": "number",
-          "default": 60000,
-          "description": "Full refresh interval in milliseconds (complete tree rebuild)"
-        },
-        "tmuxAgents.daemonRefresh.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable daemon-pattern background refresh with change detection"
-        },
-        "tmuxAgents.paneCapture.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable pane content capture for AI status detection"
-        },
-        "tmuxAgents.paneCapture.lines": {
-          "type": "number",
-          "default": 50,
-          "description": "Number of lines to capture from each pane for status detection"
+        "tmuxAgents.paneCapture": {
+          "type": "object",
+          "default": { "enabled": true, "lines": 50 },
+          "description": "Pane content capture for AI status detection.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable pane content capture for AI status detection"
+            },
+            "lines": {
+              "type": "number",
+              "default": 50,
+              "description": "Number of lines to capture from each pane"
+            }
+          },
+          "additionalProperties": false
         },
         "tmuxAgents.smartAttachment.openInEditor": {
           "type": "boolean",
           "default": true,
           "description": "Open tmux terminals in editor area tabs instead of bottom panel"
         },
-        "tmuxAgents.orchestrator.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable the agent orchestrator (brain) for automated task routing and dispatch"
-        },
-        "tmuxAgents.orchestrator.pollingInterval": {
-          "type": "number",
-          "default": 5000,
-          "description": "Agent state polling interval in milliseconds"
-        },
-        "tmuxAgents.orchestrator.autoDispatch": {
-          "type": "boolean",
-          "default": true,
-          "description": "Automatically dispatch pending tasks to idle agents"
+        "tmuxAgents.orchestrator": {
+          "type": "object",
+          "default": { "enabled": true, "pollingInterval": 5000, "autoDispatch": true },
+          "description": "Agent orchestrator configuration.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable the agent orchestrator for automated task routing and dispatch"
+            },
+            "pollingInterval": {
+              "type": "number",
+              "default": 5000,
+              "description": "Agent state polling interval in milliseconds"
+            },
+            "autoDispatch": {
+              "type": "boolean",
+              "default": true,
+              "description": "Automatically dispatch pending tasks to idle agents"
+            }
+          },
+          "additionalProperties": false
         },
         "tmuxAgents.agentTemplates": {
           "type": "array",
           "default": [],
           "description": "Custom agent templates for quick spawning"
         },
-        "tmuxAgents.aiProviders.claude.command": {
-          "type": "string",
-          "default": "claude",
-          "description": "CLI command to launch Claude (e.g., 'claude', '/usr/local/bin/claude')"
-        },
-        "tmuxAgents.aiProviders.claude.args": {
-          "oneOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          ],
-          "default": [],
-          "description": "Additional arguments for Claude. String or array of strings (e.g., [\"--model\", \"opus\", \"--verbose\"])"
-        },
-        "tmuxAgents.aiProviders.claude.forkArgs": {
-          "oneOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          ],
-          "default": [
-            "--continue"
-          ],
-          "description": "Arguments for forking/continuing a Claude session. String or array."
-        },
-        "tmuxAgents.aiProviders.claude.pipeCommand": {
-          "type": "string",
-          "default": "claude",
-          "description": "CLI command for non-interactive pipe mode (AI Generate, summarize). Defaults to 'claude'. This is separate from 'command' which is used for interactive tmux sessions."
-        },
-        "tmuxAgents.aiProviders.claude.env": {
+        "tmuxAgents.aiProviders": {
           "type": "object",
-          "default": {},
-          "description": "Environment variables set before launching Claude (e.g., {\"ANTHROPIC_API_KEY\": \"sk-...\"})",
+          "default": {
+            "claude": {
+              "command": "claude",
+              "pipeCommand": "claude",
+              "args": [],
+              "forkArgs": ["--continue"],
+              "env": {}
+            },
+            "gemini": {
+              "command": "gemini",
+              "pipeCommand": "gemini",
+              "args": [],
+              "forkArgs": [],
+              "env": {}
+            },
+            "codex": {
+              "command": "codex",
+              "pipeCommand": "codex",
+              "args": [],
+              "forkArgs": [],
+              "env": {}
+            }
+          },
+          "description": "AI provider configurations. Each key (claude, gemini, codex) supports: command (interactive CLI), pipeCommand (pipe mode CLI), args (launch arguments), forkArgs (fork/continue arguments), env (environment variables).",
           "additionalProperties": {
-            "type": "string"
-          }
-        },
-        "tmuxAgents.aiProviders.gemini.command": {
-          "type": "string",
-          "default": "gemini",
-          "description": "CLI command to launch Gemini"
-        },
-        "tmuxAgents.aiProviders.gemini.args": {
-          "oneOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "array",
-              "items": {
-                "type": "string"
+            "type": "object",
+            "properties": {
+              "command": {
+                "type": "string",
+                "description": "CLI command for interactive tmux sessions"
+              },
+              "pipeCommand": {
+                "type": "string",
+                "description": "CLI command for pipe mode (AI Generate, summarize)"
+              },
+              "args": {
+                "oneOf": [
+                  { "type": "string" },
+                  { "type": "array", "items": { "type": "string" } }
+                ],
+                "description": "Additional arguments for launch. String or array of strings."
+              },
+              "forkArgs": {
+                "oneOf": [
+                  { "type": "string" },
+                  { "type": "array", "items": { "type": "string" } }
+                ],
+                "description": "Arguments for forking/continuing a session. String or array."
+              },
+              "env": {
+                "type": "object",
+                "additionalProperties": { "type": "string" },
+                "description": "Environment variables set before launching"
+              },
+              "defaultWorkingDirectory": {
+                "type": "string",
+                "description": "Default working directory for pipe mode (AI Chat, AI Generate). Falls back to the first open workspace folder."
               }
-            }
-          ],
-          "default": [],
-          "description": "Additional arguments for Gemini. String or array of strings."
-        },
-        "tmuxAgents.aiProviders.gemini.forkArgs": {
-          "oneOf": [
-            {
-              "type": "string"
             },
-            {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          ],
-          "default": [],
-          "description": "Arguments for forking/continuing a Gemini session. String or array."
-        },
-        "tmuxAgents.aiProviders.gemini.env": {
-          "type": "object",
-          "default": {},
-          "description": "Environment variables set before launching Gemini",
-          "additionalProperties": {
-            "type": "string"
-          }
-        },
-        "tmuxAgents.aiProviders.codex.command": {
-          "type": "string",
-          "default": "codex",
-          "description": "CLI command to launch Codex"
-        },
-        "tmuxAgents.aiProviders.codex.args": {
-          "oneOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          ],
-          "default": [],
-          "description": "Additional arguments for Codex. String or array of strings."
-        },
-        "tmuxAgents.aiProviders.codex.forkArgs": {
-          "oneOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          ],
-          "default": [],
-          "description": "Arguments for forking/continuing a Codex session. String or array."
-        },
-        "tmuxAgents.aiProviders.codex.env": {
-          "type": "object",
-          "default": {},
-          "description": "Environment variables set before launching Codex",
-          "additionalProperties": {
-            "type": "string"
+            "additionalProperties": false
           }
         }
       }

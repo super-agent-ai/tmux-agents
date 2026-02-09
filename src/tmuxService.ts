@@ -42,10 +42,6 @@ export class TmuxService {
             const expandedConfig = sshConfig.configFile.replace(/^~/, os.homedir());
             args.push('-F', `"${expandedConfig}"`);
         }
-        if (sshConfig.identityFile) {
-            const expandedPath = sshConfig.identityFile.replace(/^~/, os.homedir());
-            args.push('-i', `"${expandedPath}"`);
-        }
         if (sshConfig.port && sshConfig.port !== 22) {
             args.push('-p', String(sshConfig.port));
         }

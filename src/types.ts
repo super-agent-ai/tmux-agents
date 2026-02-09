@@ -9,8 +9,6 @@ export interface SshServerConfig {
     port?: number;
     /** SSH username */
     user?: string;
-    /** Absolute path to SSH private key file */
-    identityFile?: string;
     /** Absolute path to a custom SSH config file (e.g., '~/.ssh/config_custom') */
     configFile?: string;
     /** Whether this server is enabled (defaults to true) */

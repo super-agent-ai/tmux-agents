@@ -648,7 +648,7 @@ export async function handleKanbanMessage(
                 const summary = await new Promise<string>((resolve) => {
                     const prompt = `Summarize what was accomplished in this terminal session in 3-5 sentences. Focus on what was done, key changes made, and the outcome.\n\n${content.slice(-3000)}`;
                     const spawnCfg = ctx.aiManager.getSpawnConfig(AIProvider.CLAUDE);
-                    const proc = cp.spawn(spawnCfg.command, spawnCfg.args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...spawnCfg.env } });
+                    const proc = cp.spawn(spawnCfg.command, spawnCfg.args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...spawnCfg.env }, cwd: spawnCfg.cwd });
                     let stdout = '';
                     const timer = setTimeout(() => { proc.kill(); resolve(''); }, 20000);
                     proc.stdout!.on('data', (d: Buffer) => { stdout += d.toString(); });
@@ -692,7 +692,7 @@ The "role" field should be one of: coder, reviewer, tester, devops, researcher, 
                     }
 
                     prompt += `\n\nUser's input: ${text}`;
-                    const proc = cp.spawn(spawnCfg.command, spawnCfg.args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...spawnCfg.env } });
+                    const proc = cp.spawn(spawnCfg.command, spawnCfg.args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...spawnCfg.env }, cwd: spawnCfg.cwd });
                     let stdout = '';
                     let stderr = '';
                     const timer = setTimeout(() => {
@@ -780,7 +780,7 @@ The "role" field should be one of: coder, reviewer, tester, devops, researcher, 
                                 summary = await new Promise<string>((resolve, reject) => {
                                     const prompt = `Summarize what is happening in this tmux session in 2-3 short lines. Focus on: what project/task, what tools/commands are running, current status.\n\n${combinedContent}`;
                                     const spawnCfg = ctx.aiManager.getSpawnConfig(AIProvider.CLAUDE);
-                                    const proc = cp.spawn(spawnCfg.command, spawnCfg.args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...spawnCfg.env } });
+                                    const proc = cp.spawn(spawnCfg.command, spawnCfg.args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...spawnCfg.env }, cwd: spawnCfg.cwd });
                                     let stdout = '';
                                     const timer = setTimeout(() => { proc.kill(); resolve(''); }, 15000);
                                     proc.stdout!.on('data', (d: Buffer) => { stdout += d.toString(); });

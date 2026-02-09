@@ -30,7 +30,6 @@ const REMOTE_SERVER: ServerIdentity = {
         host: 'mybox.example.com',
         port: 2222,
         user: 'deploy',
-        identityFile: '/home/user/.ssh/id_ed25519',
         configFile: '/home/user/.ssh/config_custom',
     },
 };

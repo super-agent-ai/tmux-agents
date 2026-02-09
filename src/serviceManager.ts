@@ -125,7 +125,9 @@ export class TmuxServiceManager implements vscode.Disposable {
         }
 
         const config = vscode.workspace.getConfiguration('tmuxAgents');
-        const scriptPath = config.get<string>('sshServersScript', '');
+        const sshCfg = config.get<any>('sshServers') || {};
+        const scriptCfg = sshCfg.script || {};
+        const scriptPath = scriptCfg.path || '';
         if (!scriptPath) {
             // No script configured — clear any previous script servers
             if (this.scriptServers.length > 0) {
@@ -136,8 +138,8 @@ export class TmuxServiceManager implements vscode.Disposable {
             return;
         }
 
-        const intervalSec = Math.max(10, config.get<number>('sshServersScript.interval', 300));
-        const timeoutSec = Math.max(1, Math.min(60, config.get<number>('sshServersScript.timeout', 10)));
+        const intervalSec = Math.max(10, scriptCfg.interval ?? 300);
+        const timeoutSec = Math.max(1, Math.min(60, scriptCfg.timeout ?? 10));
 
         // Run immediately, then on interval
         this.runScriptOnce(scriptPath, timeoutSec);
@@ -198,8 +200,13 @@ export class TmuxServiceManager implements vscode.Disposable {
             this.services.set('local', new TmuxService(localServer));
         }
 
-        // Static SSH servers (check new key, fallback to old key)
-        let sshServers = config.get<SshServerConfig[]>('sshServers', []);
+        // Static SSH servers
+        const sshCfg = config.get<any>('sshServers') || {};
+        let sshServers: SshServerConfig[] = sshCfg.servers || [];
+        // Fallback: old flat array format or old tmuxManager key
+        if (sshServers.length === 0 && Array.isArray(sshCfg)) {
+            sshServers = sshCfg;
+        }
         if (sshServers.length === 0) {
             sshServers = oldConfig.get<SshServerConfig[]>('sshServers', []);
         }
@@ -215,18 +222,20 @@ export class TmuxServiceManager implements vscode.Disposable {
 
     public getDaemonRefreshConfig(): DaemonRefreshConfig {
         const config = vscode.workspace.getConfiguration('tmuxAgents');
+        const dr = config.get<any>('daemonRefresh') || {};
         return {
-            lightIntervalMs: config.get<number>('daemonRefresh.lightInterval', 10000),
-            fullIntervalMs: config.get<number>('daemonRefresh.fullInterval', 60000),
-            enabled: config.get<boolean>('daemonRefresh.enabled', true)
+            lightIntervalMs: dr.lightInterval ?? 10000,
+            fullIntervalMs: dr.fullInterval ?? 60000,
+            enabled: dr.enabled ?? true
         };
     }
 
     public getPaneCaptureConfig(): PaneCaptureConfig {
         const config = vscode.workspace.getConfiguration('tmuxAgents');
+        const pc = config.get<any>('paneCapture') || {};
         return {
-            lines: config.get<number>('paneCapture.lines', 50),
-            enabled: config.get<boolean>('paneCapture.enabled', true)
+            lines: pc.lines ?? 50,
+            enabled: pc.enabled ?? true
         };
     }
 

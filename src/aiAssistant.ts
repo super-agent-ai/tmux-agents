@@ -26,14 +26,16 @@ export class AIAssistantManager {
     }
 
     private getProviderConfig(provider: AIProvider): ProviderConfig {
-        const cfg = vscode.workspace.getConfiguration('tmuxAgents.aiProviders');
-        const key = provider as string; // 'claude' | 'gemini' | 'codex'
+        const cfg = vscode.workspace.getConfiguration('tmuxAgents');
+        const allProviders = cfg.get<Record<string, any>>('aiProviders') || {};
+        const key = provider as string;
+        const p = allProviders[key] || {};
         return {
-            command: cfg.get<string>(`${key}.command`) || key,
-            pipeCommand: cfg.get<string>(`${key}.pipeCommand`) || key,
-            args: this.normalizeArgs(cfg.get(`${key}.args`)),
-            forkArgs: this.normalizeArgs(cfg.get(`${key}.forkArgs`)),
-            env: cfg.get<Record<string, string>>(`${key}.env`) || {},
+            command: p.command || key,
+            pipeCommand: p.pipeCommand || p.command || key,
+            args: this.normalizeArgs(p.args),
+            forkArgs: this.normalizeArgs(p.forkArgs),
+            env: (p.env as Record<string, string>) || {},
         };
     }
 
@@ -173,9 +175,16 @@ export class AIAssistantManager {
     /**
      * Get spawn-friendly config for cp.spawn: { command, args, env }.
      */
-    getSpawnConfig(provider: AIProvider): { command: string; args: string[]; env: Record<string, string> } {
+    getSpawnConfig(provider: AIProvider): { command: string; args: string[]; env: Record<string, string>; cwd?: string } {
+        const cfg = vscode.workspace.getConfiguration('tmuxAgents');
+        const allProviders = cfg.get<Record<string, any>>('aiProviders') || {};
+        const key = provider as string;
+        const p = allProviders[key] || {};
         const config = this.getProviderConfig(provider);
-        return { command: config.pipeCommand, args: ['--print', '-'], env: config.env };
+        const cwd = p.defaultWorkingDirectory
+            || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+            || undefined;
+        return { command: config.pipeCommand, args: ['--print', '-'], env: config.env, cwd };
     }
 
     /**

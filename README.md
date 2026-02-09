@@ -49,19 +49,25 @@ tmux-agents turns VS Code into a control plane for concurrent AI coding agents. 
 - Fork existing AI sessions
 - AI-powered session renaming based on pane content
 - Activity rollup with priority coloring
+- Configurable interactive and pipe commands per provider
 
 ### Multi-server
 - Monitor local + remote servers simultaneously
 - SSH config support (custom keys, ports, config files)
 - Per-server session tree with connection testing
+- Dynamic SSH server discovery via external script (daemon polling)
 
 ### Kanban board
 - Drag-and-drop task management with 5 columns: Backlog, TODO, In Progress, In Review, Done
 - **Swim lanes** map to tmux sessions with custom working directories
-- **AI Generate**: describe a task in plain English, auto-generate structured task details
+- **AI Generate**: describe a task in plain English, auto-generate structured task details (with blocking overlay and cancel)
 - **Context instructions** per swim lane injected into every task prompt
-- Subtask splitting and parent-child relationships
+- **Rich task prompts**: task ID, title, description, role, priority, and project context sent to AI agents
+- Subtask splitting, merging, and parent-child relationships (Task Boxes)
+- Bundle execution: launch multiple tasks in parallel across separate tmux windows
 - Attach to running task windows directly from the board
+- Restart tasks with full prompt context
+- Import existing tmux sessions as tasks with AI-powered summaries
 
 ### Auto mode (per task)
 - **Auto-start**: task launches automatically when moved to TODO
@@ -93,7 +99,7 @@ tmux-agents turns VS Code into a control plane for concurrent AI coding agents. 
 
 Or install from `.vsix`:
 ```sh
-code --install-extension tmux-agents-2.0.0.vsix
+code --install-extension tmux-agents-0.1.0.vsix
 ```
 
 ### First steps
@@ -130,6 +136,9 @@ In VS Code Settings (`tmuxAgents.*`):
 | Setting | Default | Description |
 |---|---|---|
 | `sshServers` | `[]` | Remote SSH servers to monitor |
+| `sshServersScript` | `""` | Path to script that outputs SSH server JSON array |
+| `sshServersScript.interval` | `300` | Re-run interval for the script (seconds, min 10) |
+| `sshServersScript.timeout` | `10` | Max wait for the script (seconds, 1-60) |
 | `showLocalSessions` | `true` | Show local tmux sessions |
 | `daemonRefresh.enabled` | `true` | Background auto-refresh |
 | `daemonRefresh.lightInterval` | `10000` | Light refresh interval (ms) |
@@ -146,16 +155,20 @@ Each provider (claude, gemini, codex) can be fully customized:
 
 | Setting | Default | Description |
 |---|---|---|
-| `aiProviders.<provider>.command` | `claude` / `gemini` / `codex` | CLI binary or path |
+| `aiProviders.<provider>.command` | `claude` / `gemini` / `codex` | CLI binary for interactive tmux sessions |
+| `aiProviders.<provider>.pipeCommand` | `claude` / `gemini` / `codex` | CLI binary for pipe mode (AI Generate, summaries) |
 | `aiProviders.<provider>.args` | `""` | Extra arguments for launch |
 | `aiProviders.<provider>.forkArgs` | `"--continue"` (claude) | Arguments for fork/continue |
 | `aiProviders.<provider>.env` | `{}` | Environment variables as key-value pairs |
 
-Example — custom Claude with API key and model flag:
+The `command` setting is used for interactive sessions in tmux windows. The `pipeCommand` setting is used for pipe mode operations (AI Generate, task summaries) where input is piped via stdin. This allows using different binaries or wrappers for each mode.
+
+Example — Claude with custom binary and model flag:
 
 ```json
 {
-  "tmuxAgents.aiProviders.claude.command": "/usr/local/bin/claude",
+  "tmuxAgents.aiProviders.claude.command": "claude",
+  "tmuxAgents.aiProviders.claude.pipeCommand": "claude",
   "tmuxAgents.aiProviders.claude.args": ["--model", "opus", "--verbose"],
   "tmuxAgents.aiProviders.claude.env": {
     "ANTHROPIC_API_KEY": "sk-ant-..."
@@ -174,9 +187,11 @@ Example — Codex with custom binary and sandbox mode:
 
 Args accept both a string (`"--model opus"`) or an array (`["--model", "opus"]`).
 
-The resulting tmux command will be: `ANTHROPIC_API_KEY=sk-ant-... /usr/local/bin/claude --model opus --verbose`
+The resulting tmux command will be: `ANTHROPIC_API_KEY=sk-ant-... claude --model opus --verbose`
 
-### SSH server example
+### SSH server configuration
+
+Static servers in settings:
 
 ```json
 {
@@ -191,17 +206,39 @@ The resulting tmux command will be: `ANTHROPIC_API_KEY=sk-ant-... /usr/local/bin
 }
 ```
 
+Dynamic servers via script (daemon polling, non-blocking):
+
+```json
+{
+  "tmuxAgents.sshServersScript": "~/.config/tmux-agents/servers.sh",
+  "tmuxAgents.sshServersScript.interval": 300,
+  "tmuxAgents.sshServersScript.timeout": 10
+}
+```
+
+The script must output a JSON array to stdout:
+
+```json
+[
+  { "label": "Dev Box", "host": "dev.example.com", "user": "deploy" },
+  { "label": "Staging", "host": "staging.example.com" }
+]
+```
+
+Servers from the script are merged with static `sshServers`. The script runs as a background daemon and only triggers a refresh when results change.
+
 ## Architecture
 
 ```
 extension.ts          Main entry, command registration, webview handlers
 tmuxService.ts        Tmux command execution (local + SSH)
-serviceManager.ts     Multi-server service registry
-aiAssistant.ts        AI provider detection and status parsing
+serviceManager.ts     Multi-server service registry + SSH script daemon
+aiAssistant.ts        AI provider detection, status parsing, spawn config
 orchestrator.ts       Agent registry, task queue, dispatch loop
 teamManager.ts        Agent team CRUD
 taskRouter.ts         Role-based task routing
 pipelineEngine.ts     Multi-stage pipeline execution
+promptBuilder.ts      Shared prompt building for rich task context
 database.ts           SQLite persistence (sql.js/WASM)
 kanbanView.ts         Kanban board webview
 dashboardView.ts      Agent dashboard webview
@@ -210,6 +247,8 @@ chatView.ts           AI chat sidebar webview
 apiCatalog.ts         50+ actions exposed to AI chat
 agentTemplate.ts      Agent template management
 types.ts              All shared interfaces and enums
+commands/
+  kanbanHandlers.ts   Kanban board message handlers
 ```
 
 ## Building from source
@@ -218,9 +257,29 @@ types.ts              All shared interfaces and enums
 git clone https://github.com/super-agent-ai/tmux-agents.git
 cd tmux-agents
 npm install
-npx vsce package
+make install
+```
+
+Or manually:
+
+```sh
+npm run compile
+npx @vscode/vsce package --no-dependencies
 code --install-extension tmux-agents-*.vsix
 ```
+
+### Makefile targets
+
+| Target | Description |
+|---|---|
+| `make compile` | Compile TypeScript |
+| `make test` | Run tests |
+| `make install` | Compile, package, and install the extension |
+| `make clean` | Remove build artifacts |
+
+## Logging
+
+Extension logs are available in VS Code's Output panel under **Tmux Agents**. Open it via `View > Output` and select "Tmux Agents" from the dropdown.
 
 ## License
 

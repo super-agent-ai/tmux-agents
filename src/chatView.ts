@@ -6,6 +6,8 @@ import * as util from 'util';
 import { TmuxServiceManager } from './serviceManager';
 import { gatherFullExtensionContext, formatFullContextForPrompt, ContextGatheringDeps } from './tmuxContextProvider';
 import { ApiCatalog, ParsedAIResponse } from './apiCatalog';
+import { AIAssistantManager } from './aiAssistant';
+import { AIProvider } from './types';
 
 const execAsync = util.promisify(cp.exec);
 const readFile = util.promisify(fs.readFile);
@@ -13,9 +15,9 @@ const fsStat = util.promisify(fs.stat);
 const readdir = util.promisify(fs.readdir);
 
 /** Run a command with stdin piped in (avoids shell escaping issues) */
-function spawnWithStdin(command: string, args: string[], input: string, timeoutMs: number = 60000, onSpawn?: (proc: cp.ChildProcess) => void): Promise<string> {
+function spawnWithStdin(command: string, args: string[], input: string, timeoutMs: number = 60000, onSpawn?: (proc: cp.ChildProcess) => void, cwd?: string): Promise<string> {
     return new Promise((resolve, reject) => {
-        const proc = cp.spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+        const proc = cp.spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'], cwd });
         if (onSpawn) { onSpawn(proc); }
         let stdout = '';
         let stderr = '';
@@ -121,7 +123,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         private readonly serviceManager: TmuxServiceManager,
         private readonly extensionUri: vscode.Uri,
         private readonly apiCatalog: ApiCatalog,
-        private readonly contextDeps: ContextGatheringDeps
+        private readonly contextDeps: ContextGatheringDeps,
+        private readonly aiManager?: AIAssistantManager
     ) {}
 
     public setRefreshCallback(cb: () => void): void {
@@ -645,7 +648,9 @@ except sr.RequestError as e:
                 const prompt = this.buildPrompt(stateText, currentTurn, isFirstStep ? fileContext : '');
 
                 this.postMessage({ type: 'setLoading', loading: true, step: step > 1 ? step : undefined });
-                const stdout = await spawnWithStdin('claude', ['--print', '--model', this.selectedModel, '-'], prompt, 120000, (proc) => { this.currentProc = proc; });
+                const spawnCfg = this.aiManager?.getSpawnConfig(AIProvider.CLAUDE) || { command: 'claude', args: ['--print', '-'], env: {}, cwd: undefined };
+                const chatArgs = [...spawnCfg.args.filter(a => a !== '-'), '--model', this.selectedModel, '-'];
+                const stdout = await spawnWithStdin(spawnCfg.command, chatArgs, prompt, 120000, (proc) => { this.currentProc = proc; }, spawnCfg.cwd);
                 this.currentProc = null;
                 if (this.abortRequested) { break; }
                 const response = stdout.trim();

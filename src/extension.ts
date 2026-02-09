@@ -125,7 +125,8 @@ export function activate(context: vscode.ExtensionContext) {
 
     const chatViewProvider = new ChatViewProvider(
         serviceManager, context.extensionUri, apiCatalog,
-        { orchestrator, teamManager, pipelineEngine, templateManager }
+        { orchestrator, teamManager, pipelineEngine, templateManager },
+        aiManager
     );
     chatViewProvider.setRefreshCallback(() => tmuxSessionProvider.refresh());
     vscode.window.registerWebviewViewProvider('tmux-agents-chat', chatViewProvider);
@@ -170,8 +171,9 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Start orchestrator polling (5s interval)
     const orchestratorConfig = vscode.workspace.getConfiguration('tmuxAgents');
-    const pollingInterval = orchestratorConfig.get<number>('orchestrator.pollingInterval', 5000);
-    if (orchestratorConfig.get<boolean>('orchestrator.enabled', true)) {
+    const orchCfg = orchestratorConfig.get<any>('orchestrator') || {};
+    const pollingInterval = orchCfg.pollingInterval ?? 5000;
+    if (orchCfg.enabled ?? true) {
         orchestrator.startPolling(serviceManager, pollingInterval);
     }
 
