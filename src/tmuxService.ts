@@ -36,6 +36,24 @@ export class TmuxService {
         return this.server;
     }
 
+    private buildSshArgs(sshConfig: NonNullable<ServerIdentity['sshConfig']>): string[] {
+        const args: string[] = [];
+        if (sshConfig.configFile) {
+            const expandedConfig = sshConfig.configFile.replace(/^~/, os.homedir());
+            args.push('-F', `"${expandedConfig}"`);
+        }
+        if (sshConfig.identityFile) {
+            const expandedPath = sshConfig.identityFile.replace(/^~/, os.homedir());
+            args.push('-i', `"${expandedPath}"`);
+        }
+        if (sshConfig.port && sshConfig.port !== 22) {
+            args.push('-p', String(sshConfig.port));
+        }
+        const userHost = sshConfig.user ? `${sshConfig.user}@${sshConfig.host}` : sshConfig.host;
+        args.push(userHost);
+        return args;
+    }
+
     /**
      * Build a command string, wrapping with SSH for remote servers.
      * Used for non-interactive exec() calls.
@@ -45,28 +63,11 @@ export class TmuxService {
             return tmuxCommand;
         }
 
-        const ssh = this.server.sshConfig!;
         const parts: string[] = ['ssh'];
-
-        if (ssh.configFile) {
-            const expandedConfig = ssh.configFile.replace(/^~/, os.homedir());
-            parts.push('-F', `"${expandedConfig}"`);
-        }
-
         parts.push('-o', 'ConnectTimeout=5');
         parts.push('-o', 'StrictHostKeyChecking=accept-new');
         parts.push('-o', 'BatchMode=yes');
-
-        if (ssh.identityFile) {
-            const expandedPath = ssh.identityFile.replace(/^~/, os.homedir());
-            parts.push('-i', `"${expandedPath}"`);
-        }
-        if (ssh.port && ssh.port !== 22) {
-            parts.push('-p', String(ssh.port));
-        }
-
-        const userHost = ssh.user ? `${ssh.user}@${ssh.host}` : ssh.host;
-        parts.push(userHost);
+        parts.push(...this.buildSshArgs(this.server.sshConfig!));
         // Wrap in login shell so ~/.bash_profile / ~/.zprofile are sourced,
         // ensuring PATH includes directories like /opt/homebrew/bin
         const escaped = tmuxCommand.replace(/"/g, '\\"');
@@ -84,24 +85,8 @@ export class TmuxService {
             return null;
         }
 
-        const ssh = this.server.sshConfig!;
         const parts: string[] = ['ssh', '-t'];
-
-        if (ssh.configFile) {
-            const expandedConfig = ssh.configFile.replace(/^~/, os.homedir());
-            parts.push('-F', `"${expandedConfig}"`);
-        }
-
-        if (ssh.identityFile) {
-            const expandedPath = ssh.identityFile.replace(/^~/, os.homedir());
-            parts.push('-i', `"${expandedPath}"`);
-        }
-        if (ssh.port && ssh.port !== 22) {
-            parts.push('-p', String(ssh.port));
-        }
-
-        const userHost = ssh.user ? `${ssh.user}@${ssh.host}` : ssh.host;
-        parts.push(userHost);
+        parts.push(...this.buildSshArgs(this.server.sshConfig!));
 
         return parts.join(' ');
     }
@@ -111,24 +96,8 @@ export class TmuxService {
             return tmuxCommand;
         }
 
-        const ssh = this.server.sshConfig!;
         const parts: string[] = ['ssh', '-t'];
-
-        if (ssh.configFile) {
-            const expandedConfig = ssh.configFile.replace(/^~/, os.homedir());
-            parts.push('-F', `"${expandedConfig}"`);
-        }
-
-        if (ssh.identityFile) {
-            const expandedPath = ssh.identityFile.replace(/^~/, os.homedir());
-            parts.push('-i', `"${expandedPath}"`);
-        }
-        if (ssh.port && ssh.port !== 22) {
-            parts.push('-p', String(ssh.port));
-        }
-
-        const userHost = ssh.user ? `${ssh.user}@${ssh.host}` : ssh.host;
-        parts.push(userHost);
+        parts.push(...this.buildSshArgs(this.server.sshConfig!));
         // Wrap in login shell so PATH is fully set up on the remote
         const escaped = tmuxCommand.replace(/"/g, '\\"');
         parts.push(`'bash -lc "${escaped}"'`);

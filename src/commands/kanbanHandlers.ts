@@ -1,0 +1,882 @@
+import * as vscode from 'vscode';
+import * as cp from 'child_process';
+import { TmuxServiceManager } from '../serviceManager';
+import { TmuxSessionProvider } from '../treeProvider';
+import { SmartAttachmentService } from '../smartAttachment';
+import { AIAssistantManager } from '../aiAssistant';
+import { AgentOrchestrator } from '../orchestrator';
+import { TeamManager } from '../teamManager';
+import { KanbanViewProvider } from '../kanbanView';
+import { Database } from '../database';
+import { AIProvider, OrchestratorTask, TaskStatus, KanbanSwimLane } from '../types';
+
+export interface KanbanHandlerContext {
+    serviceManager: TmuxServiceManager;
+    tmuxSessionProvider: TmuxSessionProvider;
+    smartAttachment: SmartAttachmentService;
+    aiManager: AIAssistantManager;
+    orchestrator: AgentOrchestrator;
+    teamManager: TeamManager;
+    kanbanView: KanbanViewProvider;
+    database: Database;
+    swimLanes: KanbanSwimLane[];
+    updateKanban: () => void;
+    updateDashboard: () => Promise<void>;
+    ensureLaneSession: (lane: KanbanSwimLane) => Promise<boolean>;
+    startTaskFlow: (task: OrchestratorTask, options?: { additionalInstructions?: string; askForContext?: boolean }) => Promise<void>;
+    buildTaskWindowName: (task: OrchestratorTask) => string;
+}
+
+export async function handleKanbanMessage(
+    action: string,
+    payload: any,
+    ctx: KanbanHandlerContext
+): Promise<void> {
+    switch (action) {
+        case 'browseDir': {
+            const browseServerId = payload.serverId || 'local';
+            const browseService = ctx.serviceManager.getService(browseServerId);
+            const startPath = payload.currentPath || '~/';
+
+            if (!browseService || browseService.serverIdentity.isLocal) {
+                const uris = await vscode.window.showOpenDialog({
+                    canSelectMany: false,
+                    canSelectFiles: false,
+                    canSelectFolders: true,
+                    openLabel: 'Select Directory',
+                });
+                if (uris && uris.length > 0) {
+                    ctx.kanbanView.sendMessage({ type: 'browseDirResult', target: payload.target, path: uris[0].fsPath });
+                }
+            } else {
+                let currentPath = startPath;
+                while (true) {
+                    let dirs: string[];
+                    try {
+                        const raw = await browseService.execCommand(
+                            `cd ${currentPath.replace(/"/g, '\\"')} 2>/dev/null && pwd && find . -maxdepth 1 -type d ! -name . -printf '%f\\n' 2>/dev/null | sort || ls -1p | grep '/$' | sed 's/\\/$//'`
+                        );
+                        const lines = raw.trim().split('\n').filter(l => l.length > 0);
+                        currentPath = lines[0] || currentPath;
+                        dirs = lines.slice(1).filter(d => !d.startsWith('.'));
+                    } catch {
+                        vscode.window.showWarningMessage(`Cannot list directories on ${browseService.serverLabel}: ${currentPath}`);
+                        break;
+                    }
+
+                    const items: vscode.QuickPickItem[] = [
+                        { label: '$(check) Select this directory', description: currentPath },
+                        { label: '$(arrow-up) ..', description: 'Parent directory' },
+                        ...dirs.map(d => ({ label: '$(folder) ' + d, description: '' }))
+                    ];
+
+                    const pick = await vscode.window.showQuickPick(items, {
+                        title: `Browse: ${browseService.serverLabel}`,
+                        placeHolder: currentPath,
+                    });
+
+                    if (!pick) { break; }
+
+                    if (pick.label.startsWith('$(check)')) {
+                        ctx.kanbanView.sendMessage({ type: 'browseDirResult', target: payload.target, path: currentPath });
+                        break;
+                    } else if (pick.label.startsWith('$(arrow-up)')) {
+                        currentPath = currentPath.replace(/\/[^/]+\/?$/, '') || '/';
+                    } else {
+                        const dirName = pick.label.replace('$(folder) ', '');
+                        currentPath = currentPath.replace(/\/$/, '') + '/' + dirName;
+                    }
+                }
+            }
+            break;
+        }
+        case 'createSwimLane': {
+            const laneId = 'lane-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+            const sessionName = 'kanban-' + (payload.name || 'lane').toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 30);
+            const lane: KanbanSwimLane = {
+                id: laneId,
+                name: payload.name,
+                serverId: payload.serverId,
+                workingDirectory: payload.workingDirectory || '~/',
+                sessionName,
+                createdAt: Date.now(),
+                sessionActive: false,
+                contextInstructions: payload.contextInstructions || undefined
+            };
+            ctx.swimLanes.push(lane);
+            ctx.database.saveSwimLane(lane);
+            ctx.updateKanban();
+            break;
+        }
+        case 'deleteSwimLane': {
+            const laneIndex = ctx.swimLanes.findIndex(l => l.id === payload.swimLaneId);
+            if (laneIndex !== -1) {
+                const lane = ctx.swimLanes[laneIndex];
+                const service = ctx.serviceManager.getService(lane.serverId);
+                if (service) {
+                    try {
+                        await service.deleteSession(lane.sessionName);
+                    } catch {
+                        // Session might already be gone
+                    }
+                }
+                ctx.swimLanes.splice(laneIndex, 1);
+                ctx.database.deleteSwimLane(lane.id);
+                ctx.tmuxSessionProvider.refresh();
+            }
+            ctx.updateKanban();
+            break;
+        }
+        case 'killLaneSession': {
+            const lane = ctx.swimLanes.find(l => l.id === payload.swimLaneId);
+            if (lane && lane.sessionActive) {
+                const service = ctx.serviceManager.getService(lane.serverId);
+                if (service) {
+                    try {
+                        await service.deleteSession(lane.sessionName);
+                    } catch {
+                        // Session might already be gone
+                    }
+                }
+                lane.sessionActive = false;
+                ctx.database.saveSwimLane(lane);
+                ctx.tmuxSessionProvider.refresh();
+            }
+            ctx.updateKanban();
+            break;
+        }
+        case 'createTask': {
+            const task: OrchestratorTask = {
+                id: 'task-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+                description: payload.description,
+                targetRole: payload.targetRole || undefined,
+                status: TaskStatus.PENDING,
+                priority: payload.priority || 5,
+                kanbanColumn: payload.kanbanColumn || 'todo',
+                swimLaneId: payload.swimLaneId || undefined,
+                createdAt: Date.now()
+            };
+            if (payload.autoStart) { task.autoStart = true; }
+            if (payload.autoPilot) { task.autoPilot = true; }
+            if (payload.autoClose) { task.autoClose = true; }
+            ctx.orchestrator.submitTask(task);
+            ctx.database.saveTask(task);
+            if (task.autoStart && task.kanbanColumn === 'todo' && task.swimLaneId) {
+                await ctx.startTaskFlow(task);
+            }
+            ctx.updateKanban();
+            break;
+        }
+        case 'moveTask': {
+            const t = ctx.orchestrator.getTask(payload.taskId);
+            if (t) {
+                t.kanbanColumn = payload.kanbanColumn;
+                if (payload.kanbanColumn === 'done') {
+                    t.status = TaskStatus.COMPLETED;
+                    t.completedAt = Date.now();
+                }
+                if (payload.kanbanColumn === 'in_progress' && t.swimLaneId) {
+                    const lane = ctx.swimLanes.find(l => l.id === t.swimLaneId);
+                    if (lane) {
+                        const ready = await ctx.ensureLaneSession(lane);
+                        if (ready) {
+                            const service = ctx.serviceManager.getService(lane.serverId);
+                            if (service) {
+                                try {
+                                    const windowName = ctx.buildTaskWindowName(t);
+                                    await service.newWindow(lane.sessionName, windowName);
+                                    t.status = TaskStatus.IN_PROGRESS;
+                                    t.startedAt = Date.now();
+                                    ctx.tmuxSessionProvider.refresh();
+                                } catch (error) {
+                                    console.warn('Failed to create window for task:', error);
+                                }
+                            }
+                        }
+                    }
+                }
+                if (t) { ctx.database.saveTask(t); }
+                if (t && t.autoStart && payload.kanbanColumn === 'todo' && t.swimLaneId) {
+                    await ctx.startTaskFlow(t);
+                }
+            }
+            ctx.updateKanban();
+            break;
+        }
+        case 'editTask': {
+            const t = ctx.orchestrator.getTask(payload.taskId);
+            if (t && payload.updates) {
+                if (payload.updates.description !== undefined) t.description = payload.updates.description;
+                if (payload.updates.input !== undefined) t.input = payload.updates.input;
+                if (payload.updates.targetRole !== undefined) t.targetRole = payload.updates.targetRole;
+                if (payload.updates.priority !== undefined) t.priority = payload.updates.priority;
+                if (payload.updates.autoStart !== undefined) t.autoStart = !!payload.updates.autoStart;
+                if (payload.updates.autoPilot !== undefined) t.autoPilot = !!payload.updates.autoPilot;
+                if (payload.updates.autoClose !== undefined) t.autoClose = !!payload.updates.autoClose;
+            }
+            if (t) { ctx.database.saveTask(t); }
+            ctx.updateKanban();
+            break;
+        }
+        case 'toggleAutoMode': {
+            const t = ctx.orchestrator.getTask(payload.taskId);
+            if (t) {
+                t.autoStart = !!payload.autoStart;
+                t.autoPilot = !!payload.autoPilot;
+                t.autoClose = !!payload.autoClose;
+                ctx.database.saveTask(t);
+                if (t.autoStart && t.kanbanColumn === 'todo' && t.swimLaneId) {
+                    await ctx.startTaskFlow(t);
+                }
+            }
+            ctx.updateKanban();
+            break;
+        }
+        case 'startTask': {
+            const t = ctx.orchestrator.getTask(payload.taskId);
+            if (!t) break;
+            await ctx.startTaskFlow(t, {
+                additionalInstructions: payload.additionalInstructions,
+                askForContext: payload.askForContext
+            });
+            break;
+        }
+        case 'attachTask': {
+            const t = ctx.orchestrator.getTask(payload.taskId);
+            if (!t || !t.tmuxSessionName || !t.tmuxServerId) {
+                vscode.window.showWarningMessage('No tmux window info for this task');
+                break;
+            }
+            const service = ctx.serviceManager.getService(t.tmuxServerId);
+            if (!service) {
+                vscode.window.showErrorMessage(`Server "${t.tmuxServerId}" not found`);
+                break;
+            }
+            const terminal = await ctx.smartAttachment.attachToSession(service, t.tmuxSessionName, {
+                windowIndex: t.tmuxWindowIndex,
+                paneIndex: t.tmuxPaneIndex
+            });
+            terminal.show();
+            break;
+        }
+        case 'closeTaskWindow': {
+            const t = ctx.orchestrator.getTask(payload.taskId);
+            if (!t || !t.tmuxSessionName || !t.tmuxWindowIndex || !t.tmuxServerId) break;
+            const svc = ctx.serviceManager.getService(t.tmuxServerId);
+            if (!svc) break;
+            try {
+                await svc.killWindow(t.tmuxSessionName, t.tmuxWindowIndex);
+                t.tmuxSessionName = undefined;
+                t.tmuxWindowIndex = undefined;
+                t.tmuxPaneIndex = undefined;
+                t.tmuxServerId = undefined;
+                ctx.database.saveTask(t);
+                ctx.tmuxSessionProvider.refresh();
+                ctx.updateKanban();
+            } catch (err) {
+                vscode.window.showWarningMessage(`Failed to close window: ${err}`);
+            }
+            break;
+        }
+        case 'restartTask': {
+            const t = ctx.orchestrator.getTask(payload.taskId);
+            if (!t) break;
+            const lane = t.swimLaneId ? ctx.swimLanes.find(l => l.id === t.swimLaneId) : undefined;
+            if (!lane) {
+                vscode.window.showWarningMessage('Task has no swim lane — cannot restart');
+                break;
+            }
+
+            const ready = await ctx.ensureLaneSession(lane);
+            if (!ready) break;
+
+            const service = ctx.serviceManager.getService(lane.serverId);
+            if (!service) break;
+
+            try {
+                if (t.tmuxSessionName && t.tmuxWindowIndex) {
+                    try {
+                        await service.killWindow(t.tmuxSessionName, t.tmuxWindowIndex);
+                    } catch {
+                        // Window may already be gone
+                    }
+                }
+
+                const windowName = ctx.buildTaskWindowName(t);
+                await service.newWindow(lane.sessionName, windowName);
+
+                const sessions = await service.getTmuxTreeFresh();
+                const session = sessions.find(s => s.name === lane.sessionName);
+                const win = session?.windows.find(w => w.name === windowName);
+                const winIndex = win?.index || '0';
+                const paneIndex = win?.panes[0]?.index || '0';
+
+                if (lane.workingDirectory) {
+                    await service.sendKeys(lane.sessionName, winIndex, paneIndex, `cd ${lane.workingDirectory}`);
+                }
+
+                let prompt = '';
+                if (t.subtaskIds && t.subtaskIds.length > 0) {
+                    const subtasks = t.subtaskIds.map(id => ctx.orchestrator.getTask(id)).filter((s): s is OrchestratorTask => !!s);
+                    prompt = `Implement the following ${subtasks.length} tasks together:\n`;
+                    for (let i = 0; i < subtasks.length; i++) {
+                        const sub = subtasks[i];
+                        prompt += `\n--- Task ${i + 1} ---\nTask ID: ${sub.id}\nDescription: ${sub.description}`;
+                        if (sub.input) { prompt += `\nDetails: ${sub.input}`; }
+                        if (sub.targetRole) { prompt += `\nRole: ${sub.targetRole}`; }
+                    }
+                    prompt += `\n\nAll tasks should be completed together in this session. Coordinate the work across all tasks.`;
+                    for (const sub of subtasks) {
+                        sub.kanbanColumn = 'in_progress';
+                        sub.status = TaskStatus.IN_PROGRESS;
+                        sub.startedAt = Date.now();
+                        sub.tmuxSessionName = lane.sessionName;
+                        sub.tmuxWindowIndex = winIndex;
+                        sub.tmuxPaneIndex = paneIndex;
+                        sub.tmuxServerId = lane.serverId;
+                        ctx.database.saveTask(sub);
+                    }
+                } else {
+                    prompt = `Implement the following task:\n\nTask ID: ${t.id}\nDescription: ${t.description}`;
+                    if (t.input) { prompt += `\nDetails: ${t.input}`; }
+                    if (t.targetRole) { prompt += `\nRole: ${t.targetRole}`; }
+                }
+                if (lane.contextInstructions) { prompt += `\n\nContext / Instructions:\n${lane.contextInstructions}`; }
+
+                prompt += `\n\nStart implementing immediately without asking for confirmation.`;
+
+                if (t.autoClose) {
+                    const signalId = t.id.slice(-8);
+                    prompt += `\n\nIMPORTANT: When you have completed ALL the work for this task, output a brief summary of what you did followed by the completion signal, exactly in this format:\n<promise-summary>${signalId}\nYour summary of what was accomplished (2-5 sentences)\n</promise-summary>\n<promise>${signalId}-DONE</promise>\nThese signals will be detected automatically. Only output them when you are fully done.`;
+                }
+
+                const launchCmd = ctx.aiManager.getLaunchCommand(AIProvider.CLAUDE);
+                await service.sendKeys(lane.sessionName, winIndex, paneIndex, launchCmd);
+
+                setTimeout(async () => {
+                    try {
+                        const escaped = prompt.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+                        await service.sendKeys(lane.sessionName, winIndex, paneIndex, '');
+                        await service.sendKeys(lane.sessionName, winIndex, paneIndex, escaped);
+                        await service.sendKeys(lane.sessionName, winIndex, paneIndex, '');
+                    } catch (err) {
+                        console.warn('Failed to send prompt to Claude:', err);
+                    }
+                }, 3000);
+
+                t.tmuxSessionName = lane.sessionName;
+                t.tmuxWindowIndex = winIndex;
+                t.tmuxPaneIndex = paneIndex;
+                t.tmuxServerId = lane.serverId;
+                t.kanbanColumn = 'in_progress';
+                t.status = TaskStatus.IN_PROGRESS;
+                t.startedAt = Date.now();
+                ctx.database.saveTask(t);
+                ctx.tmuxSessionProvider.refresh();
+            } catch (error) {
+                vscode.window.showErrorMessage(`Failed to restart task: ${error}`);
+            }
+            ctx.updateKanban();
+            await ctx.updateDashboard();
+            break;
+        }
+        case 'startBundle': {
+            const taskIds: string[] = payload.taskIds || [];
+            const bundleTasks = taskIds.map(id => ctx.orchestrator.getTask(id)).filter((t): t is OrchestratorTask => !!t);
+            if (bundleTasks.length === 0) break;
+
+            const firstTask = bundleTasks[0];
+            const lane = firstTask.swimLaneId ? ctx.swimLanes.find(l => l.id === firstTask.swimLaneId) : undefined;
+
+            if (lane) {
+                const ready = await ctx.ensureLaneSession(lane);
+                if (!ready) break;
+
+                const service = ctx.serviceManager.getService(lane.serverId);
+                if (!service) break;
+
+                for (const t of bundleTasks) {
+                    try {
+                        const windowName = ctx.buildTaskWindowName(t);
+                        await service.newWindow(lane.sessionName, windowName);
+
+                        const sessions = await service.getTmuxTreeFresh();
+                        const session = sessions.find(s => s.name === lane.sessionName);
+                        const win = session?.windows.find(w => w.name === windowName);
+                        const winIndex = win?.index || '0';
+                        const paneIndex = win?.panes[0]?.index || '0';
+
+                        if (lane.workingDirectory) {
+                            await service.sendKeys(lane.sessionName, winIndex, paneIndex, `cd ${lane.workingDirectory}`);
+                        }
+
+                        let prompt = `Implement the following task:\n\nTask ID: ${t.id}\nDescription: ${t.description}`;
+                        if (t.input) { prompt += `\nDetails: ${t.input}`; }
+                        if (t.targetRole) { prompt += `\nRole: ${t.targetRole}`; }
+
+                        const otherTasks = bundleTasks.filter(bt => bt.id !== t.id);
+                        if (otherTasks.length > 0) {
+                            prompt += `\n\nThis task is part of a bundle with ${otherTasks.length} other tasks:`;
+                            for (const ot of otherTasks) {
+                                prompt += `\n- ${ot.id.slice(0, 8)}: ${ot.description}`;
+                            }
+                            prompt += `\nCoordinate with the other tasks if relevant.`;
+                        }
+
+                        if (lane.contextInstructions) { prompt += `\n\nContext / Instructions:\n${lane.contextInstructions}`; }
+
+                        if (payload.additionalInstructions) {
+                            prompt += `\n\nAdditional instructions: ${payload.additionalInstructions}`;
+                        }
+                        if (payload.askForContext) {
+                            prompt += `\n\nBefore starting, ask the user if they have any additional context.`;
+                        } else {
+                            prompt += `\n\nStart implementing immediately.`;
+                        }
+
+                        if (t.autoClose) {
+                            const signalId = t.id.slice(-8);
+                            prompt += `\n\nIMPORTANT: When you have completed ALL the work for this task, output a brief summary of what you did followed by the completion signal, exactly in this format:\n<promise-summary>${signalId}\nYour summary of what was accomplished (2-5 sentences)\n</promise-summary>\n<promise>${signalId}-DONE</promise>\nThese signals will be detected automatically. Only output them when you are fully done.`;
+                        }
+
+                        const launchCmd = ctx.aiManager.getLaunchCommand(AIProvider.CLAUDE);
+                        await service.sendKeys(lane.sessionName, winIndex, paneIndex, launchCmd);
+
+                        const capturedPrompt = prompt;
+                        const capturedSession = lane.sessionName;
+                        const capturedWin = winIndex;
+                        const capturedPane = paneIndex;
+                        setTimeout(async () => {
+                            try {
+                                const escaped = capturedPrompt.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+                                await service.sendKeys(capturedSession, capturedWin, capturedPane, '');
+                                await service.sendKeys(capturedSession, capturedWin, capturedPane, escaped);
+                                await service.sendKeys(capturedSession, capturedWin, capturedPane, '');
+                            } catch (err) {
+                                console.warn('Failed to send bundle prompt:', err);
+                            }
+                        }, 3000);
+
+                        t.tmuxSessionName = lane.sessionName;
+                        t.tmuxWindowIndex = winIndex;
+                        t.tmuxPaneIndex = paneIndex;
+                        t.tmuxServerId = lane.serverId;
+
+                        t.kanbanColumn = 'in_progress';
+                        t.status = TaskStatus.IN_PROGRESS;
+                        t.startedAt = Date.now();
+                        ctx.database.saveTask(t);
+                    } catch (error) {
+                        console.warn(`Failed to start bundle task ${t.id}:`, error);
+                    }
+                }
+
+                if (bundleTasks.length > 1) {
+                    const team = ctx.teamManager.createTeam(`Bundle ${new Date().toLocaleTimeString()}`);
+                    vscode.window.showInformationMessage(`Started bundle of ${bundleTasks.length} tasks in lane "${lane.name}"`);
+                }
+
+                const parentIds = new Set<string>();
+                for (const t of bundleTasks) {
+                    if (t.parentTaskId) { parentIds.add(t.parentTaskId); }
+                }
+                for (const pid of parentIds) {
+                    const parent = ctx.orchestrator.getTask(pid);
+                    if (parent) {
+                        parent.verificationStatus = 'pending';
+                        parent.kanbanColumn = 'in_progress';
+                        parent.status = TaskStatus.IN_PROGRESS;
+                        parent.startedAt = Date.now();
+                    }
+                }
+
+                ctx.tmuxSessionProvider.refresh();
+            } else {
+                for (const t of bundleTasks) {
+                    t.kanbanColumn = 'in_progress';
+                    t.status = TaskStatus.IN_PROGRESS;
+                    t.startedAt = Date.now();
+                    ctx.database.saveTask(t);
+                }
+            }
+            ctx.updateKanban();
+            await ctx.updateDashboard();
+            break;
+        }
+        case 'mergeTasks': {
+            const task1 = ctx.orchestrator.getTask(payload.taskId1);
+            const task2 = ctx.orchestrator.getTask(payload.taskId2);
+            if (!task1 || !task2) break;
+
+            const parentTask: OrchestratorTask = {
+                id: 'task-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+                description: `${task1.description} + ${task2.description}`,
+                targetRole: task1.targetRole || task2.targetRole,
+                status: TaskStatus.PENDING,
+                priority: Math.max(task1.priority, task2.priority),
+                kanbanColumn: task1.kanbanColumn || task2.kanbanColumn || 'todo',
+                swimLaneId: task1.swimLaneId || task2.swimLaneId,
+                subtaskIds: [task1.id, task2.id],
+                verificationStatus: 'none',
+                createdAt: Date.now()
+            };
+
+            task1.parentTaskId = parentTask.id;
+            task2.parentTaskId = parentTask.id;
+
+            ctx.orchestrator.submitTask(parentTask);
+            ctx.database.saveTask(parentTask);
+            ctx.database.saveTask(task1);
+            ctx.database.saveTask(task2);
+            ctx.updateKanban();
+            vscode.window.showInformationMessage(`Merged into parent task with 2 subtasks`);
+            break;
+        }
+        case 'mergeSelectedTasks': {
+            const taskIds: string[] = payload.taskIds || [];
+            const mergeTasks = taskIds.map(id => ctx.orchestrator.getTask(id)).filter((t): t is OrchestratorTask => !!t);
+            if (mergeTasks.length < 2) break;
+
+            const descriptions = mergeTasks.map(t => t.description).join(' + ');
+            const maxPri = Math.max(...mergeTasks.map(t => t.priority));
+            const parentTask: OrchestratorTask = {
+                id: 'task-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+                description: descriptions.length > 80 ? descriptions.slice(0, 77) + '...' : descriptions,
+                targetRole: mergeTasks[0].targetRole,
+                status: TaskStatus.PENDING,
+                priority: maxPri,
+                kanbanColumn: mergeTasks[0].kanbanColumn || 'todo',
+                swimLaneId: mergeTasks[0].swimLaneId,
+                subtaskIds: mergeTasks.map(t => t.id),
+                verificationStatus: 'none',
+                createdAt: Date.now()
+            };
+
+            for (const t of mergeTasks) {
+                t.parentTaskId = parentTask.id;
+                ctx.database.saveTask(t);
+            }
+
+            ctx.orchestrator.submitTask(parentTask);
+            ctx.database.saveTask(parentTask);
+            ctx.updateKanban();
+            vscode.window.showInformationMessage(`Merged ${mergeTasks.length} tasks into a Task Box`);
+            break;
+        }
+        case 'addSubtask': {
+            const parentTask = ctx.orchestrator.getTask(payload.parentTaskId);
+            const childTask = ctx.orchestrator.getTask(payload.childTaskId);
+            if (!parentTask || !childTask) break;
+            if (!parentTask.subtaskIds) { parentTask.subtaskIds = []; }
+
+            if (childTask.subtaskIds && childTask.subtaskIds.length > 0) {
+                for (const subId of childTask.subtaskIds) {
+                    const sub = ctx.orchestrator.getTask(subId);
+                    if (sub) {
+                        sub.parentTaskId = parentTask.id;
+                        if (!parentTask.subtaskIds.includes(subId)) {
+                            parentTask.subtaskIds.push(subId);
+                        }
+                    }
+                }
+                ctx.orchestrator.cancelTask(childTask.id);
+            } else {
+                childTask.parentTaskId = parentTask.id;
+                if (!parentTask.subtaskIds.includes(childTask.id)) {
+                    parentTask.subtaskIds.push(childTask.id);
+                }
+            }
+
+            let maxPri = parentTask.priority;
+            for (const sid of parentTask.subtaskIds) {
+                const s = ctx.orchestrator.getTask(sid);
+                if (s && s.priority > maxPri) { maxPri = s.priority; }
+            }
+            parentTask.priority = maxPri;
+
+            ctx.database.saveTask(parentTask);
+            if (childTask) { ctx.database.saveTask(childTask); }
+            ctx.updateKanban();
+            vscode.window.showInformationMessage(`Added subtask (${parentTask.subtaskIds.length} total)`);
+            break;
+        }
+        case 'splitTaskBox': {
+            const parentTask = ctx.orchestrator.getTask(payload.taskId);
+            if (!parentTask || !parentTask.subtaskIds || parentTask.subtaskIds.length === 0) break;
+
+            const col = parentTask.kanbanColumn || 'todo';
+            const laneId = parentTask.swimLaneId;
+            for (const subId of parentTask.subtaskIds) {
+                const sub = ctx.orchestrator.getTask(subId);
+                if (!sub) continue;
+                const newTask: OrchestratorTask = {
+                    id: `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                    description: sub.description,
+                    status: TaskStatus.PENDING,
+                    priority: sub.priority,
+                    createdAt: Date.now(),
+                    targetRole: sub.targetRole,
+                    input: sub.input,
+                    kanbanColumn: col === 'in_progress' ? 'todo' : col,
+                    swimLaneId: laneId,
+                };
+                ctx.orchestrator.submitTask(newTask);
+                ctx.database.saveTask(newTask);
+                ctx.orchestrator.cancelTask(subId);
+                ctx.database.deleteTask(subId);
+            }
+
+            ctx.orchestrator.cancelTask(parentTask.id);
+            ctx.database.deleteTask(parentTask.id);
+            ctx.updateKanban();
+            vscode.window.showInformationMessage(`Split task box into ${parentTask.subtaskIds.length} individual tasks`);
+            break;
+        }
+        case 'editSwimLane': {
+            const lane = ctx.swimLanes.find(l => l.id === payload.swimLaneId);
+            if (!lane) break;
+            const oldSessionName = lane.sessionName;
+            if (payload.name) lane.name = payload.name;
+            if (payload.workingDirectory) lane.workingDirectory = payload.workingDirectory;
+            lane.contextInstructions = payload.contextInstructions || undefined;
+            if (payload.sessionName && payload.sessionName !== oldSessionName) {
+                if (lane.sessionActive) {
+                    const svc = ctx.serviceManager.getService(lane.serverId);
+                    if (svc) {
+                        try {
+                            await svc.renameSession(oldSessionName, payload.sessionName);
+                            ctx.tmuxSessionProvider.refresh();
+                        } catch (err) {
+                            vscode.window.showWarningMessage(`Failed to rename session: ${err}`);
+                        }
+                    }
+                }
+                lane.sessionName = payload.sessionName;
+            }
+            ctx.database.saveSwimLane(lane);
+            ctx.updateKanban();
+            break;
+        }
+        case 'deleteTask':
+            ctx.orchestrator.cancelTask(payload.taskId);
+            ctx.database.deleteTask(payload.taskId);
+            ctx.updateKanban();
+            break;
+        case 'summarizeTask': {
+            const t = ctx.orchestrator.getTask(payload.taskId);
+            if (!t || !t.tmuxSessionName || !t.tmuxWindowIndex || !t.tmuxPaneIndex || !t.tmuxServerId) {
+                ctx.kanbanView.sendMessage({ type: 'summarizeResult', taskId: payload.taskId, error: 'No live session' });
+                break;
+            }
+            const svc = ctx.serviceManager.getService(t.tmuxServerId);
+            if (!svc) {
+                ctx.kanbanView.sendMessage({ type: 'summarizeResult', taskId: payload.taskId, error: 'Server not found' });
+                break;
+            }
+            try {
+                const content = await svc.capturePaneContent(t.tmuxSessionName, t.tmuxWindowIndex, t.tmuxPaneIndex, 50);
+                const summary = await new Promise<string>((resolve) => {
+                    const prompt = `Summarize what was accomplished in this terminal session in 3-5 sentences. Focus on what was done, key changes made, and the outcome.\n\n${content.slice(-3000)}`;
+                    const proc = cp.spawn('claude', ['--print', '-'], { stdio: ['pipe', 'pipe', 'pipe'] });
+                    let stdout = '';
+                    const timer = setTimeout(() => { proc.kill(); resolve(''); }, 20000);
+                    proc.stdout!.on('data', (d: Buffer) => { stdout += d.toString(); });
+                    proc.on('close', (code) => { clearTimeout(timer); resolve(code === 0 ? stdout.trim() : ''); });
+                    proc.on('error', () => { clearTimeout(timer); resolve(''); });
+                    proc.stdin!.write(prompt);
+                    proc.stdin!.end();
+                });
+                if (summary) {
+                    const separator = t.input ? '\n\n---\n' : '';
+                    t.input = (t.input || '') + separator + '**Output Summary:**\n' + summary;
+                    t.output = summary;
+                    ctx.database.saveTask(t);
+                    ctx.updateKanban();
+                }
+                ctx.kanbanView.sendMessage({ type: 'summarizeResult', taskId: payload.taskId, success: !!summary });
+            } catch (err) {
+                ctx.kanbanView.sendMessage({ type: 'summarizeResult', taskId: payload.taskId, error: String(err) });
+            }
+            break;
+        }
+        case 'aiExpandTask': {
+            const text = payload.text || '';
+            if (!text) break;
+            try {
+                const result = await new Promise<string>((resolve, reject) => {
+                    const prompt = `You are a task planner for a software development team. Given a rough description, generate a detailed task specification.
+
+Respond ONLY with valid JSON (no markdown, no code fences), in this exact format:
+{"title": "Short task title (under 60 chars)", "description": "Detailed description with context, acceptance criteria, and implementation notes. Be specific and actionable.", "role": "coder"}
+
+The "role" field should be one of: coder, reviewer, tester, devops, researcher, or empty string if unclear.
+
+User's input: ${text}`;
+                    const proc = cp.spawn('claude', ['--print', '-'], { stdio: ['pipe', 'pipe', 'pipe'] });
+                    let stdout = '';
+                    const timer = setTimeout(() => { proc.kill(); resolve(''); }, 20000);
+                    proc.stdout!.on('data', (d: Buffer) => { stdout += d.toString(); });
+                    proc.on('close', (code) => { clearTimeout(timer); resolve(code === 0 ? stdout.trim() : ''); });
+                    proc.on('error', () => { clearTimeout(timer); resolve(''); });
+                    proc.stdin!.write(prompt);
+                    proc.stdin!.end();
+                });
+                if (result) {
+                    let json = result;
+                    const fenceMatch = result.match(/```(?:json)?\s*([\s\S]*?)```/);
+                    if (fenceMatch) { json = fenceMatch[1].trim(); }
+                    try {
+                        const parsed = JSON.parse(json);
+                        ctx.kanbanView.sendMessage({
+                            type: 'aiExpandResult',
+                            title: parsed.title || '',
+                            description: parsed.description || '',
+                            role: parsed.role || ''
+                        });
+                    } catch {
+                        ctx.kanbanView.sendMessage({
+                            type: 'aiExpandResult',
+                            title: payload.currentTitle || '',
+                            description: result,
+                            role: ''
+                        });
+                    }
+                } else {
+                    ctx.kanbanView.sendMessage({ type: 'aiExpandResult' });
+                }
+            } catch {
+                ctx.kanbanView.sendMessage({ type: 'aiExpandResult' });
+            }
+            break;
+        }
+        case 'scanTmuxSessions': {
+            const scanResults: any[] = [];
+            const allServices = ctx.serviceManager.getAllServices();
+            const allTasks = ctx.orchestrator.getTaskQueue();
+
+            for (const svc of allServices) {
+                try {
+                    const sessions = await svc.getTmuxTreeFresh();
+                    for (const session of sessions) {
+                        const matchingLane = ctx.swimLanes.find(l => l.sessionName === session.name);
+
+                        const paneContents: string[] = [];
+                        let primaryDir = '';
+                        for (const win of session.windows) {
+                            if (win.panes.length > 0) {
+                                const pane = win.panes[0];
+                                if (!primaryDir && pane.currentPath) { primaryDir = pane.currentPath; }
+                                try {
+                                    const content = await svc.capturePaneContent(session.name, win.index, pane.index, 20);
+                                    if (content.trim()) {
+                                        paneContents.push(`[Window "${win.name}"] ${pane.command || 'shell'}\n${content.trim()}`);
+                                    }
+                                } catch { /* pane may be dead */ }
+                            }
+                        }
+
+                        let summary = '';
+                        if (paneContents.length > 0) {
+                            const combinedContent = paneContents.join('\n---\n').slice(0, 3000);
+                            try {
+                                summary = await new Promise<string>((resolve, reject) => {
+                                    const prompt = `Summarize what is happening in this tmux session in 2-3 short lines. Focus on: what project/task, what tools/commands are running, current status.\n\n${combinedContent}`;
+                                    const proc = cp.spawn('claude', ['--print', '-'], { stdio: ['pipe', 'pipe', 'pipe'] });
+                                    let stdout = '';
+                                    const timer = setTimeout(() => { proc.kill(); resolve(''); }, 15000);
+                                    proc.stdout!.on('data', (d: Buffer) => { stdout += d.toString(); });
+                                    proc.on('close', (code) => { clearTimeout(timer); resolve(code === 0 ? stdout.trim() : ''); });
+                                    proc.on('error', () => { clearTimeout(timer); resolve(''); });
+                                    proc.stdin!.write(prompt);
+                                    proc.stdin!.end();
+                                });
+                            } catch { /* summarization failed, not critical */ }
+                        }
+
+                        scanResults.push({
+                            serverId: svc.serverId,
+                            serverLabel: svc.serverLabel,
+                            sessionName: session.name,
+                            windowCount: session.windows.length,
+                            workingDir: primaryDir,
+                            summary: summary || paneContents.map(p => p.split('\n')[0]).join('; ').slice(0, 200),
+                            existingLaneId: matchingLane?.id || null,
+                            windows: session.windows.map(w => ({
+                                name: w.name,
+                                index: w.index,
+                                command: w.panes[0]?.command || 'shell',
+                                currentPath: w.panes[0]?.currentPath || '',
+                                paneCount: w.panes.length,
+                                alreadyImported: allTasks.some(t => t.tmuxSessionName === session.name && t.tmuxWindowIndex === String(w.index))
+                            }))
+                        });
+                    }
+                } catch (err) {
+                    console.warn(`Failed to scan server ${svc.serverId}:`, err);
+                }
+            }
+
+            ctx.kanbanView.sendMessage({ type: 'tmuxScanResult', sessions: scanResults });
+            break;
+        }
+        case 'importTmuxSessions': {
+            const sessionsToImport: any[] = payload.sessions || [];
+            let importedWindows = 0;
+
+            for (const s of sessionsToImport) {
+                const windowsToImport = (s.selectedWindows || s.windows || []).filter(
+                    (w: any) => !w.alreadyImported
+                );
+                if (windowsToImport.length === 0) continue;
+
+                let laneId = s.existingLaneId || null;
+                if (laneId && ctx.swimLanes.some(l => l.id === laneId)) {
+                    // Lane already exists, reuse it
+                } else {
+                    laneId = 'lane-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+                    const lane: KanbanSwimLane = {
+                        id: laneId,
+                        name: s.sessionName,
+                        serverId: s.serverId,
+                        workingDirectory: s.workingDir || '~/',
+                        sessionName: s.sessionName,
+                        createdAt: Date.now(),
+                        sessionActive: true
+                    };
+                    ctx.swimLanes.push(lane);
+                    ctx.database.saveSwimLane(lane);
+                }
+
+                for (const win of windowsToImport) {
+                    const taskId = `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+                    const task: OrchestratorTask = {
+                        id: taskId,
+                        description: win.name || `Window ${win.index}`,
+                        status: TaskStatus.IN_PROGRESS,
+                        priority: 5,
+                        createdAt: Date.now(),
+                        startedAt: Date.now(),
+                        kanbanColumn: 'in_progress',
+                        swimLaneId: laneId,
+                        input: win.command !== 'shell' ? `Running: ${win.command}` : (win.currentPath ? `Working in: ${win.currentPath}` : undefined),
+                        tmuxSessionName: s.sessionName,
+                        tmuxWindowIndex: win.index,
+                        tmuxPaneIndex: '0',
+                        tmuxServerId: s.serverId,
+                    };
+                    ctx.orchestrator.submitTask(task);
+                    ctx.database.saveTask(task);
+                    importedWindows++;
+                }
+            }
+
+            ctx.updateKanban();
+            ctx.tmuxSessionProvider.refresh();
+            vscode.window.showInformationMessage(`Imported ${importedWindows} window(s) as tasks`);
+            break;
+        }
+        case 'refresh':
+            ctx.updateKanban();
+            break;
+    }
+}

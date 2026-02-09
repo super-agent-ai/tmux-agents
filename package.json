@@ -131,25 +131,43 @@
         },
         "tmuxAgents.aiProviders.claude.args": {
           "oneOf": [
-            { "type": "string" },
-            { "type": "array", "items": { "type": "string" } }
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
           ],
           "default": [],
           "description": "Additional arguments for Claude. String or array of strings (e.g., [\"--model\", \"opus\", \"--verbose\"])"
         },
         "tmuxAgents.aiProviders.claude.forkArgs": {
           "oneOf": [
-            { "type": "string" },
-            { "type": "array", "items": { "type": "string" } }
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
           ],
-          "default": ["--continue"],
+          "default": [
+            "--continue"
+          ],
           "description": "Arguments for forking/continuing a Claude session. String or array."
         },
         "tmuxAgents.aiProviders.claude.env": {
           "type": "object",
           "default": {},
           "description": "Environment variables set before launching Claude (e.g., {\"ANTHROPIC_API_KEY\": \"sk-...\"})",
-          "additionalProperties": { "type": "string" }
+          "additionalProperties": {
+            "type": "string"
+          }
         },
         "tmuxAgents.aiProviders.gemini.command": {
           "type": "string",
@@ -158,16 +176,30 @@
         },
         "tmuxAgents.aiProviders.gemini.args": {
           "oneOf": [
-            { "type": "string" },
-            { "type": "array", "items": { "type": "string" } }
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
           ],
           "default": [],
           "description": "Additional arguments for Gemini. String or array of strings."
         },
         "tmuxAgents.aiProviders.gemini.forkArgs": {
           "oneOf": [
-            { "type": "string" },
-            { "type": "array", "items": { "type": "string" } }
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
           ],
           "default": [],
           "description": "Arguments for forking/continuing a Gemini session. String or array."
@@ -176,7 +208,9 @@
           "type": "object",
           "default": {},
           "description": "Environment variables set before launching Gemini",
-          "additionalProperties": { "type": "string" }
+          "additionalProperties": {
+            "type": "string"
+          }
         },
         "tmuxAgents.aiProviders.codex.command": {
           "type": "string",
@@ -185,16 +219,30 @@
         },
         "tmuxAgents.aiProviders.codex.args": {
           "oneOf": [
-            { "type": "string" },
-            { "type": "array", "items": { "type": "string" } }
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
           ],
           "default": [],
           "description": "Additional arguments for Codex. String or array of strings."
         },
         "tmuxAgents.aiProviders.codex.forkArgs": {
           "oneOf": [
-            { "type": "string" },
-            { "type": "array", "items": { "type": "string" } }
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
           ],
           "default": [],
           "description": "Arguments for forking/continuing a Codex session. String or array."
@@ -203,7 +251,9 @@
           "type": "object",
           "default": {},
           "description": "Environment variables set before launching Codex",
-          "additionalProperties": { "type": "string" }
+          "additionalProperties": {
+            "type": "string"
+          }
         }
       }
     },
@@ -821,13 +871,17 @@
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./ && cp node_modules/sql.js/dist/sql-wasm.wasm out/ && cp node_modules/sql.js/dist/sql-wasm.js out/",
-    "watch": "tsc -watch -p ./"
+    "watch": "tsc -watch -p ./",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
     "@types/node": "^24.0.14",
     "@types/sql.js": "^1.4.9",
     "@types/vscode": "^1.85.0",
-    "typescript": "^5.8.3"
+    "@vitest/coverage-v8": "^4.0.18",
+    "typescript": "^5.8.3",
+    "vitest": "^4.0.18"
   },
   "dependencies": {
     "sql.js": "^1.13.0"

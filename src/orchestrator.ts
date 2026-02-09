@@ -3,11 +3,31 @@ import {
     AgentInstance,
     AgentRole,
     AgentState,
+    AIProvider,
+    AIStatus,
     OrchestratorTask,
     TaskStatus,
 } from './types';
 import { TmuxServiceManager } from './serviceManager';
 import { AIAssistantManager } from './aiAssistant';
+
+function evaluateAgentState(
+    currentState: AgentState,
+    aiProvider: AIProvider,
+    paneContent: string,
+    aiAssistant: AIAssistantManager
+): AgentState {
+    const aiStatus = aiAssistant.detectAIStatus(aiProvider, paneContent);
+    switch (aiStatus) {
+        case AIStatus.WORKING:
+            return AgentState.WORKING;
+        case AIStatus.WAITING:
+        case AIStatus.IDLE:
+            return AgentState.IDLE;
+        default:
+            return currentState;
+    }
+}
 
 export class AgentOrchestrator implements vscode.Disposable {
     private agents: Map<string, AgentInstance> = new Map();
@@ -202,24 +222,7 @@ export class AgentOrchestrator implements vscode.Disposable {
                     50
                 );
 
-                // Use the AIAssistantManager pattern to detect status from pane content
-                const aiStatus = this.aiAssistantManager.detectAIStatus(agent.aiProvider, content);
-
-                let newState: AgentState;
-                switch (aiStatus) {
-                    case 'working':
-                        newState = AgentState.WORKING;
-                        break;
-                    case 'waiting':
-                        newState = AgentState.IDLE;
-                        break;
-                    case 'idle':
-                        newState = AgentState.IDLE;
-                        break;
-                    default:
-                        newState = agent.state;
-                        break;
-                }
+                const newState = evaluateAgentState(agent.state, agent.aiProvider, content, this.aiAssistantManager);
 
                 if (newState !== agent.state) {
                     this.updateAgentState(agent.id, newState);
