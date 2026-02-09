@@ -8,6 +8,7 @@ const exec = util.promisify(cp.exec);
 
 interface ProviderConfig {
     command: string;
+    pipeCommand: string;
     args: string[];
     forkArgs: string[];
     env: Record<string, string>;
@@ -29,6 +30,7 @@ export class AIAssistantManager {
         const key = provider as string; // 'claude' | 'gemini' | 'codex'
         return {
             command: cfg.get<string>(`${key}.command`) || key,
+            pipeCommand: cfg.get<string>(`${key}.pipeCommand`) || key,
             args: this.normalizeArgs(cfg.get(`${key}.args`)),
             forkArgs: this.normalizeArgs(cfg.get(`${key}.forkArgs`)),
             env: cfg.get<Record<string, string>>(`${key}.env`) || {},
@@ -53,7 +55,7 @@ export class AIAssistantManager {
         }
 
         // Fallback known aliases
-        if (base === 'claude' || base === 'claude-code' || base === 'ddclaude') {
+        if (base === 'claude' || base === 'claude-code') {
             return AIProvider.CLAUDE;
         }
         if (base === 'gemini') {
@@ -166,6 +168,14 @@ export class AIAssistantManager {
         const envPrefix = this.buildEnvPrefix(config.env);
         const parts = [envPrefix + config.command, ...config.forkArgs];
         return parts.join(' ');
+    }
+
+    /**
+     * Get spawn-friendly config for cp.spawn: { command, args, env }.
+     */
+    getSpawnConfig(provider: AIProvider): { command: string; args: string[]; env: Record<string, string> } {
+        const config = this.getProviderConfig(provider);
+        return { command: config.pipeCommand, args: ['--print', '-'], env: config.env };
     }
 
     /**

@@ -424,7 +424,30 @@ html, body {
     border: 1.5px solid rgba(78,201,176,0.3); border-top-color: #4ec9b0;
     border-radius: 50%; animation: spin 0.8s linear infinite;
 }
-
+.ai-gen-overlay {
+    display: none; position: absolute; inset: 0; z-index: 100;
+    background: rgba(0,0,0,0.55); backdrop-filter: blur(2px);
+    flex-direction: column; align-items: center; justify-content: center;
+    border-radius: 6px; gap: 12px;
+}
+.ai-gen-overlay.active { display: flex; }
+.ai-gen-overlay .spinner-lg {
+    width: 28px; height: 28px;
+    border: 2.5px solid rgba(78,201,176,0.25); border-top-color: #4ec9b0;
+    border-radius: 50%; animation: spin 0.8s linear infinite;
+}
+.ai-gen-overlay .label { color: #4ec9b0; font-size: 12px; }
+.ai-gen-overlay .cancel-btn {
+    padding: 4px 14px; border: 1px solid rgba(255,255,255,0.25);
+    border-radius: 3px; font-size: 11px; font-family: inherit; cursor: pointer;
+    background: rgba(255,255,255,0.08); color: var(--vscode-foreground);
+    margin-top: 4px;
+}
+.ai-gen-overlay .cancel-btn:hover { background: rgba(255,255,255,0.15); }
+.ai-gen-overlay .error-msg {
+    color: #f44747; font-size: 11px; max-width: 80%; text-align: center;
+    word-break: break-word; padding: 0 8px;
+}
 
 /* Attach / Close icons in card top row are handled by card-action-btn styles */
 
@@ -709,7 +732,13 @@ html, body {
 
 <!-- Task Modal -->
 <div class="modal-overlay" id="task-modal-overlay">
-    <div class="modal">
+    <div class="modal" style="position:relative;">
+        <div class="ai-gen-overlay" id="ai-gen-overlay">
+            <div class="spinner-lg"></div>
+            <div class="label">Generating with AI...</div>
+            <div class="error-msg" id="ai-gen-error" style="display:none;"></div>
+            <button class="cancel-btn" id="ai-gen-cancel">Cancel</button>
+        </div>
         <div class="modal-title" id="tm-title">New Task</div>
         <div class="field" id="tm-ai-field">
             <label>AI Generate</label>
@@ -932,6 +961,10 @@ html, body {
     var tmAiInput = document.getElementById('tm-ai-input');
     var tmAiField = document.getElementById('tm-ai-field');
     var tmaAiGen = document.getElementById('tma-ai-gen');
+    var aiGenOverlay = document.getElementById('ai-gen-overlay');
+    var aiGenError = document.getElementById('ai-gen-error');
+    var aiGenCancel = document.getElementById('ai-gen-cancel');
+    var aiGenAborted = false;
 
     /* ── Helpers ─────────────────────────────────────────────────────────── */
 
@@ -1576,10 +1609,15 @@ html, body {
         editingTaskId = task ? task.id : null;
         tmTitle.textContent = task ? 'Edit Task' : 'New Task';
         tmSubmit.textContent = task ? 'Save' : 'Create';
-        // Reset AI generate field
+        // Reset AI generate field and overlay
         tmAiInput.value = '';
         tmaAiGen.disabled = false;
         tmaAiGen.innerHTML = '&#x2728; Generate';
+        hideAiOverlay();
+        var ovSpn = aiGenOverlay.querySelector('.spinner-lg');
+        if (ovSpn) ovSpn.style.display = '';
+        var ovLbl = aiGenOverlay.querySelector('.label');
+        if (ovLbl) ovLbl.textContent = 'Generating with AI...';
         tmDesc.value = task ? (task.description || '') : '';
         tmInput.value = task ? (task.input || '') : '';
         tmRole.value = task ? (task.targetRole || '') : '';
@@ -1738,19 +1776,37 @@ html, body {
     });
 
     /* ── AI Generate ───────────────────────────────────────────────────── */
+    function showAiOverlay() {
+        aiGenAborted = false;
+        aiGenError.style.display = 'none';
+        aiGenError.textContent = '';
+        aiGenOverlay.classList.add('active');
+    }
+    function hideAiOverlay() {
+        aiGenOverlay.classList.remove('active');
+    }
+
     tmaAiGen.addEventListener('click', function() {
         var text = tmAiInput.value.trim();
         if (!text) return;
 
         tmaAiGen.disabled = true;
         tmaAiGen.innerHTML = '<span class="spinner-sm"></span> Generating...';
+        showAiOverlay();
 
         vscode.postMessage({
             type: 'aiExpandTask',
             text: text,
-            currentTitle: '',
-            currentInput: ''
+            currentTitle: tmDesc.value.trim(),
+            currentInput: tmInput.value.trim()
         });
+    });
+
+    aiGenCancel.addEventListener('click', function() {
+        aiGenAborted = true;
+        hideAiOverlay();
+        tmaAiGen.disabled = false;
+        tmaAiGen.innerHTML = '&#x2728; Generate';
     });
 
     /* ── Keyboard shortcuts ──────────────────────────────────────────────── */
@@ -1950,6 +2006,19 @@ html, body {
         if (msg.type === 'aiExpandResult') {
             tmaAiGen.disabled = false;
             tmaAiGen.innerHTML = '&#x2728; Generate';
+            if (aiGenAborted) return; // user cancelled, ignore result
+            if (msg.error) {
+                // Show error in overlay instead of hiding it
+                aiGenError.textContent = msg.error;
+                aiGenError.style.display = 'block';
+                // Change overlay label
+                var lbl = aiGenOverlay.querySelector('.label');
+                if (lbl) lbl.textContent = 'Generation failed';
+                var spn = aiGenOverlay.querySelector('.spinner-lg');
+                if (spn) spn.style.display = 'none';
+                return;
+            }
+            hideAiOverlay();
             if (msg.title) tmDesc.value = msg.title;
             if (msg.description) tmInput.value = msg.description;
             if (msg.role) tmRole.value = msg.role;

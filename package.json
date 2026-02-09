@@ -69,6 +69,24 @@
             "additionalProperties": false
           }
         },
+        "tmuxAgents.sshServersScript": {
+          "type": "string",
+          "default": "",
+          "description": "Path to a script that outputs SSH server JSON array. The script stdout must be a valid JSON array of objects with at least { label, host }. Merged with tmuxAgents.sshServers. Example: '~/.config/tmux-agents/servers.sh'"
+        },
+        "tmuxAgents.sshServersScript.interval": {
+          "type": "number",
+          "default": 300,
+          "minimum": 10,
+          "description": "How often (in seconds) to re-run the sshServersScript. Default: 300 (5 minutes). Minimum: 10."
+        },
+        "tmuxAgents.sshServersScript.timeout": {
+          "type": "number",
+          "default": 10,
+          "minimum": 1,
+          "maximum": 60,
+          "description": "Maximum time (in seconds) to wait for the script to complete. Default: 10."
+        },
         "tmuxAgents.showLocalSessions": {
           "type": "boolean",
           "default": true,
@@ -127,7 +145,7 @@
         "tmuxAgents.aiProviders.claude.command": {
           "type": "string",
           "default": "claude",
-          "description": "CLI command to launch Claude (e.g., 'claude', 'ddclaude', '/usr/local/bin/claude')"
+          "description": "CLI command to launch Claude (e.g., 'claude', '/usr/local/bin/claude')"
         },
         "tmuxAgents.aiProviders.claude.args": {
           "oneOf": [
@@ -160,6 +178,11 @@
             "--continue"
           ],
           "description": "Arguments for forking/continuing a Claude session. String or array."
+        },
+        "tmuxAgents.aiProviders.claude.pipeCommand": {
+          "type": "string",
+          "default": "claude",
+          "description": "CLI command for non-interactive pipe mode (AI Generate, summarize). Defaults to 'claude'. This is separate from 'command' which is used for interactive tmux sessions."
         },
         "tmuxAgents.aiProviders.claude.env": {
           "type": "object",

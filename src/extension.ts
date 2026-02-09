@@ -21,6 +21,7 @@ import { handleKanbanMessage } from './commands/kanbanHandlers';
 import { registerSessionCommands } from './commands/sessionCommands';
 import { registerAgentCommands } from './commands/agentCommands';
 import { checkAutoCompletions, checkAutoPilot } from './autoMonitor';
+import { buildSingleTaskPrompt, buildTaskBoxPrompt, appendPromptTail } from './promptBuilder';
 
 function getServiceForItem(
     serviceManager: TmuxServiceManager,
@@ -59,7 +60,24 @@ function buildTaskWindowName(task: OrchestratorTask): string {
     return name.slice(0, 60);
 }
 
+// ── Global Output Channel ────────────────────────────────────────────────────
+const outputChannel = vscode.window.createOutputChannel('Tmux Agents');
+
+function log(msg: string): void {
+    const ts = new Date().toISOString().slice(11, 23);
+    outputChannel.appendLine(`[${ts}] ${msg}`);
+}
+
+// Redirect console.log/warn/error to the output channel
+const _origLog = console.log;
+const _origWarn = console.warn;
+const _origError = console.error;
+console.log = (...args: any[]) => { log(args.map(String).join(' ')); _origLog(...args); };
+console.warn = (...args: any[]) => { log('[WARN] ' + args.map(String).join(' ')); _origWarn(...args); };
+console.error = (...args: any[]) => { log('[ERROR] ' + args.map(String).join(' ')); _origError(...args); };
+
 export function activate(context: vscode.ExtensionContext) {
+    log('Tmux Agents activating...');
     const serviceManager = new TmuxServiceManager();
     const tmuxSessionProvider = new TmuxSessionProvider(serviceManager, context.extensionPath);
     const smartAttachment = new SmartAttachmentService();
@@ -364,14 +382,7 @@ export function activate(context: vscode.ExtensionContext) {
                 let prompt = '';
                 if (t.subtaskIds && t.subtaskIds.length > 0) {
                     const subtasks = t.subtaskIds.map(id => orchestrator.getTask(id)).filter((s): s is OrchestratorTask => !!s);
-                    prompt = `Implement the following ${subtasks.length} tasks together:\n`;
-                    for (let i = 0; i < subtasks.length; i++) {
-                        const sub = subtasks[i];
-                        prompt += `\n--- Task ${i + 1} ---\nTask ID: ${sub.id}\nDescription: ${sub.description}`;
-                        if (sub.input) { prompt += `\nDetails: ${sub.input}`; }
-                        if (sub.targetRole) { prompt += `\nRole: ${sub.targetRole}`; }
-                    }
-                    prompt += `\n\nAll tasks should be completed together in this session. Coordinate the work across all tasks.`;
+                    prompt = buildTaskBoxPrompt(t, subtasks, lane);
                     for (const sub of subtasks) {
                         sub.kanbanColumn = 'in_progress';
                         sub.status = TaskStatus.IN_PROGRESS;
@@ -383,24 +394,15 @@ export function activate(context: vscode.ExtensionContext) {
                         database.saveTask(sub);
                     }
                 } else {
-                    prompt = `Implement the following task:\n\nTask ID: ${t.id}\nDescription: ${t.description}`;
-                    if (t.input) { prompt += `\nDetails: ${t.input}`; }
-                    if (t.targetRole) { prompt += `\nRole: ${t.targetRole}`; }
+                    prompt = buildSingleTaskPrompt(t, lane);
                 }
 
-                if (lane.contextInstructions) { prompt += `\n\nContext / Instructions:\n${lane.contextInstructions}`; }
-
-                if (options?.additionalInstructions) { prompt += `\n\nAdditional instructions: ${options.additionalInstructions}`; }
-                if (options?.askForContext) {
-                    prompt += `\n\nBefore starting, ask the user if they have any additional context or requirements for this task.`;
-                } else {
-                    prompt += `\n\nStart implementing immediately without asking for confirmation.`;
-                }
-
-                if (t.autoClose) {
-                    const signalId = t.id.slice(-8);
-                    prompt += `\n\nIMPORTANT: When you have completed ALL the work for this task, output a brief summary of what you did followed by the completion signal, exactly in this format:\n<promise-summary>${signalId}\nYour summary of what was accomplished (2-5 sentences)\n</promise-summary>\n<promise>${signalId}-DONE</promise>\nThese signals will be detected automatically. Only output them when you are fully done.`;
-                }
+                prompt = appendPromptTail(prompt, {
+                    additionalInstructions: options?.additionalInstructions,
+                    askForContext: options?.askForContext,
+                    autoClose: t.autoClose,
+                    signalId: t.autoClose ? t.id.slice(-8) : undefined,
+                });
 
                 const launchCmd = aiManager.getLaunchCommand(AIProvider.CLAUDE);
                 await service.sendKeys(lane.sessionName, winIndex, paneIndex, launchCmd);
@@ -586,6 +588,7 @@ export function activate(context: vscode.ExtensionContext) {
         // Disposables
         { dispose: () => clearInterval(autoMonitorTimer) },
         { dispose: () => database.close() },
+        outputChannel,
         serviceManager,
         tmuxSessionProvider,
         orchestrator,
@@ -595,6 +598,8 @@ export function activate(context: vscode.ExtensionContext) {
         graphView,
         kanbanView
     );
+
+    log('Tmux Agents activated successfully');
 }
 
 export function deactivate() {}

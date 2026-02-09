@@ -36,10 +36,6 @@ describe('AIAssistantManager', () => {
             expect(manager.detectAIProvider('claude-code')).toBe(AIProvider.CLAUDE);
         });
 
-        it('detects ddclaude alias', () => {
-            expect(manager.detectAIProvider('ddclaude')).toBe(AIProvider.CLAUDE);
-        });
-
         it('detects gemini command', () => {
             expect(manager.detectAIProvider('gemini')).toBe(AIProvider.GEMINI);
         });

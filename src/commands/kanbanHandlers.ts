@@ -9,6 +9,7 @@ import { TeamManager } from '../teamManager';
 import { KanbanViewProvider } from '../kanbanView';
 import { Database } from '../database';
 import { AIProvider, OrchestratorTask, TaskStatus, KanbanSwimLane } from '../types';
+import { buildSingleTaskPrompt, buildTaskBoxPrompt, buildBundleTaskPrompt, appendPromptTail } from '../promptBuilder';
 
 export interface KanbanHandlerContext {
     serviceManager: TmuxServiceManager;
@@ -318,14 +319,7 @@ export async function handleKanbanMessage(
                 let prompt = '';
                 if (t.subtaskIds && t.subtaskIds.length > 0) {
                     const subtasks = t.subtaskIds.map(id => ctx.orchestrator.getTask(id)).filter((s): s is OrchestratorTask => !!s);
-                    prompt = `Implement the following ${subtasks.length} tasks together:\n`;
-                    for (let i = 0; i < subtasks.length; i++) {
-                        const sub = subtasks[i];
-                        prompt += `\n--- Task ${i + 1} ---\nTask ID: ${sub.id}\nDescription: ${sub.description}`;
-                        if (sub.input) { prompt += `\nDetails: ${sub.input}`; }
-                        if (sub.targetRole) { prompt += `\nRole: ${sub.targetRole}`; }
-                    }
-                    prompt += `\n\nAll tasks should be completed together in this session. Coordinate the work across all tasks.`;
+                    prompt = buildTaskBoxPrompt(t, subtasks, lane);
                     for (const sub of subtasks) {
                         sub.kanbanColumn = 'in_progress';
                         sub.status = TaskStatus.IN_PROGRESS;
@@ -337,18 +331,13 @@ export async function handleKanbanMessage(
                         ctx.database.saveTask(sub);
                     }
                 } else {
-                    prompt = `Implement the following task:\n\nTask ID: ${t.id}\nDescription: ${t.description}`;
-                    if (t.input) { prompt += `\nDetails: ${t.input}`; }
-                    if (t.targetRole) { prompt += `\nRole: ${t.targetRole}`; }
+                    prompt = buildSingleTaskPrompt(t, lane);
                 }
-                if (lane.contextInstructions) { prompt += `\n\nContext / Instructions:\n${lane.contextInstructions}`; }
 
-                prompt += `\n\nStart implementing immediately without asking for confirmation.`;
-
-                if (t.autoClose) {
-                    const signalId = t.id.slice(-8);
-                    prompt += `\n\nIMPORTANT: When you have completed ALL the work for this task, output a brief summary of what you did followed by the completion signal, exactly in this format:\n<promise-summary>${signalId}\nYour summary of what was accomplished (2-5 sentences)\n</promise-summary>\n<promise>${signalId}-DONE</promise>\nThese signals will be detected automatically. Only output them when you are fully done.`;
-                }
+                prompt = appendPromptTail(prompt, {
+                    autoClose: t.autoClose,
+                    signalId: t.autoClose ? t.id.slice(-8) : undefined,
+                });
 
                 const launchCmd = ctx.aiManager.getLaunchCommand(AIProvider.CLAUDE);
                 await service.sendKeys(lane.sessionName, winIndex, paneIndex, launchCmd);
@@ -410,34 +399,15 @@ export async function handleKanbanMessage(
                             await service.sendKeys(lane.sessionName, winIndex, paneIndex, `cd ${lane.workingDirectory}`);
                         }
 
-                        let prompt = `Implement the following task:\n\nTask ID: ${t.id}\nDescription: ${t.description}`;
-                        if (t.input) { prompt += `\nDetails: ${t.input}`; }
-                        if (t.targetRole) { prompt += `\nRole: ${t.targetRole}`; }
-
                         const otherTasks = bundleTasks.filter(bt => bt.id !== t.id);
-                        if (otherTasks.length > 0) {
-                            prompt += `\n\nThis task is part of a bundle with ${otherTasks.length} other tasks:`;
-                            for (const ot of otherTasks) {
-                                prompt += `\n- ${ot.id.slice(0, 8)}: ${ot.description}`;
-                            }
-                            prompt += `\nCoordinate with the other tasks if relevant.`;
-                        }
+                        let prompt = buildBundleTaskPrompt(t, otherTasks, lane);
 
-                        if (lane.contextInstructions) { prompt += `\n\nContext / Instructions:\n${lane.contextInstructions}`; }
-
-                        if (payload.additionalInstructions) {
-                            prompt += `\n\nAdditional instructions: ${payload.additionalInstructions}`;
-                        }
-                        if (payload.askForContext) {
-                            prompt += `\n\nBefore starting, ask the user if they have any additional context.`;
-                        } else {
-                            prompt += `\n\nStart implementing immediately.`;
-                        }
-
-                        if (t.autoClose) {
-                            const signalId = t.id.slice(-8);
-                            prompt += `\n\nIMPORTANT: When you have completed ALL the work for this task, output a brief summary of what you did followed by the completion signal, exactly in this format:\n<promise-summary>${signalId}\nYour summary of what was accomplished (2-5 sentences)\n</promise-summary>\n<promise>${signalId}-DONE</promise>\nThese signals will be detected automatically. Only output them when you are fully done.`;
-                        }
+                        prompt = appendPromptTail(prompt, {
+                            additionalInstructions: payload.additionalInstructions,
+                            askForContext: payload.askForContext,
+                            autoClose: t.autoClose,
+                            signalId: t.autoClose ? t.id.slice(-8) : undefined,
+                        });
 
                         const launchCmd = ctx.aiManager.getLaunchCommand(AIProvider.CLAUDE);
                         await service.sendKeys(lane.sessionName, winIndex, paneIndex, launchCmd);
@@ -677,7 +647,8 @@ export async function handleKanbanMessage(
                 const content = await svc.capturePaneContent(t.tmuxSessionName, t.tmuxWindowIndex, t.tmuxPaneIndex, 50);
                 const summary = await new Promise<string>((resolve) => {
                     const prompt = `Summarize what was accomplished in this terminal session in 3-5 sentences. Focus on what was done, key changes made, and the outcome.\n\n${content.slice(-3000)}`;
-                    const proc = cp.spawn('claude', ['--print', '-'], { stdio: ['pipe', 'pipe', 'pipe'] });
+                    const spawnCfg = ctx.aiManager.getSpawnConfig(AIProvider.CLAUDE);
+                    const proc = cp.spawn(spawnCfg.command, spawnCfg.args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...spawnCfg.env } });
                     let stdout = '';
                     const timer = setTimeout(() => { proc.kill(); resolve(''); }, 20000);
                     proc.stdout!.on('data', (d: Buffer) => { stdout += d.toString(); });
@@ -702,22 +673,47 @@ export async function handleKanbanMessage(
         case 'aiExpandTask': {
             const text = payload.text || '';
             if (!text) break;
+            const spawnCfg = ctx.aiManager.getSpawnConfig(AIProvider.CLAUDE);
+            console.log(`[aiExpandTask] Spawning: ${spawnCfg.command} ${spawnCfg.args.join(' ')}`);
             try {
-                const result = await new Promise<string>((resolve, reject) => {
-                    const prompt = `You are a task planner for a software development team. Given a rough description, generate a detailed task specification.
+                const result = await new Promise<string>((resolve) => {
+                    let prompt = `You are a task planner for a software development team. Given a rough description, generate a detailed task specification.
 
 Respond ONLY with valid JSON (no markdown, no code fences), in this exact format:
 {"title": "Short task title (under 60 chars)", "description": "Detailed description with context, acceptance criteria, and implementation notes. Be specific and actionable.", "role": "coder"}
 
-The "role" field should be one of: coder, reviewer, tester, devops, researcher, or empty string if unclear.
+The "role" field should be one of: coder, reviewer, tester, devops, researcher, or empty string if unclear.`;
 
-User's input: ${text}`;
-                    const proc = cp.spawn('claude', ['--print', '-'], { stdio: ['pipe', 'pipe', 'pipe'] });
+                    if (payload.currentTitle || payload.currentInput) {
+                        prompt += `\n\nExisting task context:`;
+                        if (payload.currentTitle) { prompt += `\nCurrent title: ${payload.currentTitle}`; }
+                        if (payload.currentInput) { prompt += `\nCurrent description: ${payload.currentInput}`; }
+                        prompt += `\n\nRefine and expand based on the user's new input below. Keep relevant existing context.`;
+                    }
+
+                    prompt += `\n\nUser's input: ${text}`;
+                    const proc = cp.spawn(spawnCfg.command, spawnCfg.args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...spawnCfg.env } });
                     let stdout = '';
-                    const timer = setTimeout(() => { proc.kill(); resolve(''); }, 20000);
+                    let stderr = '';
+                    const timer = setTimeout(() => {
+                        proc.kill();
+                        console.warn(`[aiExpandTask] Timed out after 30s`);
+                        resolve('');
+                    }, 30000);
                     proc.stdout!.on('data', (d: Buffer) => { stdout += d.toString(); });
-                    proc.on('close', (code) => { clearTimeout(timer); resolve(code === 0 ? stdout.trim() : ''); });
-                    proc.on('error', () => { clearTimeout(timer); resolve(''); });
+                    proc.stderr!.on('data', (d: Buffer) => { stderr += d.toString(); });
+                    proc.on('close', (code) => {
+                        clearTimeout(timer);
+                        if (code !== 0) {
+                            console.warn(`[aiExpandTask] Process exited with code ${code}. stderr: ${stderr.slice(0, 500)}`);
+                        }
+                        resolve(code === 0 ? stdout.trim() : '');
+                    });
+                    proc.on('error', (err) => {
+                        clearTimeout(timer);
+                        console.error(`[aiExpandTask] Spawn error: ${err.message}`);
+                        resolve('');
+                    });
                     proc.stdin!.write(prompt);
                     proc.stdin!.end();
                 });
@@ -742,10 +738,12 @@ User's input: ${text}`;
                         });
                     }
                 } else {
-                    ctx.kanbanView.sendMessage({ type: 'aiExpandResult' });
+                    console.warn('[aiExpandTask] Empty result from AI provider');
+                    ctx.kanbanView.sendMessage({ type: 'aiExpandResult', error: `AI command failed. Check Output panel "Tmux Agents" for details. Command: ${spawnCfg.command}` });
                 }
-            } catch {
-                ctx.kanbanView.sendMessage({ type: 'aiExpandResult' });
+            } catch (err) {
+                console.error(`[aiExpandTask] Unexpected error: ${err}`);
+                ctx.kanbanView.sendMessage({ type: 'aiExpandResult', error: String(err) });
             }
             break;
         }
@@ -781,7 +779,8 @@ User's input: ${text}`;
                             try {
                                 summary = await new Promise<string>((resolve, reject) => {
                                     const prompt = `Summarize what is happening in this tmux session in 2-3 short lines. Focus on: what project/task, what tools/commands are running, current status.\n\n${combinedContent}`;
-                                    const proc = cp.spawn('claude', ['--print', '-'], { stdio: ['pipe', 'pipe', 'pipe'] });
+                                    const spawnCfg = ctx.aiManager.getSpawnConfig(AIProvider.CLAUDE);
+                                    const proc = cp.spawn(spawnCfg.command, spawnCfg.args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...spawnCfg.env } });
                                     let stdout = '';
                                     const timer = setTimeout(() => { proc.kill(); resolve(''); }, 15000);
                                     proc.stdout!.on('data', (d: Buffer) => { stdout += d.toString(); });
