@@ -112,7 +112,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private webviewView?: vscode.WebviewView;
     private refreshCallback?: () => void;
     private attachedItems: AttachedItem[] = [];
-    private selectedModel: string = 'sonnet';
+    private selectedModel: string = 'opus';
     private conversationHistory: ConversationEntry[] = [];
     private currentProc: cp.ChildProcess | null = null;
     private abortRequested: boolean = false;
@@ -959,8 +959,8 @@ body {
 <div id="toolbar">
     <span id="toolbar-label">Model:</span>
     <select id="model-select" title="Select AI model for chat responses">
-        <option value="sonnet" selected>Sonnet</option>
-        <option value="opus">Opus</option>
+        <option value="sonnet">Sonnet</option>
+        <option value="opus" selected>Opus</option>
         <option value="haiku">Haiku</option>
     </select>
     <span id="toolbar-spacer"></span>
