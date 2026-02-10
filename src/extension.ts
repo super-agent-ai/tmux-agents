@@ -511,7 +511,6 @@ export function activate(context: vscode.ExtensionContext) {
     }, 15000);
 
     async function ensureLaneSession(lane: KanbanSwimLane): Promise<boolean> {
-        if (lane.sessionActive) { return true; }
         const service = serviceManager.getService(lane.serverId);
         if (!service) {
             vscode.window.showErrorMessage(`Server not found: ${lane.serverId}`);
@@ -520,6 +519,10 @@ export function activate(context: vscode.ExtensionContext) {
         try {
             const existing = await service.getSessions();
             if (!existing.includes(lane.sessionName)) {
+                // Session doesn't exist — (re)create it
+                if (lane.sessionActive) {
+                    lane.sessionActive = false;
+                }
                 await service.newSession(lane.sessionName, {
                     cwd: lane.workingDirectory || undefined,
                     windowName: '__lane_init__',
