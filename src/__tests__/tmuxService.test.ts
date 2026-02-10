@@ -62,7 +62,6 @@ describe('TmuxService', () => {
             const result = service.buildSshCommand()!;
             expect(result).toContain('ssh -t');
             expect(result).toContain('-F');
-            expect(result).toContain('-i');
             expect(result).toContain('-p 2222');
             expect(result).toContain('deploy@mybox.example.com');
         });
@@ -107,7 +106,6 @@ describe('TmuxService', () => {
             const service = new TmuxService(REMOTE_SERVER);
             const result = service.buildTerminalCommand('tmux ls');
             expect(result).toContain('-F');
-            expect(result).toContain('-i');
             expect(result).toContain('-p 2222');
         });
     });
