@@ -301,6 +301,37 @@ export async function handleKanbanMessage(
             ctx.database.saveTask(task);
             if (task.autoStart && task.kanbanColumn === 'todo' && task.swimLaneId) {
                 await ctx.startTaskFlow(task);
+            } else if (task.swimLaneId) {
+                // Auto-create session and window for the task even without autoStart
+                const lane = ctx.swimLanes.find(l => l.id === task.swimLaneId);
+                if (lane) {
+                    const ready = await ctx.ensureLaneSession(lane);
+                    if (ready) {
+                        const service = ctx.serviceManager.getService(lane.serverId);
+                        if (service) {
+                            try {
+                                const windowName = ctx.buildTaskWindowName(task);
+                                await service.newWindow(lane.sessionName, windowName);
+                                await ctx.cleanupInitWindow(lane.serverId, lane.sessionName);
+
+                                const sessions = await service.getTmuxTreeFresh();
+                                const session = sessions.find(s => s.name === lane.sessionName);
+                                const win = session?.windows.find(w => w.name === windowName);
+                                const winIndex = win?.index || '0';
+                                const paneIndex = win?.panes[0]?.index || '0';
+
+                                task.tmuxSessionName = lane.sessionName;
+                                task.tmuxWindowIndex = winIndex;
+                                task.tmuxPaneIndex = paneIndex;
+                                task.tmuxServerId = lane.serverId;
+                                ctx.database.saveTask(task);
+                                ctx.tmuxSessionProvider.refresh();
+                            } catch (error) {
+                                console.warn('Failed to create window for new task:', error);
+                            }
+                        }
+                    }
+                }
             }
             ctx.updateKanban();
             break;
@@ -382,7 +413,7 @@ export async function handleKanbanMessage(
         }
         case 'attachTask': {
             const t = ctx.orchestrator.getTask(payload.taskId);
-            if (!t || !t.tmuxSessionName || !t.tmuxServerId) {
+            if (!t || !t.tmuxServerId) {
                 vscode.window.showWarningMessage('No tmux window info for this task');
                 break;
             }
@@ -391,7 +422,66 @@ export async function handleKanbanMessage(
                 vscode.window.showErrorMessage(`Server "${t.tmuxServerId}" not found`);
                 break;
             }
-            const terminal = await ctx.smartAttachment.attachToSession(service, t.tmuxSessionName, {
+
+            // Verify session still exists; recreate if killed externally
+            const lane = t.swimLaneId ? ctx.swimLanes.find(l => l.id === t.swimLaneId) : undefined;
+            if (t.tmuxSessionName) {
+                const existing = await service.getSessions();
+                if (!existing.includes(t.tmuxSessionName)) {
+                    // Session was killed — recreate it and a window for this task
+                    if (lane) {
+                        const ready = await ctx.ensureLaneSession(lane);
+                        if (!ready) break;
+                        try {
+                            const windowName = ctx.buildTaskWindowName(t);
+                            await service.newWindow(lane.sessionName, windowName);
+                            await ctx.cleanupInitWindow(lane.serverId, lane.sessionName);
+
+                            const sessions = await service.getTmuxTreeFresh();
+                            const session = sessions.find(s => s.name === lane.sessionName);
+                            const win = session?.windows.find(w => w.name === windowName);
+                            t.tmuxSessionName = lane.sessionName;
+                            t.tmuxWindowIndex = win?.index || '0';
+                            t.tmuxPaneIndex = win?.panes[0]?.index || '0';
+                            ctx.database.saveTask(t);
+                            ctx.tmuxSessionProvider.refresh();
+                        } catch (error) {
+                            vscode.window.showErrorMessage(`Failed to recreate session for task: ${error}`);
+                            break;
+                        }
+                    } else {
+                        vscode.window.showWarningMessage('Tmux session no longer exists and task has no swim lane to recreate it');
+                        break;
+                    }
+                }
+            } else if (lane) {
+                // No session info stored — create from lane
+                const ready = await ctx.ensureLaneSession(lane);
+                if (!ready) break;
+                try {
+                    const windowName = ctx.buildTaskWindowName(t);
+                    await service.newWindow(lane.sessionName, windowName);
+                    await ctx.cleanupInitWindow(lane.serverId, lane.sessionName);
+
+                    const sessions = await service.getTmuxTreeFresh();
+                    const session = sessions.find(s => s.name === lane.sessionName);
+                    const win = session?.windows.find(w => w.name === windowName);
+                    t.tmuxSessionName = lane.sessionName;
+                    t.tmuxWindowIndex = win?.index || '0';
+                    t.tmuxPaneIndex = win?.panes[0]?.index || '0';
+                    t.tmuxServerId = lane.serverId;
+                    ctx.database.saveTask(t);
+                    ctx.tmuxSessionProvider.refresh();
+                } catch (error) {
+                    vscode.window.showErrorMessage(`Failed to create session for task: ${error}`);
+                    break;
+                }
+            } else {
+                vscode.window.showWarningMessage('No tmux session info for this task');
+                break;
+            }
+
+            const terminal = await ctx.smartAttachment.attachToSession(service, t.tmuxSessionName!, {
                 windowIndex: t.tmuxWindowIndex,
                 paneIndex: t.tmuxPaneIndex
             });
