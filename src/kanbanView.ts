@@ -567,12 +567,6 @@ html, body {
 }
 
 /* ── Swim lane session status ──────────────────────────────────────────── */
-.lane-status {
-    display: inline-flex; align-items: center; gap: 4px;
-    font-size: 10px; padding: 1px 6px; border-radius: 3px;
-}
-.lane-status.active { background: rgba(78,201,176,0.2); color: #4ec9b0; }
-.lane-status.pending { background: rgba(220,220,170,0.15); color: #dcdcaa; }
 
 /* ── Task Box (parent card with bundled subtasks) ────────────────────── */
 .card.parent-card {
@@ -1388,7 +1382,6 @@ html, body {
         headerHtml += '<span>server: ' + esc(getServerLabel(lane.serverId)) + '</span>';
         headerHtml += '<span>dir: ' + esc(lane.workingDirectory) + '</span>';
         headerHtml += '<span>session: ' + esc(lane.sessionName) + '</span>';
-        headerHtml += '<span class="lane-status ' + (lane.sessionActive ? 'active' : 'pending') + '">' + (lane.sessionActive ? 'Session Active' : 'Pending') + '</span>';
         if (lane.aiProvider) {
             headerHtml += '<span class="role-badge custom">' + esc(lane.aiProvider) + '</span>';
         }
