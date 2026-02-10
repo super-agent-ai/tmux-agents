@@ -230,7 +230,8 @@ export function activate(context: vscode.ExtensionContext) {
                                 }
                                 verifyPrompt += `\nReview all subtask outputs. Check for:\n1. Correctness and completeness\n2. Consistency between subtasks\n3. Any errors or issues\n\nProvide a verification summary.`;
 
-                                const launchCmd = aiManager.getLaunchCommand(AIProvider.CLAUDE);
+                                const verifyProvider = aiManager.resolveProvider(undefined, lane.aiProvider);
+                                const launchCmd = aiManager.getLaunchCommand(verifyProvider);
                                 await service.sendKeys(lane.sessionName, winIndex, paneIndex, launchCmd);
 
                                 const capturedPrompt = verifyPrompt;
@@ -412,7 +413,8 @@ export function activate(context: vscode.ExtensionContext) {
                     signalId: t.autoClose ? t.id.slice(-8) : undefined,
                 });
 
-                const launchCmd = aiManager.getLaunchCommand(AIProvider.CLAUDE);
+                const resolvedProvider = aiManager.resolveProvider(undefined, lane?.aiProvider);
+                const launchCmd = aiManager.getLaunchCommand(resolvedProvider);
                 await service.sendKeys(lane.sessionName, winIndex, paneIndex, launchCmd);
 
                 setTimeout(async () => {
@@ -422,7 +424,7 @@ export function activate(context: vscode.ExtensionContext) {
                         await service.sendKeys(lane.sessionName, winIndex, paneIndex, escaped);
                         await service.sendKeys(lane.sessionName, winIndex, paneIndex, '');
                     } catch (err) {
-                        console.warn('Failed to send prompt to Claude:', err);
+                        console.warn('Failed to send prompt:', err);
                     }
                 }, 3000);
 

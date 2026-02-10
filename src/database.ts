@@ -113,6 +113,10 @@ export class Database {
                 this.db.run(`ALTER TABLE tasks ADD COLUMN ${col} TEXT`);
             } catch { /* column already exists */ }
         }
+        // Add aiProvider column to swim_lanes if missing
+        try {
+            this.db.run(`ALTER TABLE swim_lanes ADD COLUMN aiProvider TEXT`);
+        } catch { /* column already exists */ }
     }
 
     // ─── Helpers ────────────────────────────────────────────────────────────
@@ -159,10 +163,11 @@ export class Database {
         if (!this.db) { return; }
         try {
             this.run(
-                `INSERT OR REPLACE INTO swim_lanes (id,name,serverId,workingDirectory,sessionName,createdAt,sessionActive)
-                 VALUES (?,?,?,?,?,?,?)`,
+                `INSERT OR REPLACE INTO swim_lanes (id,name,serverId,workingDirectory,sessionName,createdAt,sessionActive,aiProvider)
+                 VALUES (?,?,?,?,?,?,?,?)`,
                 [lane.id, lane.name, lane.serverId, lane.workingDirectory,
-                 lane.sessionName, lane.createdAt, lane.sessionActive ? 1 : 0]
+                 lane.sessionName, lane.createdAt, lane.sessionActive ? 1 : 0,
+                 lane.aiProvider || null]
             );
             this.scheduleSave();
         } catch (err) { console.error('[Database] saveSwimLane:', err); }
@@ -185,7 +190,8 @@ export class Database {
     private rowToSwimLane = (r: Record<string, any>): KanbanSwimLane => ({
         id: r.id, name: r.name, serverId: r.serverId,
         workingDirectory: r.workingDirectory, sessionName: r.sessionName,
-        createdAt: r.createdAt, sessionActive: r.sessionActive === 1
+        createdAt: r.createdAt, sessionActive: r.sessionActive === 1,
+        aiProvider: r.aiProvider || undefined
     });
 
     // ─── Favourite Folders ─────────────────────────────────────────────────

@@ -785,6 +785,15 @@ html, body {
             </div>
         </div>
         <div class="field">
+            <label>AI Provider</label>
+            <select id="sl-provider">
+                <option value="">(Use default)</option>
+                <option value="claude">Claude</option>
+                <option value="gemini">Gemini</option>
+                <option value="codex">Codex</option>
+            </select>
+        </div>
+        <div class="field">
             <label>Context / Instructions</label>
             <textarea id="sl-context" placeholder="Additional context or instructions injected into every task prompt in this lane..."></textarea>
         </div>
@@ -904,6 +913,15 @@ html, body {
             </div>
         </div>
         <div class="field">
+            <label>AI Provider</label>
+            <select id="el-provider">
+                <option value="">(Use default)</option>
+                <option value="claude">Claude</option>
+                <option value="gemini">Gemini</option>
+                <option value="codex">Codex</option>
+            </select>
+        </div>
+        <div class="field">
             <label>Context / Instructions</label>
             <textarea id="el-context" placeholder="Additional context or instructions injected into every task prompt..."></textarea>
         </div>
@@ -993,6 +1011,7 @@ html, body {
     var slName = document.getElementById('sl-name');
     var slServer = document.getElementById('sl-server');
     var slDir = document.getElementById('sl-dir');
+    var slProvider = document.getElementById('sl-provider');
     var slContext = document.getElementById('sl-context');
 
     // Favourite modal refs
@@ -1370,6 +1389,9 @@ html, body {
         headerHtml += '<span>dir: ' + esc(lane.workingDirectory) + '</span>';
         headerHtml += '<span>session: ' + esc(lane.sessionName) + '</span>';
         headerHtml += '<span class="lane-status ' + (lane.sessionActive ? 'active' : 'pending') + '">' + (lane.sessionActive ? 'Session Active' : 'Pending') + '</span>';
+        if (lane.aiProvider) {
+            headerHtml += '<span class="role-badge custom">' + esc(lane.aiProvider) + '</span>';
+        }
         headerHtml += '</div>';
         headerHtml += '<div class="swim-lane-actions">';
         headerHtml += '<button class="btn-icon" data-act="open-terminal" data-lane-id="' + esc(lane.id) + '" data-tip="Open terminal attached to session">&#x2328;</button>';
@@ -1593,6 +1615,7 @@ html, body {
         populateServerDropdown();
         slName.value = (prefill && prefill.name) || '';
         slDir.value = (prefill && prefill.workingDirectory) || '~/';
+        slProvider.value = (prefill && prefill.aiProvider) || '';
         if (prefill && prefill.serverId) { slServer.value = prefill.serverId; }
         laneOverlay.classList.add('active');
         slName.focus();
@@ -1614,12 +1637,14 @@ html, body {
         var serverId = slServer.value;
         var dir = slDir.value.trim() || '~/';
         var context = slContext.value.trim() || undefined;
+        var provider = slProvider.value || undefined;
         vscode.postMessage({
             type: 'createSwimLane',
             name: name,
             serverId: serverId,
             workingDirectory: dir,
-            contextInstructions: context
+            contextInstructions: context,
+            aiProvider: provider
         });
         closeLaneModal();
     });
@@ -1717,6 +1742,7 @@ html, body {
     var elName = document.getElementById('el-name');
     var elSession = document.getElementById('el-session');
     var elDir = document.getElementById('el-dir');
+    var elProvider = document.getElementById('el-provider');
     var elContext = document.getElementById('el-context');
     var editingLaneId = null;
     var editingLaneServerId = null;
@@ -1727,6 +1753,7 @@ html, body {
         elName.value = lane.name || '';
         elSession.value = lane.sessionName || '';
         elDir.value = lane.workingDirectory || '~/';
+        elProvider.value = lane.aiProvider || '';
         elContext.value = lane.contextInstructions || '';
         editLaneOverlay.classList.add('active');
         elName.focus();
@@ -1748,6 +1775,7 @@ html, body {
         var session = elSession.value.trim();
         var dir = elDir.value.trim();
         if (!name) return;
+        var provider = elProvider.value || undefined;
         var context = elContext.value.trim() || undefined;
         vscode.postMessage({
             type: 'editSwimLane',
@@ -1755,6 +1783,7 @@ html, body {
             name: name,
             sessionName: session,
             workingDirectory: dir,
+            aiProvider: provider,
             contextInstructions: context
         });
         // Update local state
@@ -1763,6 +1792,7 @@ html, body {
                 swimLanes[i].name = name;
                 if (session) swimLanes[i].sessionName = session;
                 if (dir) swimLanes[i].workingDirectory = dir;
+                swimLanes[i].aiProvider = provider;
                 swimLanes[i].contextInstructions = context;
                 break;
             }

@@ -8,7 +8,7 @@ import { AgentOrchestrator } from '../orchestrator';
 import { TeamManager } from '../teamManager';
 import { KanbanViewProvider } from '../kanbanView';
 import { Database } from '../database';
-import { AIProvider, OrchestratorTask, TaskStatus, KanbanSwimLane, FavouriteFolder } from '../types';
+import { OrchestratorTask, TaskStatus, KanbanSwimLane, FavouriteFolder } from '../types';
 import { buildSingleTaskPrompt, buildTaskBoxPrompt, buildBundleTaskPrompt, appendPromptTail } from '../promptBuilder';
 
 export interface KanbanHandlerContext {
@@ -104,7 +104,8 @@ export async function handleKanbanMessage(
                 sessionName,
                 createdAt: Date.now(),
                 sessionActive: false,
-                contextInstructions: payload.contextInstructions || undefined
+                contextInstructions: payload.contextInstructions || undefined,
+                aiProvider: payload.aiProvider || undefined
             };
             ctx.swimLanes.push(lane);
             ctx.database.saveSwimLane(lane);
@@ -177,7 +178,8 @@ export async function handleKanbanMessage(
                         if (lane.workingDirectory) {
                             await service.sendKeys(lane.sessionName, win.index, pIdx, `cd ${lane.workingDirectory}`);
                         }
-                        const launchCmd = ctx.aiManager.getLaunchCommand(AIProvider.CLAUDE);
+                        const debugProvider = ctx.aiManager.resolveProvider(undefined, lane.aiProvider);
+                        const launchCmd = ctx.aiManager.getLaunchCommand(debugProvider);
                         await service.sendKeys(lane.sessionName, win.index, pIdx, launchCmd);
                     }
                 }
@@ -227,7 +229,8 @@ export async function handleKanbanMessage(
                     if (lane.workingDirectory) {
                         await service.sendKeys(lane.sessionName, win.index, pIdx, `cd ${lane.workingDirectory}`);
                     }
-                    const launchCmd = ctx.aiManager.getLaunchCommand(AIProvider.CLAUDE);
+                    const restartProvider = ctx.aiManager.resolveProvider(undefined, lane.aiProvider);
+                    const launchCmd = ctx.aiManager.getLaunchCommand(restartProvider);
                     await service.sendKeys(lane.sessionName, win.index, pIdx, launchCmd);
 
                     const terminal = await ctx.smartAttachment.attachToSession(service, lane.sessionName, {
@@ -475,7 +478,8 @@ export async function handleKanbanMessage(
                     signalId: t.autoClose ? t.id.slice(-8) : undefined,
                 });
 
-                const launchCmd = ctx.aiManager.getLaunchCommand(AIProvider.CLAUDE);
+                const taskProvider = ctx.aiManager.resolveProvider(undefined, lane.aiProvider);
+                const launchCmd = ctx.aiManager.getLaunchCommand(taskProvider);
                 await service.sendKeys(lane.sessionName, winIndex, paneIndex, launchCmd);
 
                 setTimeout(async () => {
@@ -485,7 +489,7 @@ export async function handleKanbanMessage(
                         await service.sendKeys(lane.sessionName, winIndex, paneIndex, escaped);
                         await service.sendKeys(lane.sessionName, winIndex, paneIndex, '');
                     } catch (err) {
-                        console.warn('Failed to send prompt to Claude:', err);
+                        console.warn('Failed to send prompt:', err);
                     }
                 }, 3000);
 
@@ -546,7 +550,8 @@ export async function handleKanbanMessage(
                             signalId: t.autoClose ? t.id.slice(-8) : undefined,
                         });
 
-                        const launchCmd = ctx.aiManager.getLaunchCommand(AIProvider.CLAUDE);
+                        const bundleProvider = ctx.aiManager.resolveProvider(undefined, lane.aiProvider);
+                        const launchCmd = ctx.aiManager.getLaunchCommand(bundleProvider);
                         await service.sendKeys(lane.sessionName, winIndex, paneIndex, launchCmd);
 
                         const capturedPrompt = prompt;
@@ -745,6 +750,7 @@ export async function handleKanbanMessage(
             const oldSessionName = lane.sessionName;
             if (payload.name) lane.name = payload.name;
             if (payload.workingDirectory) lane.workingDirectory = payload.workingDirectory;
+            lane.aiProvider = payload.aiProvider || undefined;
             lane.contextInstructions = payload.contextInstructions || undefined;
             if (payload.sessionName && payload.sessionName !== oldSessionName) {
                 if (lane.sessionActive) {
@@ -784,7 +790,7 @@ export async function handleKanbanMessage(
                 const content = await svc.capturePaneContent(t.tmuxSessionName, t.tmuxWindowIndex, t.tmuxPaneIndex, 50);
                 const summary = await new Promise<string>((resolve) => {
                     const prompt = `Summarize what was accomplished in this terminal session in 3-5 sentences. Focus on what was done, key changes made, and the outcome.\n\n${content.slice(-3000)}`;
-                    const spawnCfg = ctx.aiManager.getSpawnConfig(AIProvider.CLAUDE);
+                    const spawnCfg = ctx.aiManager.getSpawnConfig(ctx.aiManager.getDefaultProvider());
                     const proc = cp.spawn(spawnCfg.command, spawnCfg.args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...spawnCfg.env }, cwd: spawnCfg.cwd, shell: spawnCfg.shell });
                     let stdout = '';
                     const timer = setTimeout(() => { proc.kill(); resolve(''); }, 20000);
@@ -810,7 +816,7 @@ export async function handleKanbanMessage(
         case 'aiExpandTask': {
             const text = payload.text || '';
             if (!text) break;
-            const spawnCfg = ctx.aiManager.getSpawnConfig(AIProvider.CLAUDE);
+            const spawnCfg = ctx.aiManager.getSpawnConfig(ctx.aiManager.getDefaultProvider());
             console.log(`[aiExpandTask] Spawning: ${spawnCfg.command} ${spawnCfg.args.join(' ')}`);
             try {
                 const result = await new Promise<string>((resolve) => {
@@ -916,7 +922,7 @@ The "role" field should be one of: coder, reviewer, tester, devops, researcher, 
                             try {
                                 summary = await new Promise<string>((resolve, reject) => {
                                     const prompt = `Summarize what is happening in this tmux session in 2-3 short lines. Focus on: what project/task, what tools/commands are running, current status.\n\n${combinedContent}`;
-                                    const spawnCfg = ctx.aiManager.getSpawnConfig(AIProvider.CLAUDE);
+                                    const spawnCfg = ctx.aiManager.getSpawnConfig(ctx.aiManager.getDefaultProvider());
                                     const proc = cp.spawn(spawnCfg.command, spawnCfg.args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...spawnCfg.env }, cwd: spawnCfg.cwd, shell: spawnCfg.shell });
                                     let stdout = '';
                                     const timer = setTimeout(() => { proc.kill(); resolve(''); }, 15000);

@@ -405,6 +405,8 @@ export interface KanbanSwimLane {
     sessionActive?: boolean;
     /** Additional context/instructions injected into every task prompt in this lane */
     contextInstructions?: string;
+    /** AI provider override for this lane (uses default setting when unset) */
+    aiProvider?: AIProvider;
 }
 
 // ─── Pipeline Engine ─────────────────────────────────────────────────────────

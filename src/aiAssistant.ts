@@ -16,6 +16,34 @@ interface ProviderConfig {
 
 export class AIAssistantManager {
 
+    // ─── Default / Fallback Provider Resolution ────────────────────────────
+
+    /**
+     * Return the default AI provider from settings.
+     */
+    getDefaultProvider(): AIProvider {
+        const cfg = vscode.workspace.getConfiguration('tmuxAgents');
+        const raw = cfg.get<string>('defaultProvider') || 'claude';
+        return (Object.values(AIProvider).includes(raw as AIProvider) ? raw : 'claude') as AIProvider;
+    }
+
+    /**
+     * Return the fallback AI provider from settings.
+     */
+    getFallbackProvider(): AIProvider {
+        const cfg = vscode.workspace.getConfiguration('tmuxAgents');
+        const raw = cfg.get<string>('fallbackProvider') || 'gemini';
+        return (Object.values(AIProvider).includes(raw as AIProvider) ? raw : 'gemini') as AIProvider;
+    }
+
+    /**
+     * Resolve the effective provider for a given context.
+     * Priority: explicit override > lane provider > settings default.
+     */
+    resolveProvider(override?: AIProvider, laneProvider?: AIProvider): AIProvider {
+        return override || laneProvider || this.getDefaultProvider();
+    }
+
     /**
      * Read provider config from VS Code settings.
      */

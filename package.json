@@ -140,6 +140,18 @@
           "default": [],
           "description": "Custom agent templates for quick spawning"
         },
+        "tmuxAgents.defaultProvider": {
+          "type": "string",
+          "default": "claude",
+          "enum": ["claude", "gemini", "codex"],
+          "description": "Default AI provider used for tasks and swimlanes when no provider is explicitly set."
+        },
+        "tmuxAgents.fallbackProvider": {
+          "type": "string",
+          "default": "gemini",
+          "enum": ["claude", "gemini", "codex"],
+          "description": "Fallback AI provider used when the default provider fails or is unavailable."
+        },
         "tmuxAgents.aiProviders": {
           "type": "object",
           "default": {

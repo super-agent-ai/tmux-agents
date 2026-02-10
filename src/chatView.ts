@@ -648,7 +648,8 @@ except sr.RequestError as e:
                 const prompt = this.buildPrompt(stateText, currentTurn, isFirstStep ? fileContext : '');
 
                 this.postMessage({ type: 'setLoading', loading: true, step: step > 1 ? step : undefined });
-                const spawnCfg = this.aiManager?.getSpawnConfig(AIProvider.CLAUDE) || { command: 'claude', args: ['--print', '-'], env: {}, cwd: undefined, shell: false };
+                const defaultProvider = this.aiManager?.getDefaultProvider() || AIProvider.CLAUDE;
+                const spawnCfg = this.aiManager?.getSpawnConfig(defaultProvider) || { command: 'claude', args: ['--print', '-'], env: {}, cwd: undefined, shell: false };
                 const chatArgs = [...spawnCfg.args.filter(a => a !== '-'), '--model', this.selectedModel, '-'];
                 const stdout = await spawnWithStdin(spawnCfg.command, chatArgs, prompt, 120000, (proc) => { this.currentProc = proc; }, spawnCfg.cwd, spawnCfg.shell);
                 this.currentProc = null;
