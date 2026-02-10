@@ -424,6 +424,10 @@ html, body {
     white-space: nowrap; flex-shrink: 0;
 }
 .browse-btn:hover { background: var(--vscode-button-secondaryHoverBackground, rgba(255,255,255,0.1)); }
+.field-warning {
+    margin-top: 4px; padding: 4px 8px; border-radius: 3px; font-size: 11px;
+    background: rgba(205,133,63,0.15); color: #e8a855; border-left: 3px solid #e8a855;
+}
 .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
 .modal-task-actions {
     display: none; gap: 6px; flex-wrap: wrap; margin-top: 12px;
@@ -894,6 +898,11 @@ html, body {
         <div class="field">
             <label>Name</label>
             <input type="text" id="el-name" />
+        </div>
+        <div class="field">
+            <label>Server</label>
+            <select id="el-server"></select>
+            <div id="el-server-warning" class="field-warning" style="display:none;">Changing server will kill the current tmux session and all running tasks in this lane.</div>
         </div>
         <div class="field">
             <label>Session Name</label>
@@ -1733,6 +1742,8 @@ html, body {
 
     var editLaneOverlay = document.getElementById('edit-lane-modal-overlay');
     var elName = document.getElementById('el-name');
+    var elServer = document.getElementById('el-server');
+    var elServerWarning = document.getElementById('el-server-warning');
     var elSession = document.getElementById('el-session');
     var elDir = document.getElementById('el-dir');
     var elProvider = document.getElementById('el-provider');
@@ -1740,10 +1751,21 @@ html, body {
     var editingLaneId = null;
     var editingLaneServerId = null;
 
+    elServer.addEventListener('change', function() {
+        if (editingLaneServerId && elServer.value !== editingLaneServerId) {
+            elServerWarning.style.display = 'block';
+        } else {
+            elServerWarning.style.display = 'none';
+        }
+    });
+
     function openEditLaneModal(lane) {
         editingLaneId = lane.id;
         editingLaneServerId = lane.serverId || 'local';
         elName.value = lane.name || '';
+        elServer.innerHTML = buildServerOptionsHtml();
+        elServer.value = editingLaneServerId;
+        elServerWarning.style.display = 'none';
         elSession.value = lane.sessionName || '';
         elDir.value = lane.workingDirectory || '~/';
         elProvider.value = lane.aiProvider || '';
@@ -1765,15 +1787,23 @@ html, body {
     document.getElementById('el-submit').addEventListener('click', function() {
         if (!editingLaneId) return;
         var name = elName.value.trim();
+        var newServerId = elServer.value;
         var session = elSession.value.trim();
         var dir = elDir.value.trim();
         if (!name) return;
+        var serverChanged = newServerId !== editingLaneServerId;
+        if (serverChanged) {
+            if (!confirm('Changing server will kill the current tmux session and all running tasks in this lane. Continue?')) {
+                return;
+            }
+        }
         var provider = elProvider.value || undefined;
         var context = elContext.value.trim() || undefined;
         vscode.postMessage({
             type: 'editSwimLane',
             swimLaneId: editingLaneId,
             name: name,
+            serverId: serverChanged ? newServerId : undefined,
             sessionName: session,
             workingDirectory: dir,
             aiProvider: provider,
@@ -1783,6 +1813,10 @@ html, body {
         for (var i = 0; i < swimLanes.length; i++) {
             if (swimLanes[i].id === editingLaneId) {
                 swimLanes[i].name = name;
+                if (serverChanged) {
+                    swimLanes[i].serverId = newServerId;
+                    swimLanes[i].sessionActive = false;
+                }
                 if (session) swimLanes[i].sessionName = session;
                 if (dir) swimLanes[i].workingDirectory = dir;
                 swimLanes[i].aiProvider = provider;
@@ -1795,7 +1829,7 @@ html, body {
     });
 
     document.getElementById('el-browse').addEventListener('click', function() {
-        vscode.postMessage({ type: 'browseDir', target: 'el-dir', serverId: editingLaneServerId || 'local', currentPath: elDir.value || '~/' });
+        vscode.postMessage({ type: 'browseDir', target: 'el-dir', serverId: elServer.value || 'local', currentPath: elDir.value || '~/' });
     });
 
     /* ── Task Modal ──────────────────────────────────────────────────────── */

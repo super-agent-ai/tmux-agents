@@ -780,6 +780,24 @@ export async function handleKanbanMessage(
             if (payload.workingDirectory) lane.workingDirectory = payload.workingDirectory;
             lane.aiProvider = payload.aiProvider || undefined;
             lane.contextInstructions = payload.contextInstructions || undefined;
+
+            // Handle server change — kill old session first
+            if (payload.serverId && payload.serverId !== lane.serverId) {
+                if (lane.sessionActive) {
+                    const oldSvc = ctx.serviceManager.getService(lane.serverId);
+                    if (oldSvc) {
+                        try {
+                            await oldSvc.deleteSession(lane.sessionName);
+                        } catch {
+                            // Session might already be gone
+                        }
+                    }
+                }
+                lane.serverId = payload.serverId;
+                lane.sessionActive = false;
+                ctx.tmuxSessionProvider.refresh();
+            }
+
             if (payload.sessionName && payload.sessionName !== oldSessionName) {
                 if (lane.sessionActive) {
                     const svc = ctx.serviceManager.getService(lane.serverId);
