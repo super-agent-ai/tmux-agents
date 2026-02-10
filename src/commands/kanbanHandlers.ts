@@ -9,7 +9,7 @@ import { TeamManager } from '../teamManager';
 import { KanbanViewProvider } from '../kanbanView';
 import { Database } from '../database';
 import { OrchestratorTask, TaskStatus, KanbanSwimLane, FavouriteFolder } from '../types';
-import { buildSingleTaskPrompt, buildTaskBoxPrompt, buildBundleTaskPrompt, appendPromptTail } from '../promptBuilder';
+import { buildBundleTaskPrompt, appendPromptTail } from '../promptBuilder';
 
 export interface KanbanHandlerContext {
     serviceManager: TmuxServiceManager;
@@ -516,87 +516,23 @@ export async function handleKanbanMessage(
                 break;
             }
 
-            const ready = await ctx.ensureLaneSession(lane);
-            if (!ready) break;
-
-            const service = ctx.serviceManager.getService(lane.serverId);
-            if (!service) break;
-
-            try {
-                if (t.tmuxSessionName && t.tmuxWindowIndex) {
+            // Kill old window if it still exists (session may have been deleted)
+            if (t.tmuxSessionName && t.tmuxWindowIndex && t.tmuxServerId) {
+                const oldService = ctx.serviceManager.getService(t.tmuxServerId);
+                if (oldService) {
                     try {
-                        await service.killWindow(t.tmuxSessionName, t.tmuxWindowIndex);
+                        await oldService.killWindow(t.tmuxSessionName, t.tmuxWindowIndex);
                     } catch {
-                        // Window may already be gone
+                        // Window or session may already be gone
                     }
                 }
-
-                const windowName = ctx.buildTaskWindowName(t);
-                await service.newWindow(lane.sessionName, windowName);
-                await ctx.cleanupInitWindow(lane.serverId, lane.sessionName);
-
-                const sessions = await service.getTmuxTreeFresh();
-                const session = sessions.find(s => s.name === lane.sessionName);
-                const win = session?.windows.find(w => w.name === windowName);
-                const winIndex = win?.index || '0';
-                const paneIndex = win?.panes[0]?.index || '0';
-
-                if (lane.workingDirectory) {
-                    await service.sendKeys(lane.sessionName, winIndex, paneIndex, `cd ${lane.workingDirectory}`);
-                }
-
-                let prompt = '';
-                if (t.subtaskIds && t.subtaskIds.length > 0) {
-                    const subtasks = t.subtaskIds.map(id => ctx.orchestrator.getTask(id)).filter((s): s is OrchestratorTask => !!s);
-                    prompt = buildTaskBoxPrompt(t, subtasks, lane);
-                    for (const sub of subtasks) {
-                        sub.kanbanColumn = 'in_progress';
-                        sub.status = TaskStatus.IN_PROGRESS;
-                        sub.startedAt = Date.now();
-                        sub.tmuxSessionName = lane.sessionName;
-                        sub.tmuxWindowIndex = winIndex;
-                        sub.tmuxPaneIndex = paneIndex;
-                        sub.tmuxServerId = lane.serverId;
-                        ctx.database.saveTask(sub);
-                    }
-                } else {
-                    prompt = buildSingleTaskPrompt(t, lane);
-                }
-
-                prompt = appendPromptTail(prompt, {
-                    autoClose: t.autoClose,
-                    signalId: t.autoClose ? t.id.slice(-8) : undefined,
-                });
-
-                const taskProvider = ctx.aiManager.resolveProvider(undefined, lane.aiProvider);
-                const launchCmd = ctx.aiManager.getLaunchCommand(taskProvider);
-                await service.sendKeys(lane.sessionName, winIndex, paneIndex, launchCmd);
-
-                setTimeout(async () => {
-                    try {
-                        const escaped = prompt.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-                        await service.sendKeys(lane.sessionName, winIndex, paneIndex, '');
-                        await service.sendKeys(lane.sessionName, winIndex, paneIndex, escaped);
-                        await service.sendKeys(lane.sessionName, winIndex, paneIndex, '');
-                    } catch (err) {
-                        console.warn('Failed to send prompt:', err);
-                    }
-                }, 3000);
-
-                t.tmuxSessionName = lane.sessionName;
-                t.tmuxWindowIndex = winIndex;
-                t.tmuxPaneIndex = paneIndex;
-                t.tmuxServerId = lane.serverId;
-                t.kanbanColumn = 'in_progress';
-                t.status = TaskStatus.IN_PROGRESS;
-                t.startedAt = Date.now();
-                ctx.database.saveTask(t);
-                ctx.tmuxSessionProvider.refresh();
-            } catch (error) {
-                vscode.window.showErrorMessage(`Failed to restart task: ${error}`);
             }
-            ctx.updateKanban();
-            await ctx.updateDashboard();
+
+            // Delegate to startTaskFlow — it handles session (re)creation via
+            // ensureLaneSession, window setup, prompt building, AI launch,
+            // and status updates.  This avoids duplicating that logic and
+            // ensures the swim-lane session is recreated when it no longer exists.
+            await ctx.startTaskFlow(t);
             break;
         }
         case 'startBundle': {
