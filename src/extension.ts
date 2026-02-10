@@ -308,6 +308,7 @@ export function activate(context: vscode.ExtensionContext) {
             case 'submitTask':
                 taskRouter.parseTaskFromNaturalLanguage(payload.description).then(task => {
                     orchestrator.submitTask(task);
+                    database.saveTask(task);
                     updateDashboard();
                 }).catch(console.error);
                 break;
