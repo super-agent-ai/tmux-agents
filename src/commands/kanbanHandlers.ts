@@ -625,6 +625,7 @@ export async function handleKanbanMessage(
                         parent.kanbanColumn = 'in_progress';
                         parent.status = TaskStatus.IN_PROGRESS;
                         parent.startedAt = Date.now();
+                        ctx.database.saveTask(parent);
                     }
                 }
 
@@ -715,6 +716,7 @@ export async function handleKanbanMessage(
                         if (!parentTask.subtaskIds.includes(subId)) {
                             parentTask.subtaskIds.push(subId);
                         }
+                        ctx.database.saveTask(sub);
                     }
                 }
                 ctx.orchestrator.cancelTask(childTask.id);
