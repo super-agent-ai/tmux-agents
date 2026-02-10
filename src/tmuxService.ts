@@ -345,13 +345,22 @@ export class TmuxService {
         }
     }
 
-    public async newSession(sessionName: string): Promise<void> {
+    public async newSession(sessionName: string, options?: { cwd?: string; windowName?: string }): Promise<void> {
         if (!await this.checkTmuxInstallation()) {
             throw new Error('tmux is not installed');
         }
 
         try {
-            await exec(this.buildCommand(`tmux new-session -d -s "${sessionName}"`));
+            let cmd = `tmux new-session -d -s "${sessionName}"`;
+            if (options?.windowName) {
+                cmd += ` -n "${options.windowName}"`;
+            }
+            if (options?.cwd) {
+                cmd += ` -c "${options.cwd}"`;
+            }
+            await exec(this.buildCommand(cmd));
+            // Enable mouse mode so scrolling enters copy mode in VS Code terminals
+            await exec(this.buildCommand(`tmux set-option -g mouse on`)).catch(() => {});
             this.clearCache();
             vscode.window.showInformationMessage(`Created new session "${sessionName}"`);
         } catch (error) {

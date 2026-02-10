@@ -199,6 +199,11 @@
               "defaultWorkingDirectory": {
                 "type": "string",
                 "description": "Default working directory for pipe mode (AI Chat, AI Generate). Falls back to the first open workspace folder."
+              },
+              "shell": {
+                "type": "boolean",
+                "default": false,
+                "description": "Run pipe commands through the system shell. Enable if pipeCommand is a shell script or needs shell features."
               }
             },
             "additionalProperties": false

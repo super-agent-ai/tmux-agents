@@ -3,7 +3,8 @@ import * as path from 'path';
 import {
     KanbanSwimLane, OrchestratorTask, AgentInstance, AgentTeam,
     Pipeline, PipelineRun, TaskStatus, AgentState, AgentRole,
-    AIProvider, PipelineStatus, StageResult, PipelineStage
+    AIProvider, PipelineStatus, StageResult, PipelineStage,
+    FavouriteFolder
 } from './types';
 
 // sql.js types (loaded dynamically to avoid node_modules dependency in packaged extension)
@@ -55,6 +56,9 @@ CREATE TABLE IF NOT EXISTS pipeline_runs (
     stageResultsJson TEXT NOT NULL DEFAULT '{}',
     startedAt INTEGER NOT NULL, completedAt INTEGER,
     FOREIGN KEY (pipelineId) REFERENCES pipelines(id));
+CREATE TABLE IF NOT EXISTS favourite_folders (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL,
+    serverId TEXT NOT NULL, workingDirectory TEXT NOT NULL);
 `;
 
 export class Database {
@@ -182,6 +186,33 @@ export class Database {
         id: r.id, name: r.name, serverId: r.serverId,
         workingDirectory: r.workingDirectory, sessionName: r.sessionName,
         createdAt: r.createdAt, sessionActive: r.sessionActive === 1
+    });
+
+    // ─── Favourite Folders ─────────────────────────────────────────────────
+
+    saveFavouriteFolder(f: FavouriteFolder): void {
+        if (!this.db) { return; }
+        try {
+            this.run(
+                `INSERT OR REPLACE INTO favourite_folders (id,name,serverId,workingDirectory) VALUES (?,?,?,?)`,
+                [f.id, f.name, f.serverId, f.workingDirectory]
+            );
+            this.scheduleSave();
+        } catch (err) { console.error('[Database] saveFavouriteFolder:', err); }
+    }
+
+    deleteFavouriteFolder(id: string): void {
+        if (!this.db) { return; }
+        try { this.run('DELETE FROM favourite_folders WHERE id=?', [id]); this.scheduleSave(); }
+        catch (err) { console.error('[Database] deleteFavouriteFolder:', err); }
+    }
+
+    getAllFavouriteFolders(): FavouriteFolder[] {
+        return this.queryAll('SELECT * FROM favourite_folders', this.rowToFavouriteFolder);
+    }
+
+    private rowToFavouriteFolder = (r: Record<string, any>): FavouriteFolder => ({
+        id: r.id, name: r.name, serverId: r.serverId, workingDirectory: r.workingDirectory
     });
 
     // ─── Tasks ──────────────────────────────────────────────────────────────

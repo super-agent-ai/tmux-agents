@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { OrchestratorTask, TaskStatus, AgentRole, KanbanSwimLane } from './types';
+import { OrchestratorTask, TaskStatus, AgentRole, KanbanSwimLane, FavouriteFolder } from './types';
 
 export type KanbanColumn = 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'done';
 
@@ -13,6 +13,7 @@ export class KanbanViewProvider implements vscode.Disposable {
     private tasks: OrchestratorTask[] = [];
     private swimLanes: KanbanSwimLane[] = [];
     private servers: ServerOption[] = [];
+    private favouriteFolders: FavouriteFolder[] = [];
 
     private readonly _onAction = new vscode.EventEmitter<{action: string; payload: any}>();
     public readonly onAction = this._onAction.event;
@@ -48,10 +49,11 @@ export class KanbanViewProvider implements vscode.Disposable {
         setTimeout(() => this.sendState(), 100);
     }
 
-    updateState(tasks: OrchestratorTask[], swimLanes: KanbanSwimLane[], servers: ServerOption[]): void {
+    updateState(tasks: OrchestratorTask[], swimLanes: KanbanSwimLane[], servers: ServerOption[], favouriteFolders?: FavouriteFolder[]): void {
         this.tasks = tasks;
         this.swimLanes = swimLanes;
         this.servers = servers;
+        if (favouriteFolders) { this.favouriteFolders = favouriteFolders; }
         this.sendState();
     }
 
@@ -72,7 +74,8 @@ export class KanbanViewProvider implements vscode.Disposable {
             type: 'updateState',
             tasks: this.tasks,
             swimLanes: this.swimLanes,
-            servers: this.servers
+            servers: this.servers,
+            favouriteFolders: this.favouriteFolders
         });
     }
 
@@ -141,6 +144,37 @@ html, body {
     flex: 1; overflow-y: auto; padding: 0 0 16px;
     min-height: 0;
 }
+
+/* ── Favourites Bar ────────────────────────────────────────────────────── */
+.fav-bar {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    flex-shrink: 0;
+}
+.fav-bar-label { font-size: 11px; opacity: 0.6; margin-right: 2px; white-space: nowrap; }
+.fav-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 8px; border-radius: 12px; font-size: 11px; cursor: pointer;
+    background: var(--vscode-button-secondaryBackground, rgba(255,255,255,0.06));
+    color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+    border: 1px solid var(--vscode-panel-border); transition: background 0.15s;
+    max-width: 240px;
+}
+.fav-chip:hover { background: var(--vscode-button-secondaryHoverBackground, rgba(255,255,255,0.1)); }
+.fav-chip .fav-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fav-chip .fav-server { opacity: 0.5; font-size: 10px; white-space: nowrap; }
+.fav-chip .fav-del {
+    margin-left: 2px; opacity: 0.4; cursor: pointer; font-size: 12px; line-height: 1;
+}
+.fav-chip .fav-del:hover { opacity: 1; color: #f44747; }
+.fav-add-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; border-radius: 50%; border: 1px dashed var(--vscode-panel-border);
+    background: transparent; color: var(--vscode-foreground); cursor: pointer;
+    font-size: 14px; opacity: 0.5; transition: opacity 0.15s;
+}
+.fav-add-btn:hover { opacity: 1; background: rgba(255,255,255,0.06); }
 
 /* ── Swim Lane ──────────────────────────────────────────────────────────── */
 .swim-lane {
@@ -701,7 +735,34 @@ html, body {
             <button class="btn" id="btn-refresh">&#x21BB; Refresh</button>
         </div>
     </div>
+    <div class="fav-bar" id="fav-bar"></div>
     <div class="board" id="board"></div>
+</div>
+
+<!-- Add Favourite Modal -->
+<div class="modal-overlay" id="fav-modal-overlay">
+    <div class="modal">
+        <div class="modal-title">Add Favourite Folder</div>
+        <div class="field">
+            <label>Name</label>
+            <input type="text" id="fav-name" placeholder="e.g. My Project" />
+        </div>
+        <div class="field">
+            <label>Server</label>
+            <select id="fav-server"></select>
+        </div>
+        <div class="field">
+            <label>Working Directory</label>
+            <div class="dir-field-row">
+                <input type="text" id="fav-dir" placeholder="~/" value="~/" />
+                <button class="browse-btn" id="fav-browse">Browse</button>
+            </div>
+        </div>
+        <div class="modal-actions">
+            <button class="btn" id="fav-cancel">Cancel</button>
+            <button class="btn-primary" id="fav-submit">Add</button>
+        </div>
+    </div>
 </div>
 
 <!-- Swim Lane Modal -->
@@ -910,6 +971,7 @@ html, body {
     var tasks = [];
     var swimLanes = [];
     var servers = [];
+    var favouriteFolders = [];
     var collapsedLanes = {};
 
     // Task modal state
@@ -932,6 +994,13 @@ html, body {
     var slServer = document.getElementById('sl-server');
     var slDir = document.getElementById('sl-dir');
     var slContext = document.getElementById('sl-context');
+
+    // Favourite modal refs
+    var favOverlay = document.getElementById('fav-modal-overlay');
+    var favName = document.getElementById('fav-name');
+    var favServer = document.getElementById('fav-server');
+    var favDir = document.getElementById('fav-dir');
+    var favBar = document.getElementById('fav-bar');
 
     // Task modal refs
     var taskOverlay = document.getElementById('task-modal-overlay');
@@ -1303,6 +1372,9 @@ html, body {
         headerHtml += '<span class="lane-status ' + (lane.sessionActive ? 'active' : 'pending') + '">' + (lane.sessionActive ? 'Session Active' : 'Pending') + '</span>';
         headerHtml += '</div>';
         headerHtml += '<div class="swim-lane-actions">';
+        headerHtml += '<button class="btn-icon" data-act="open-terminal" data-lane-id="' + esc(lane.id) + '" data-tip="Open terminal attached to session">&#x2328;</button>';
+        headerHtml += '<button class="btn-icon" data-act="debug-window" data-lane-id="' + esc(lane.id) + '" data-tip="Open debug shell window">&#x1F41B;</button>';
+        headerHtml += '<button class="btn-icon" data-act="restart-debug" data-lane-id="' + esc(lane.id) + '" data-tip="Kill &amp; restart debug window">&#x1F504;</button>';
         if (lane.sessionActive) {
             headerHtml += '<button class="btn-icon danger" data-act="kill-session" data-lane-id="' + esc(lane.id) + '" data-tip="Kill tmux session">&#x23FB;</button>';
         }
@@ -1385,6 +1457,24 @@ html, body {
                         if (swimLanes[li].id === laneId) { lane = swimLanes[li]; break; }
                     }
                     if (lane) openEditLaneModal(lane);
+                    return;
+                }
+                var termBtn = e.target.closest('[data-act="open-terminal"]');
+                if (termBtn) {
+                    var laneId = termBtn.dataset.laneId;
+                    vscode.postMessage({ type: 'openLaneTerminal', swimLaneId: laneId });
+                    return;
+                }
+                var debugBtn = e.target.closest('[data-act="debug-window"]');
+                if (debugBtn) {
+                    var laneId = debugBtn.dataset.laneId;
+                    vscode.postMessage({ type: 'createDebugWindow', swimLaneId: laneId });
+                    return;
+                }
+                var restartDebugBtn = e.target.closest('[data-act="restart-debug"]');
+                if (restartDebugBtn) {
+                    var laneId = restartDebugBtn.dataset.laneId;
+                    vscode.postMessage({ type: 'restartDebugWindow', swimLaneId: laneId });
                     return;
                 }
                 var killBtn = e.target.closest('[data-act="kill-session"]');
@@ -1482,7 +1572,7 @@ html, body {
 
     /* ── Swim Lane Modal ─────────────────────────────────────────────────── */
 
-    function populateServerDropdown() {
+    function buildServerOptionsHtml() {
         var html = '';
         for (var i = 0; i < servers.length; i++) {
             html += '<option value="' + esc(servers[i].id) + '">' + esc(servers[i].label) + '</option>';
@@ -1490,13 +1580,20 @@ html, body {
         if (servers.length === 0) {
             html = '<option value="local">Local</option>';
         }
-        slServer.innerHTML = html;
+        return html;
     }
 
-    function openLaneModal() {
+    function populateServerDropdown() {
+        var html = buildServerOptionsHtml();
+        slServer.innerHTML = html;
+        favServer.innerHTML = html;
+    }
+
+    function openLaneModal(prefill) {
         populateServerDropdown();
-        slName.value = '';
-        slDir.value = '~/';
+        slName.value = (prefill && prefill.name) || '';
+        slDir.value = (prefill && prefill.workingDirectory) || '~/';
+        if (prefill && prefill.serverId) { slServer.value = prefill.serverId; }
         laneOverlay.classList.add('active');
         slName.focus();
     }
@@ -1529,6 +1626,89 @@ html, body {
 
     document.getElementById('sl-browse').addEventListener('click', function() {
         vscode.postMessage({ type: 'browseDir', target: 'sl-dir', serverId: slServer.value, currentPath: slDir.value || '~/' });
+    });
+
+    /* ── Favourite Folders ───────────────────────────────────────────────── */
+
+    function getServerLabel(serverId) {
+        for (var i = 0; i < servers.length; i++) {
+            if (servers[i].id === serverId) return servers[i].label;
+        }
+        return serverId;
+    }
+
+    function renderFavBar() {
+        var html = '<span class="fav-bar-label">Favourites:</span>';
+        for (var i = 0; i < favouriteFolders.length; i++) {
+            var f = favouriteFolders[i];
+            html += '<span class="fav-chip" data-fav-id="' + esc(f.id) + '" title="' + esc(f.workingDirectory) + ' (' + esc(getServerLabel(f.serverId)) + ')">';
+            html += '<span class="fav-name">' + esc(f.name) + '</span>';
+            html += '<span class="fav-server">[' + esc(getServerLabel(f.serverId)) + ']</span>';
+            html += '<span class="fav-del" data-fav-del="' + esc(f.id) + '">&times;</span>';
+            html += '</span>';
+        }
+        html += '<button class="fav-add-btn" id="fav-add-btn" title="Add favourite folder">+</button>';
+        favBar.innerHTML = html;
+
+        // Wire add button
+        document.getElementById('fav-add-btn').addEventListener('click', openFavModal);
+
+        // Wire chip clicks
+        var chips = favBar.querySelectorAll('.fav-chip');
+        for (var c = 0; c < chips.length; c++) {
+            chips[c].addEventListener('click', function(e) {
+                // Ignore if clicking delete button
+                if (e.target.classList.contains('fav-del')) return;
+                var fid = this.dataset.favId;
+                var fav = null;
+                for (var j = 0; j < favouriteFolders.length; j++) {
+                    if (favouriteFolders[j].id === fid) { fav = favouriteFolders[j]; break; }
+                }
+                if (fav) openLaneModal({ name: '', serverId: fav.serverId, workingDirectory: fav.workingDirectory });
+            });
+        }
+
+        // Wire delete buttons
+        var dels = favBar.querySelectorAll('.fav-del');
+        for (var d = 0; d < dels.length; d++) {
+            dels[d].addEventListener('click', function(e) {
+                e.stopPropagation();
+                vscode.postMessage({ type: 'deleteFavouriteFolder', id: this.dataset.favDel });
+            });
+        }
+    }
+
+    function openFavModal() {
+        populateServerDropdown();
+        favName.value = '';
+        favDir.value = '~/';
+        favOverlay.classList.add('active');
+        favName.focus();
+    }
+
+    function closeFavModal() {
+        favOverlay.classList.remove('active');
+    }
+
+    document.getElementById('fav-cancel').addEventListener('click', closeFavModal);
+    favOverlay.addEventListener('click', function(e) {
+        if (e.target === favOverlay) closeFavModal();
+    });
+
+    document.getElementById('fav-submit').addEventListener('click', function() {
+        var name = favName.value.trim();
+        if (!name) return;
+        vscode.postMessage({
+            type: 'addFavouriteFolder',
+            name: name,
+            serverId: favServer.value,
+            workingDirectory: favDir.value.trim() || '~/'
+        });
+        closeFavModal();
+    });
+
+    document.getElementById('fav-browse').addEventListener('click', function() {
+        vscode.postMessage({ type: 'browseDir', target: 'fav-dir', serverId: favServer.value, currentPath: favDir.value || '~/' });
     });
 
     /* ── Edit Swim Lane Modal ────────────────────────────────────────────── */
@@ -1988,6 +2168,8 @@ html, body {
             tasks = msg.tasks || [];
             swimLanes = msg.swimLanes || [];
             servers = msg.servers || [];
+            favouriteFolders = msg.favouriteFolders || [];
+            renderFavBar();
             render();
         }
         if (msg.type === 'tmuxScanResult') {

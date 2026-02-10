@@ -15,9 +15,9 @@ const fsStat = util.promisify(fs.stat);
 const readdir = util.promisify(fs.readdir);
 
 /** Run a command with stdin piped in (avoids shell escaping issues) */
-function spawnWithStdin(command: string, args: string[], input: string, timeoutMs: number = 60000, onSpawn?: (proc: cp.ChildProcess) => void, cwd?: string): Promise<string> {
+function spawnWithStdin(command: string, args: string[], input: string, timeoutMs: number = 60000, onSpawn?: (proc: cp.ChildProcess) => void, cwd?: string, shell: boolean = false): Promise<string> {
     return new Promise((resolve, reject) => {
-        const proc = cp.spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'], cwd });
+        const proc = cp.spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'], cwd, shell });
         if (onSpawn) { onSpawn(proc); }
         let stdout = '';
         let stderr = '';
@@ -648,9 +648,9 @@ except sr.RequestError as e:
                 const prompt = this.buildPrompt(stateText, currentTurn, isFirstStep ? fileContext : '');
 
                 this.postMessage({ type: 'setLoading', loading: true, step: step > 1 ? step : undefined });
-                const spawnCfg = this.aiManager?.getSpawnConfig(AIProvider.CLAUDE) || { command: 'claude', args: ['--print', '-'], env: {}, cwd: undefined };
+                const spawnCfg = this.aiManager?.getSpawnConfig(AIProvider.CLAUDE) || { command: 'claude', args: ['--print', '-'], env: {}, cwd: undefined, shell: false };
                 const chatArgs = [...spawnCfg.args.filter(a => a !== '-'), '--model', this.selectedModel, '-'];
-                const stdout = await spawnWithStdin(spawnCfg.command, chatArgs, prompt, 120000, (proc) => { this.currentProc = proc; }, spawnCfg.cwd);
+                const stdout = await spawnWithStdin(spawnCfg.command, chatArgs, prompt, 120000, (proc) => { this.currentProc = proc; }, spawnCfg.cwd, spawnCfg.shell);
                 this.currentProc = null;
                 if (this.abortRequested) { break; }
                 const response = stdout.trim();

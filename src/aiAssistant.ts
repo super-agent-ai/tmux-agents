@@ -175,7 +175,7 @@ export class AIAssistantManager {
     /**
      * Get spawn-friendly config for cp.spawn: { command, args, env }.
      */
-    getSpawnConfig(provider: AIProvider): { command: string; args: string[]; env: Record<string, string>; cwd?: string } {
+    getSpawnConfig(provider: AIProvider): { command: string; args: string[]; env: Record<string, string>; cwd?: string; shell: boolean } {
         const cfg = vscode.workspace.getConfiguration('tmuxAgents');
         const allProviders = cfg.get<Record<string, any>>('aiProviders') || {};
         const key = provider as string;
@@ -184,7 +184,8 @@ export class AIAssistantManager {
         const cwd = p.defaultWorkingDirectory
             || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
             || undefined;
-        return { command: config.pipeCommand, args: ['--print', '-'], env: config.env, cwd };
+        const shell = p.shell ?? true;
+        return { command: config.pipeCommand, args: ['--print', '-'], env: config.env, cwd, shell };
     }
 
     /**

@@ -383,6 +383,15 @@ export interface OrchestratorTask {
     autoClose?: boolean;
 }
 
+// ─── Favourite Folders ──────────────────────────────────────────────────────
+
+export interface FavouriteFolder {
+    id: string;
+    name: string;
+    serverId: string;
+    workingDirectory: string;
+}
+
 // ─── Kanban Swim Lane ────────────────────────────────────────────────────────
 
 export interface KanbanSwimLane {

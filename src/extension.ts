@@ -16,7 +16,7 @@ import { DashboardViewProvider } from './dashboardView';
 import { GraphViewProvider } from './graphView';
 import { KanbanViewProvider } from './kanbanView';
 import { Database } from './database';
-import { AIProvider, AgentRole, TaskStatus, OrchestratorTask, KanbanSwimLane, StageType } from './types';
+import { AIProvider, AgentRole, TaskStatus, OrchestratorTask, KanbanSwimLane, FavouriteFolder, StageType } from './types';
 import { handleKanbanMessage } from './commands/kanbanHandlers';
 import { registerSessionCommands } from './commands/sessionCommands';
 import { registerAgentCommands } from './commands/agentCommands';
@@ -134,6 +134,7 @@ export function activate(context: vscode.ExtensionContext) {
     const graphView = new GraphViewProvider(context.extensionUri);
     const kanbanView = new KanbanViewProvider(context.extensionUri);
     const swimLanes: KanbanSwimLane[] = [];
+    const favouriteFolders: FavouriteFolder[] = [];
 
     // Load saved templates and built-in pipelines
     templateManager.loadFromSettings();
@@ -149,6 +150,10 @@ export function activate(context: vscode.ExtensionContext) {
 
             for (const lane of database.getAllSwimLanes()) {
                 swimLanes.push(lane);
+            }
+
+            for (const fav of database.getAllFavouriteFolders()) {
+                favouriteFolders.push(fav);
             }
 
             for (const task of database.getAllTasks()) {
@@ -370,6 +375,7 @@ export function activate(context: vscode.ExtensionContext) {
             try {
                 const windowName = buildTaskWindowName(t);
                 await service.newWindow(lane.sessionName, windowName);
+                await cleanupInitWindow(service, lane.sessionName);
 
                 const sessions = await service.getTmuxTreeFresh();
                 const session = sessions.find(s => s.name === lane.sessionName);
@@ -454,11 +460,16 @@ export function activate(context: vscode.ExtensionContext) {
             kanbanView,
             database,
             swimLanes,
+            favouriteFolders,
             updateKanban,
             updateDashboard,
             ensureLaneSession,
             startTaskFlow,
             buildTaskWindowName,
+            cleanupInitWindow: async (serverId: string, sessionName: string) => {
+                const svc = serviceManager.getService(serverId);
+                if (svc) { await cleanupInitWindow(svc, sessionName); }
+            },
         });
     });
 
@@ -479,7 +490,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     function updateKanban(): void {
         const servers = serviceManager.getAllServices().map(s => ({ id: s.serverId, label: s.serverLabel }));
-        kanbanView.updateState(orchestrator.getTaskQueue(), swimLanes, servers);
+        kanbanView.updateState(orchestrator.getTaskQueue(), swimLanes, servers, favouriteFolders);
     }
 
     // ── Auto-Close / Auto-Pilot Monitor ──────────────────────────────────────
@@ -507,10 +518,13 @@ export function activate(context: vscode.ExtensionContext) {
         try {
             const existing = await service.getSessions();
             if (!existing.includes(lane.sessionName)) {
-                await service.newSession(lane.sessionName);
-                if (lane.workingDirectory) {
-                    await service.sendKeysToSession(lane.sessionName, `cd ${lane.workingDirectory}`);
-                }
+                await service.newSession(lane.sessionName, {
+                    cwd: lane.workingDirectory || undefined,
+                    windowName: '__lane_init__',
+                });
+                // Prevent tmux from auto-renaming the init window to the shell (e.g. "zsh")
+                // so cleanupInitWindow can find and remove it by name
+                await service.execCommand(`tmux set-window-option -t "${lane.sessionName}" automatic-rename off`).catch(() => {});
             }
             lane.sessionActive = true;
             database.saveSwimLane(lane);
@@ -519,6 +533,20 @@ export function activate(context: vscode.ExtensionContext) {
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to create session for lane "${lane.name}": ${error}`);
             return false;
+        }
+    }
+
+    /** Kill the placeholder __lane_init__ window after a real task window has been created. */
+    async function cleanupInitWindow(service: import('./tmuxService').TmuxService, sessionName: string): Promise<void> {
+        try {
+            const sessions = await service.getTmuxTreeFresh();
+            const session = sessions.find(s => s.name === sessionName);
+            const initWin = session?.windows.find(w => w.name === '__lane_init__');
+            if (initWin && session && session.windows.length > 1) {
+                await service.killWindow(sessionName, initWin.index);
+            }
+        } catch {
+            // Non-critical — init window may already be gone
         }
     }
 

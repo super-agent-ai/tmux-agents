@@ -8,7 +8,7 @@ import { AgentOrchestrator } from '../orchestrator';
 import { TeamManager } from '../teamManager';
 import { KanbanViewProvider } from '../kanbanView';
 import { Database } from '../database';
-import { AIProvider, OrchestratorTask, TaskStatus, KanbanSwimLane } from '../types';
+import { AIProvider, OrchestratorTask, TaskStatus, KanbanSwimLane, FavouriteFolder } from '../types';
 import { buildSingleTaskPrompt, buildTaskBoxPrompt, buildBundleTaskPrompt, appendPromptTail } from '../promptBuilder';
 
 export interface KanbanHandlerContext {
@@ -21,11 +21,13 @@ export interface KanbanHandlerContext {
     kanbanView: KanbanViewProvider;
     database: Database;
     swimLanes: KanbanSwimLane[];
+    favouriteFolders: FavouriteFolder[];
     updateKanban: () => void;
     updateDashboard: () => Promise<void>;
     ensureLaneSession: (lane: KanbanSwimLane) => Promise<boolean>;
     startTaskFlow: (task: OrchestratorTask, options?: { additionalInstructions?: string; askForContext?: boolean }) => Promise<void>;
     buildTaskWindowName: (task: OrchestratorTask) => string;
+    cleanupInitWindow: (serverId: string, sessionName: string) => Promise<void>;
 }
 
 export async function handleKanbanMessage(
@@ -109,6 +111,138 @@ export async function handleKanbanMessage(
             ctx.updateKanban();
             break;
         }
+        case 'addFavouriteFolder': {
+            const fav: FavouriteFolder = {
+                id: 'fav-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+                name: payload.name,
+                serverId: payload.serverId,
+                workingDirectory: payload.workingDirectory || '~/',
+            };
+            ctx.favouriteFolders.push(fav);
+            ctx.database.saveFavouriteFolder(fav);
+            ctx.updateKanban();
+            break;
+        }
+        case 'deleteFavouriteFolder': {
+            const favIdx = ctx.favouriteFolders.findIndex(f => f.id === payload.id);
+            if (favIdx !== -1) {
+                ctx.favouriteFolders.splice(favIdx, 1);
+                ctx.database.deleteFavouriteFolder(payload.id);
+            }
+            ctx.updateKanban();
+            break;
+        }
+        case 'openLaneTerminal': {
+            const lane = ctx.swimLanes.find(l => l.id === payload.swimLaneId);
+            if (!lane) break;
+            const ready = await ctx.ensureLaneSession(lane);
+            if (!ready) break;
+            const service = ctx.serviceManager.getService(lane.serverId);
+            if (!service) break;
+            try {
+                const terminal = await ctx.smartAttachment.attachToSession(service, lane.sessionName);
+                terminal.show();
+                ctx.tmuxSessionProvider.refresh();
+            } catch (error) {
+                vscode.window.showErrorMessage(`Failed to open terminal: ${error}`);
+            }
+            break;
+        }
+        case 'createDebugWindow': {
+            const lane = ctx.swimLanes.find(l => l.id === payload.swimLaneId);
+            if (!lane) break;
+            const ready = await ctx.ensureLaneSession(lane);
+            if (!ready) break;
+            const service = ctx.serviceManager.getService(lane.serverId);
+            if (!service) break;
+            try {
+                // Check for existing debug window in the session
+                const sessions = await service.getTmuxTreeFresh();
+                const session = sessions.find(s => s.name === lane.sessionName);
+                let win = session?.windows.find(w => w.name.startsWith('debug'));
+
+                if (!win) {
+                    // No existing debug window — create one
+                    const debugName = 'debug-' + Date.now().toString(36).slice(-4);
+                    await service.newWindow(lane.sessionName, debugName);
+                    await ctx.cleanupInitWindow(lane.serverId, lane.sessionName);
+
+                    const freshSessions = await service.getTmuxTreeFresh();
+                    const freshSession = freshSessions.find(s => s.name === lane.sessionName);
+                    win = freshSession?.windows.find(w => w.name === debugName);
+
+                    // cd to working directory and launch claude in new window
+                    if (win) {
+                        const pIdx = win.panes[0]?.index || '0';
+                        if (lane.workingDirectory) {
+                            await service.sendKeys(lane.sessionName, win.index, pIdx, `cd ${lane.workingDirectory}`);
+                        }
+                        const launchCmd = ctx.aiManager.getLaunchCommand(AIProvider.CLAUDE);
+                        await service.sendKeys(lane.sessionName, win.index, pIdx, launchCmd);
+                    }
+                }
+
+                const winIndex = win?.index || '0';
+                const paneIndex = win?.panes[0]?.index || '0';
+
+                const terminal = await ctx.smartAttachment.attachToSession(service, lane.sessionName, {
+                    windowIndex: winIndex,
+                    paneIndex: paneIndex
+                });
+                terminal.show();
+                ctx.tmuxSessionProvider.refresh();
+            } catch (error) {
+                vscode.window.showErrorMessage(`Failed to create debug window: ${error}`);
+            }
+            ctx.updateKanban();
+            break;
+        }
+        case 'restartDebugWindow': {
+            const lane = ctx.swimLanes.find(l => l.id === payload.swimLaneId);
+            if (!lane) break;
+            const ready = await ctx.ensureLaneSession(lane);
+            if (!ready) break;
+            const service = ctx.serviceManager.getService(lane.serverId);
+            if (!service) break;
+            try {
+                // Kill existing debug window if present
+                const sessions = await service.getTmuxTreeFresh();
+                const session = sessions.find(s => s.name === lane.sessionName);
+                const existingDebug = session?.windows.find(w => w.name.startsWith('debug'));
+                if (existingDebug) {
+                    await service.killWindow(lane.sessionName, existingDebug.index);
+                }
+
+                // Create a fresh debug window
+                const debugName = 'debug-' + Date.now().toString(36).slice(-4);
+                await service.newWindow(lane.sessionName, debugName);
+                await ctx.cleanupInitWindow(lane.serverId, lane.sessionName);
+
+                const freshSessions = await service.getTmuxTreeFresh();
+                const freshSession = freshSessions.find(s => s.name === lane.sessionName);
+                const win = freshSession?.windows.find(w => w.name === debugName);
+
+                if (win) {
+                    const pIdx = win.panes[0]?.index || '0';
+                    if (lane.workingDirectory) {
+                        await service.sendKeys(lane.sessionName, win.index, pIdx, `cd ${lane.workingDirectory}`);
+                    }
+                    const launchCmd = ctx.aiManager.getLaunchCommand(AIProvider.CLAUDE);
+                    await service.sendKeys(lane.sessionName, win.index, pIdx, launchCmd);
+
+                    const terminal = await ctx.smartAttachment.attachToSession(service, lane.sessionName, {
+                        windowIndex: win.index,
+                        paneIndex: pIdx
+                    });
+                    terminal.show();
+                }
+                ctx.tmuxSessionProvider.refresh();
+            } catch (error) {
+                vscode.window.showErrorMessage(`Failed to restart debug window: ${error}`);
+            }
+            ctx.updateKanban();
+            break;
+        }
         case 'deleteSwimLane': {
             const laneIndex = ctx.swimLanes.findIndex(l => l.id === payload.swimLaneId);
             if (laneIndex !== -1) {
@@ -186,6 +320,7 @@ export async function handleKanbanMessage(
                                 try {
                                     const windowName = ctx.buildTaskWindowName(t);
                                     await service.newWindow(lane.sessionName, windowName);
+                                    await ctx.cleanupInitWindow(lane.serverId, lane.sessionName);
                                     t.status = TaskStatus.IN_PROGRESS;
                                     t.startedAt = Date.now();
                                     ctx.tmuxSessionProvider.refresh();
@@ -305,6 +440,7 @@ export async function handleKanbanMessage(
 
                 const windowName = ctx.buildTaskWindowName(t);
                 await service.newWindow(lane.sessionName, windowName);
+                await ctx.cleanupInitWindow(lane.serverId, lane.sessionName);
 
                 const sessions = await service.getTmuxTreeFresh();
                 const session = sessions.find(s => s.name === lane.sessionName);
@@ -388,6 +524,7 @@ export async function handleKanbanMessage(
                     try {
                         const windowName = ctx.buildTaskWindowName(t);
                         await service.newWindow(lane.sessionName, windowName);
+                        await ctx.cleanupInitWindow(lane.serverId, lane.sessionName);
 
                         const sessions = await service.getTmuxTreeFresh();
                         const session = sessions.find(s => s.name === lane.sessionName);
@@ -648,7 +785,7 @@ export async function handleKanbanMessage(
                 const summary = await new Promise<string>((resolve) => {
                     const prompt = `Summarize what was accomplished in this terminal session in 3-5 sentences. Focus on what was done, key changes made, and the outcome.\n\n${content.slice(-3000)}`;
                     const spawnCfg = ctx.aiManager.getSpawnConfig(AIProvider.CLAUDE);
-                    const proc = cp.spawn(spawnCfg.command, spawnCfg.args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...spawnCfg.env }, cwd: spawnCfg.cwd });
+                    const proc = cp.spawn(spawnCfg.command, spawnCfg.args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...spawnCfg.env }, cwd: spawnCfg.cwd, shell: spawnCfg.shell });
                     let stdout = '';
                     const timer = setTimeout(() => { proc.kill(); resolve(''); }, 20000);
                     proc.stdout!.on('data', (d: Buffer) => { stdout += d.toString(); });
@@ -692,7 +829,7 @@ The "role" field should be one of: coder, reviewer, tester, devops, researcher, 
                     }
 
                     prompt += `\n\nUser's input: ${text}`;
-                    const proc = cp.spawn(spawnCfg.command, spawnCfg.args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...spawnCfg.env }, cwd: spawnCfg.cwd });
+                    const proc = cp.spawn(spawnCfg.command, spawnCfg.args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...spawnCfg.env }, cwd: spawnCfg.cwd, shell: spawnCfg.shell });
                     let stdout = '';
                     let stderr = '';
                     const timer = setTimeout(() => {
@@ -780,7 +917,7 @@ The "role" field should be one of: coder, reviewer, tester, devops, researcher, 
                                 summary = await new Promise<string>((resolve, reject) => {
                                     const prompt = `Summarize what is happening in this tmux session in 2-3 short lines. Focus on: what project/task, what tools/commands are running, current status.\n\n${combinedContent}`;
                                     const spawnCfg = ctx.aiManager.getSpawnConfig(AIProvider.CLAUDE);
-                                    const proc = cp.spawn(spawnCfg.command, spawnCfg.args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...spawnCfg.env }, cwd: spawnCfg.cwd });
+                                    const proc = cp.spawn(spawnCfg.command, spawnCfg.args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...spawnCfg.env }, cwd: spawnCfg.cwd, shell: spawnCfg.shell });
                                     let stdout = '';
                                     const timer = setTimeout(() => { proc.kill(); resolve(''); }, 15000);
                                     proc.stdout!.on('data', (d: Buffer) => { stdout += d.toString(); });
