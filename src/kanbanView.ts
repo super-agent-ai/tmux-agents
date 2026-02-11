@@ -727,6 +727,94 @@ html, body {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ── Card date & tags ────────────────────────────────────────────────── */
+.card-date {
+    font-size: 9px; opacity: 0.4; margin-left: 6px;
+}
+.card-tags {
+    display: flex; gap: 3px; flex-wrap: wrap; margin-top: 4px;
+}
+.tag-badge {
+    display: inline-block; padding: 1px 6px; border-radius: 3px;
+    font-size: 9px; font-weight: 600; letter-spacing: 0.3px;
+}
+.comment-count-badge {
+    display: inline-flex; align-items: center; gap: 2px;
+    font-size: 9px; padding: 1px 5px; border-radius: 3px;
+    background: rgba(150,150,150,0.15); color: rgba(255,255,255,0.55);
+}
+
+/* ── Modal tags row ──────────────────────────────────────────────────── */
+.modal-tags-row {
+    display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
+    margin-bottom: 6px;
+}
+.modal-tags-row .tag-badge {
+    cursor: pointer; position: relative;
+}
+.modal-tags-row .tag-badge:hover { opacity: 0.7; }
+.modal-tags-row .tag-remove {
+    margin-left: 3px; font-size: 10px; cursor: pointer; opacity: 0.6;
+}
+.modal-tags-row .tag-remove:hover { opacity: 1; }
+.tag-input-row {
+    display: flex; gap: 4px; align-items: center;
+}
+.tag-input-row input { flex: 1; }
+.tag-input-row button {
+    padding: 5px 10px; border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+    border-radius: 3px; font-size: 11px; font-family: inherit; cursor: pointer;
+    background: var(--vscode-button-secondaryBackground, rgba(255,255,255,0.06));
+    color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+}
+.tag-input-row button:hover { background: var(--vscode-button-secondaryHoverBackground, rgba(255,255,255,0.1)); }
+
+/* ── Modal comments ──────────────────────────────────────────────────── */
+.modal-comments {
+    max-height: 150px; overflow-y: auto;
+    border: 1px solid var(--vscode-panel-border); border-radius: 4px;
+    margin-bottom: 6px;
+}
+.modal-comments:empty { display: none; }
+.comment-item {
+    display: flex; align-items: flex-start; gap: 6px;
+    padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,0.04);
+    font-size: 11px;
+}
+.comment-item:last-child { border-bottom: none; }
+.comment-text { flex: 1; line-height: 1.4; word-break: break-word; }
+.comment-time { font-size: 9px; opacity: 0.4; white-space: nowrap; flex-shrink: 0; }
+.comment-del {
+    font-size: 12px; opacity: 0.3; cursor: pointer; flex-shrink: 0; line-height: 1;
+}
+.comment-del:hover { opacity: 1; color: #f44747; }
+.comment-input-row {
+    display: flex; gap: 4px; align-items: center;
+}
+.comment-input-row input { flex: 1; }
+.comment-input-row button {
+    padding: 5px 10px; border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+    border-radius: 3px; font-size: 11px; font-family: inherit; cursor: pointer;
+    background: var(--vscode-button-secondaryBackground, rgba(255,255,255,0.06));
+    color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+}
+.comment-input-row button:hover { background: var(--vscode-button-secondaryHoverBackground, rgba(255,255,255,0.1)); }
+
+/* ── Modal status history ────────────────────────────────────────────── */
+.modal-history {
+    max-height: 120px; overflow-y: auto;
+    border: 1px solid var(--vscode-panel-border); border-radius: 4px;
+}
+.modal-history:empty { display: none; }
+.history-item {
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px 8px; font-size: 10px; opacity: 0.7;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.history-item:last-child { border-bottom: none; }
+.history-arrow { opacity: 0.5; }
+.history-time { margin-left: auto; opacity: 0.5; font-size: 9px; white-space: nowrap; }
+
 </style>
 </head>
 <body>
@@ -904,6 +992,30 @@ html, body {
         <div class="field" id="tm-deps-field">
             <label>Depends On</label>
             <select id="tm-deps" multiple style="height:80px"></select>
+        </div>
+        <div class="field" id="tm-tags-field">
+            <label>Tags</label>
+            <div class="modal-tags-row" id="tm-tags-row"></div>
+            <div class="tag-input-row">
+                <input type="text" id="tm-tag-input" placeholder="Add tag (e.g. bug, feature, urgent)" />
+                <button id="tm-tag-add">Add</button>
+            </div>
+        </div>
+        <div class="field" id="tm-comments-field" style="display:none">
+            <label>Comments</label>
+            <div class="modal-comments" id="tm-comments-list"></div>
+            <div class="comment-input-row">
+                <input type="text" id="tm-comment-input" placeholder="Add a comment..." />
+                <button id="tm-comment-add">Post</button>
+            </div>
+        </div>
+        <div class="field" id="tm-created-field" style="display:none">
+            <label>Created</label>
+            <span id="tm-created-date" style="font-size:11px;opacity:0.6"></span>
+        </div>
+        <div class="field" id="tm-history-field" style="display:none">
+            <label>Status History</label>
+            <div class="modal-history" id="tm-history-list"></div>
         </div>
         <div class="field" id="tm-output-field" style="display:none">
             <label>Completion Summary</label>
@@ -1108,6 +1220,20 @@ html, body {
     var aiGenCancel = document.getElementById('ai-gen-cancel');
     var aiGenAborted = false;
 
+    // Task modal tags/comments/history refs
+    var tmTagsRow = document.getElementById('tm-tags-row');
+    var tmTagInput = document.getElementById('tm-tag-input');
+    var tmTagAdd = document.getElementById('tm-tag-add');
+    var tmCommentsField = document.getElementById('tm-comments-field');
+    var tmCommentsList = document.getElementById('tm-comments-list');
+    var tmCommentInput = document.getElementById('tm-comment-input');
+    var tmCommentAdd = document.getElementById('tm-comment-add');
+    var tmCreatedField = document.getElementById('tm-created-field');
+    var tmCreatedDate = document.getElementById('tm-created-date');
+    var tmHistoryField = document.getElementById('tm-history-field');
+    var tmHistoryList = document.getElementById('tm-history-list');
+    var modalTags = [];  // current tags being edited in modal
+
     // Task modal AI provider/model refs
     var tmProvider = document.getElementById('tm-provider');
     var tmModel = document.getElementById('tm-model');
@@ -1211,6 +1337,52 @@ html, body {
         return '#' + id.slice(-6);
     }
 
+    function formatRelativeTime(ts) {
+        if (!ts) return '';
+        var now = Date.now();
+        var diff = now - ts;
+        var secs = Math.floor(diff / 1000);
+        if (secs < 60) return 'just now';
+        var mins = Math.floor(secs / 60);
+        if (mins < 60) return mins + 'm ago';
+        var hrs = Math.floor(mins / 60);
+        if (hrs < 24) return hrs + 'h ago';
+        var days = Math.floor(hrs / 24);
+        if (days < 30) return days + 'd ago';
+        var months = Math.floor(days / 30);
+        return months + 'mo ago';
+    }
+
+    function formatDateTime(ts) {
+        if (!ts) return '';
+        var d = new Date(ts);
+        return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    var TAG_COLORS = {
+        bug: { bg: 'rgba(244,71,71,0.2)', fg: '#f44747' },
+        feature: { bg: 'rgba(86,156,214,0.2)', fg: '#569cd6' },
+        refactor: { bg: 'rgba(197,134,192,0.2)', fg: '#c586c0' },
+        test: { bg: 'rgba(78,201,176,0.2)', fg: '#4ec9b0' },
+        docs: { bg: 'rgba(206,145,120,0.2)', fg: '#ce9178' },
+        urgent: { bg: 'rgba(244,71,71,0.25)', fg: '#f44747' },
+        blocked: { bg: 'rgba(220,220,170,0.2)', fg: '#dcdcaa' }
+    };
+    var TAG_DEFAULT_COLOR = { bg: 'rgba(150,150,150,0.15)', fg: 'rgba(255,255,255,0.6)' };
+
+    function tagColor(tag) {
+        return TAG_COLORS[tag.toLowerCase()] || TAG_DEFAULT_COLOR;
+    }
+
+    function tagBadgeHtml(tag, removable) {
+        var c = tagColor(tag);
+        var html = '<span class="tag-badge" style="background:' + c.bg + ';color:' + c.fg + '" data-tag="' + esc(tag) + '">';
+        html += esc(tag);
+        if (removable) html += '<span class="tag-remove" data-tag="' + esc(tag) + '">&times;</span>';
+        html += '</span>';
+        return html;
+    }
+
     function getCol(task) {
         if (task.kanbanColumn) return task.kanbanColumn;
         var s = task.status;
@@ -1282,7 +1454,9 @@ html, body {
 
         var html = '';
         html += '<div class="card-top-row">';
-        html += '<span class="card-id">' + esc(shortId(task.id)) + '</span>';
+        html += '<span class="card-id">' + esc(shortId(task.id));
+        if (task.createdAt) html += '<span class="card-date">' + esc(formatRelativeTime(task.createdAt)) + '</span>';
+        html += '</span>';
         html += '<div class="card-actions">';
         // Restart icon for tasks with a swim lane (in_progress, in_review, done)
         if (task.swimLaneId && (colId === 'in_progress' || colId === 'in_review' || colId === 'done')) {
@@ -1324,7 +1498,17 @@ html, body {
             }
             html += '<span class="dep-badge' + (allMet ? ' met' : '') + '" title="Dependencies: ' + task.dependsOn.length + (allMet ? ' (all met)' : ' (pending)') + '">' + (allMet ? '&#x1F513;' : '&#x1F512;') + ' ' + task.dependsOn.length + '</span>';
         }
+        if (task.comments && task.comments.length > 0) {
+            html += '<span class="comment-count-badge" title="' + task.comments.length + ' comment(s)">&#x1F4AC; ' + task.comments.length + '</span>';
+        }
         html += '</div>';
+        if (task.tags && task.tags.length > 0) {
+            html += '<div class="card-tags">';
+            for (var ti = 0; ti < task.tags.length; ti++) {
+                html += tagBadgeHtml(task.tags[ti], false);
+            }
+            html += '</div>';
+        }
 
         // Task Box — parent card with bundled subtasks
         if (task.subtaskIds && task.subtaskIds.length > 0) {
@@ -2043,6 +2227,37 @@ html, body {
             tmOutputField.style.display = 'none';
         }
 
+        // Tags
+        modalTags = (task && task.tags) ? task.tags.slice() : [];
+        renderModalTags();
+
+        // Comments (only show for existing tasks)
+        if (task) {
+            tmCommentsField.style.display = '';
+            renderModalComments(task);
+            tmCommentInput.value = '';
+        } else {
+            tmCommentsField.style.display = 'none';
+            tmCommentsList.innerHTML = '';
+        }
+
+        // Created date (only for existing tasks)
+        if (task && task.createdAt) {
+            tmCreatedField.style.display = '';
+            tmCreatedDate.textContent = formatDateTime(task.createdAt) + ' (' + formatRelativeTime(task.createdAt) + ')';
+        } else {
+            tmCreatedField.style.display = 'none';
+        }
+
+        // Status History (only for existing tasks)
+        if (task && task.statusHistory && task.statusHistory.length > 0) {
+            tmHistoryField.style.display = '';
+            renderModalHistory(task.statusHistory);
+        } else {
+            tmHistoryField.style.display = 'none';
+            tmHistoryList.innerHTML = '';
+        }
+
         // Show/hide action buttons based on edit vs create
         if (task) {
             tmTaskActions.classList.add('active');
@@ -2154,7 +2369,8 @@ html, body {
                 autoClose: autoClose,
                 aiProvider: taskProvider,
                 aiModel: taskModel,
-                dependsOn: dependsOn
+                dependsOn: dependsOn,
+                tags: modalTags.length > 0 ? modalTags : undefined
             });
         }
         closeTaskModal();
@@ -2231,6 +2447,119 @@ html, body {
         tmaAiGen.disabled = false;
         tmaAiGen.innerHTML = '&#x2728; Generate';
     });
+
+    /* ── Tags helpers ──────────────────────────────────────────────────── */
+
+    function renderModalTags() {
+        var html = '';
+        for (var i = 0; i < modalTags.length; i++) {
+            html += tagBadgeHtml(modalTags[i], true);
+        }
+        tmTagsRow.innerHTML = html;
+    }
+
+    function addModalTag() {
+        var tag = tmTagInput.value.trim().toLowerCase();
+        if (!tag || modalTags.indexOf(tag) !== -1) return;
+        modalTags.push(tag);
+        renderModalTags();
+        tmTagInput.value = '';
+        // Persist immediately for existing tasks
+        if (editingTaskId) {
+            vscode.postMessage({ type: 'addTag', taskId: editingTaskId, tag: tag });
+        }
+    }
+
+    tmTagAdd.addEventListener('click', addModalTag);
+    tmTagInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); addModalTag(); }
+    });
+
+    tmTagsRow.addEventListener('click', function(e) {
+        var removeEl = e.target.closest('.tag-remove');
+        if (removeEl) {
+            var tag = removeEl.dataset.tag;
+            modalTags = modalTags.filter(function(t) { return t !== tag; });
+            renderModalTags();
+            if (editingTaskId) {
+                vscode.postMessage({ type: 'removeTag', taskId: editingTaskId, tag: tag });
+            }
+        }
+    });
+
+    /* ── Comments helpers ─────────────────────────────────────────────── */
+
+    function renderModalComments(task) {
+        if (!task || !task.comments || task.comments.length === 0) {
+            tmCommentsList.innerHTML = '';
+            return;
+        }
+        var html = '';
+        for (var i = 0; i < task.comments.length; i++) {
+            var c = task.comments[i];
+            html += '<div class="comment-item">';
+            html += '<span class="comment-text">' + esc(c.text) + '</span>';
+            html += '<span class="comment-time">' + esc(formatRelativeTime(c.createdAt)) + '</span>';
+            html += '<span class="comment-del" data-comment-id="' + esc(c.id) + '">&times;</span>';
+            html += '</div>';
+        }
+        tmCommentsList.innerHTML = html;
+    }
+
+    function addModalComment() {
+        var text = tmCommentInput.value.trim();
+        if (!text || !editingTaskId) return;
+        vscode.postMessage({ type: 'addComment', taskId: editingTaskId, text: text });
+        // Optimistic local update
+        var task = findTask(editingTaskId);
+        if (task) {
+            if (!task.comments) task.comments = [];
+            task.comments.push({ id: 'temp-' + Date.now(), taskId: editingTaskId, text: text, createdAt: Date.now() });
+            renderModalComments(task);
+        }
+        tmCommentInput.value = '';
+    }
+
+    tmCommentAdd.addEventListener('click', addModalComment);
+    tmCommentInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); addModalComment(); }
+    });
+
+    tmCommentsList.addEventListener('click', function(e) {
+        var del = e.target.closest('.comment-del');
+        if (del) {
+            var commentId = del.dataset.commentId;
+            vscode.postMessage({ type: 'deleteComment', commentId: commentId });
+            // Optimistic remove
+            if (editingTaskId) {
+                var task = findTask(editingTaskId);
+                if (task && task.comments) {
+                    task.comments = task.comments.filter(function(c) { return c.id !== commentId; });
+                    renderModalComments(task);
+                }
+            }
+        }
+    });
+
+    /* ── History helpers ──────────────────────────────────────────────── */
+
+    function renderModalHistory(history) {
+        if (!history || history.length === 0) {
+            tmHistoryList.innerHTML = '';
+            return;
+        }
+        var html = '';
+        for (var i = 0; i < history.length; i++) {
+            var h = history[i];
+            html += '<div class="history-item">';
+            html += '<span>' + esc(h.fromColumn) + '</span>';
+            html += '<span class="history-arrow">&rarr;</span>';
+            html += '<span>' + esc(h.toColumn) + '</span>';
+            html += '<span class="history-time">' + esc(formatRelativeTime(h.changedAt)) + '</span>';
+            html += '</div>';
+        }
+        tmHistoryList.innerHTML = html;
+    }
 
     /* ── Keyboard shortcuts ──────────────────────────────────────────────── */
 
