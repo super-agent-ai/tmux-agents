@@ -213,10 +213,9 @@ export async function handleKanbanMessage(
                         const capturedPane = pIdx;
                         setTimeout(async () => {
                             try {
-                                const escaped = debugPrompt.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-                                await service.sendKeys(capturedSession, capturedWin, capturedPane, '');
-                                await service.sendKeys(capturedSession, capturedWin, capturedPane, escaped);
-                                await service.sendKeys(capturedSession, capturedWin, capturedPane, '');
+                                await service.pasteText(capturedSession, capturedWin, capturedPane, debugPrompt);
+                                await new Promise(resolve => setTimeout(resolve, 500));
+                                await service.sendRawKeys(capturedSession, capturedWin, capturedPane, 'Enter');
                             } catch (err) {
                                 console.warn('Failed to send debug instructions:', err);
                             }
@@ -281,10 +280,9 @@ export async function handleKanbanMessage(
                     const rCapturedPane = pIdx;
                     setTimeout(async () => {
                         try {
-                            const escaped = restartDebugPrompt.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-                            await service.sendKeys(rCapturedSession, rCapturedWin, rCapturedPane, '');
-                            await service.sendKeys(rCapturedSession, rCapturedWin, rCapturedPane, escaped);
-                            await service.sendKeys(rCapturedSession, rCapturedWin, rCapturedPane, '');
+                            await service.pasteText(rCapturedSession, rCapturedWin, rCapturedPane, restartDebugPrompt);
+                            await new Promise(resolve => setTimeout(resolve, 500));
+                            await service.sendRawKeys(rCapturedSession, rCapturedWin, rCapturedPane, 'Enter');
                         } catch (err) {
                             console.warn('Failed to send debug instructions:', err);
                         }
@@ -344,6 +342,7 @@ export async function handleKanbanMessage(
             const task: OrchestratorTask = {
                 id: 'task-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
                 description: payload.description,
+                input: payload.input || undefined,
                 targetRole: payload.targetRole || undefined,
                 status: TaskStatus.PENDING,
                 priority: payload.priority || 5,
@@ -668,10 +667,9 @@ export async function handleKanbanMessage(
                         const capturedPane = paneIndex;
                         setTimeout(async () => {
                             try {
-                                const escaped = capturedPrompt.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-                                await service.sendKeys(capturedSession, capturedWin, capturedPane, '');
-                                await service.sendKeys(capturedSession, capturedWin, capturedPane, escaped);
-                                await service.sendKeys(capturedSession, capturedWin, capturedPane, '');
+                                await service.pasteText(capturedSession, capturedWin, capturedPane, capturedPrompt);
+                                await new Promise(resolve => setTimeout(resolve, 500));
+                                await service.sendRawKeys(capturedSession, capturedWin, capturedPane, 'Enter');
                             } catch (err) {
                                 console.warn('Failed to send bundle prompt:', err);
                             }

@@ -527,10 +527,10 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
 
                 setTimeout(async () => {
                     try {
-                        const escaped = prompt.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-                        await service.sendKeys(lane.sessionName, winIndex, paneIndex, '');
-                        await service.sendKeys(lane.sessionName, winIndex, paneIndex, escaped);
-                        await service.sendKeys(lane.sessionName, winIndex, paneIndex, '');
+                        await service.pasteText(lane.sessionName, winIndex, paneIndex, prompt);
+                        // Allow CLI to process the paste before pressing Enter
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                        await service.sendRawKeys(lane.sessionName, winIndex, paneIndex, 'Enter');
                     } catch (err) {
                         console.warn('Failed to send prompt:', err);
                     }
