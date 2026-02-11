@@ -260,7 +260,7 @@
               "env": {}
             }
           },
-          "description": "AI provider configurations. Each key (claude, gemini, codex) supports: command (interactive CLI), pipeCommand (pipe mode CLI), args (launch arguments), forkArgs (fork/continue arguments), env (environment variables).",
+          "description": "AI provider configurations. Each key (claude, gemini, codex, opencode, cursor) supports: command (interactive CLI), pipeCommand (pipe mode CLI), args (launch arguments), forkArgs (fork/continue arguments), env (environment variables).",
           "additionalProperties": {
             "type": "object",
             "properties": {
