@@ -205,6 +205,24 @@ export async function handleKanbanMessage(
                         const debugModel = ctx.aiManager.resolveModel(undefined, lane.aiModel);
                         const launchCmd = ctx.aiManager.getInteractiveLaunchCommand(debugProvider, debugModel);
                         await service.sendKeys(lane.sessionName, win.index, pIdx, launchCmd);
+
+                        // Auto-insert swim lane instructions after CLI is ready
+                        if (lane.contextInstructions) {
+                            const capturedSession = lane.sessionName;
+                            const capturedWin = win.index;
+                            const capturedPane = pIdx;
+                            const instructions = lane.contextInstructions;
+                            setTimeout(async () => {
+                                try {
+                                    const escaped = instructions.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+                                    await service.sendKeys(capturedSession, capturedWin, capturedPane, '');
+                                    await service.sendKeys(capturedSession, capturedWin, capturedPane, escaped);
+                                    await service.sendKeys(capturedSession, capturedWin, capturedPane, '');
+                                } catch (err) {
+                                    console.warn('Failed to send debug instructions:', err);
+                                }
+                            }, 3000);
+                        }
                     }
                 }
 
@@ -257,6 +275,24 @@ export async function handleKanbanMessage(
                     const restartModel = ctx.aiManager.resolveModel(undefined, lane.aiModel);
                     const launchCmd = ctx.aiManager.getInteractiveLaunchCommand(restartProvider, restartModel);
                     await service.sendKeys(lane.sessionName, win.index, pIdx, launchCmd);
+
+                    // Auto-insert swim lane instructions after CLI is ready
+                    if (lane.contextInstructions) {
+                        const capturedSession = lane.sessionName;
+                        const capturedWin = win.index;
+                        const capturedPane = pIdx;
+                        const instructions = lane.contextInstructions;
+                        setTimeout(async () => {
+                            try {
+                                const escaped = instructions.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+                                await service.sendKeys(capturedSession, capturedWin, capturedPane, '');
+                                await service.sendKeys(capturedSession, capturedWin, capturedPane, escaped);
+                                await service.sendKeys(capturedSession, capturedWin, capturedPane, '');
+                            } catch (err) {
+                                console.warn('Failed to send debug instructions:', err);
+                            }
+                        }, 3000);
+                    }
 
                     const terminal = await ctx.smartAttachment.attachToSession(service, lane.sessionName, {
                         windowIndex: win.index,
