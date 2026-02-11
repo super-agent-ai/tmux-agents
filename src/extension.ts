@@ -269,7 +269,9 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
                                 const capturedPane = paneIndex;
                                 setTimeout(async () => {
                                     try {
+                                        await service.sendKeys(capturedSession, capturedWin, capturedPane, '');
                                         await service.sendKeys(capturedSession, capturedWin, capturedPane, capturedPrompt);
+                                        await service.sendKeys(capturedSession, capturedWin, capturedPane, '');
                                     } catch (err) {
                                         console.warn('Failed to send verification prompt:', err);
                                     }
@@ -525,7 +527,9 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
                 setTimeout(async () => {
                     try {
                         const escaped = prompt.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+                        await service.sendKeys(lane.sessionName, winIndex, paneIndex, '');
                         await service.sendKeys(lane.sessionName, winIndex, paneIndex, escaped);
+                        await service.sendKeys(lane.sessionName, winIndex, paneIndex, '');
                     } catch (err) {
                         console.warn('Failed to send prompt:', err);
                     }
