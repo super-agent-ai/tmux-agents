@@ -101,7 +101,7 @@ export async function handleKanbanMessage(
         }
         case 'createSwimLane': {
             const laneId = 'lane-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
-            const sessionName = 'kanban-' + (payload.name || 'lane').toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 30);
+            const sessionName = (payload.name || 'lane').toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 30) + '-kanban';
             const lane: KanbanSwimLane = {
                 id: laneId,
                 name: payload.name,
@@ -166,11 +166,11 @@ export async function handleKanbanMessage(
                 // Check for existing debug window in the session
                 const sessions = await service.getTmuxTreeFresh();
                 const session = sessions.find(s => s.name === lane.sessionName);
-                let win = session?.windows.find(w => w.name.startsWith('debug'));
+                let win = session?.windows.find(w => w.name.endsWith('-debug'));
 
                 if (!win) {
                     // No existing debug window — create one
-                    const debugName = 'debug-' + Date.now().toString(36).slice(-4);
+                    const debugName = Date.now().toString(36).slice(-4) + '-debug';
                     await service.newWindow(lane.sessionName, debugName);
                     await ctx.cleanupInitWindow(lane.serverId, lane.sessionName);
 
@@ -217,13 +217,13 @@ export async function handleKanbanMessage(
                 // Kill existing debug window if present
                 const sessions = await service.getTmuxTreeFresh();
                 const session = sessions.find(s => s.name === lane.sessionName);
-                const existingDebug = session?.windows.find(w => w.name.startsWith('debug'));
+                const existingDebug = session?.windows.find(w => w.name.endsWith('-debug'));
                 if (existingDebug) {
                     await service.killWindow(lane.sessionName, existingDebug.index);
                 }
 
                 // Create a fresh debug window
-                const debugName = 'debug-' + Date.now().toString(36).slice(-4);
+                const debugName = Date.now().toString(36).slice(-4) + '-debug';
                 await service.newWindow(lane.sessionName, debugName);
                 await ctx.cleanupInitWindow(lane.serverId, lane.sessionName);
 
