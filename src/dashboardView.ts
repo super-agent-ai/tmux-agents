@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { AgentInstance, DashboardState } from './types';
+import { AgentInstance, DashboardState, OrganizationUnit, Guild, AgentMessage, AgentProfileStats, TeamTemplate } from './types';
 
 export class DashboardViewProvider {
     private panel: vscode.WebviewPanel | undefined;
@@ -8,6 +8,11 @@ export class DashboardViewProvider {
         activePipelines: [],
         taskQueue: [],
         teams: [],
+        orgUnits: [],
+        guilds: [],
+        agentMessages: [],
+        agentProfiles: [],
+        teamTemplates: [],
         lastUpdated: Date.now()
     };
     private refreshInterval: NodeJS.Timeout | undefined;
@@ -803,6 +808,164 @@ html, body {
     padding: 4px 0;
     flex-shrink: 0;
 }
+
+/* ── Agent Persona Display ───────────────────────────────────────────── */
+.persona-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 2px; }
+.persona-tag {
+    display: inline-block; padding: 1px 6px; border-radius: 10px;
+    font-size: 9px; font-weight: 500;
+    background: rgba(255,255,255,0.06); color: var(--vscode-foreground); opacity: 0.7;
+}
+.persona-tag.skill-junior { border-left: 2px solid #808080; }
+.persona-tag.skill-mid { border-left: 2px solid #4ec9b0; }
+.persona-tag.skill-senior { border-left: 2px solid #569cd6; }
+.persona-tag.skill-principal { border-left: 2px solid #c586c0; }
+.agent-avatar {
+    width: 28px; height: 28px; border-radius: 50%; display: flex;
+    align-items: center; justify-content: center; font-size: 13px;
+    font-weight: 700; flex-shrink: 0;
+    background: rgba(86,156,214,0.2); color: #569cd6;
+}
+
+/* ── Org Chart ───────────────────────────────────────────────────────── */
+.org-tree { padding: 8px 0; }
+.org-node {
+    margin-left: 20px; padding: 6px 10px; border-left: 2px solid var(--vscode-panel-border);
+    margin-bottom: 4px;
+}
+.org-node.root { margin-left: 0; border-left: 3px solid #569cd6; }
+.org-node.department { border-left-color: #c586c0; }
+.org-node.squad { border-left-color: #4ec9b0; }
+.org-node-header {
+    display: flex; align-items: center; gap: 8px; cursor: pointer;
+}
+.org-node-name { font-weight: 600; font-size: 12px; }
+.org-node-type {
+    font-size: 9px; padding: 1px 6px; border-radius: 3px;
+    background: rgba(255,255,255,0.06); text-transform: uppercase;
+    letter-spacing: 0.3px; opacity: 0.6;
+}
+.org-node-meta { font-size: 11px; opacity: 0.5; margin-top: 2px; }
+.org-node-members { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+.org-member-chip {
+    display: inline-flex; align-items: center; gap: 3px; padding: 2px 6px;
+    border-radius: 3px; font-size: 10px;
+    background: var(--vscode-badge-background); color: var(--vscode-badge-foreground);
+}
+.org-member-chip.lead { border: 1px solid #dcdcaa; }
+.org-lead-icon { font-size: 10px; }
+
+/* ── Guild Cards ─────────────────────────────────────────────────────── */
+.guild-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px;
+}
+.guild-card {
+    background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
+    border: 1px solid var(--vscode-panel-border); border-radius: 8px;
+    padding: 12px 14px; display: flex; flex-direction: column; gap: 6px;
+    transition: border-color 0.2s;
+}
+.guild-card:hover { border-color: var(--vscode-focusBorder); }
+.guild-card-header { display: flex; align-items: center; justify-content: space-between; }
+.guild-card-name { font-weight: 600; font-size: 13px; }
+.guild-expertise {
+    font-size: 10px; padding: 1px 7px; border-radius: 10px;
+    background: rgba(78,201,176,0.15); color: #4ec9b0;
+}
+.guild-card-stats { font-size: 11px; opacity: 0.5; display: flex; gap: 12px; }
+.guild-knowledge-list { font-size: 11px; max-height: 60px; overflow: hidden; }
+.guild-knowledge-item { padding: 1px 0; opacity: 0.7; }
+.guild-knowledge-item::before { content: '\\2022 '; opacity: 0.4; }
+
+/* ── Agent Profiles & Leaderboard ────────────────────────────────────── */
+.leaderboard-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.leaderboard-table th {
+    text-align: left; padding: 6px 10px; font-size: 10px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.4px; opacity: 0.5;
+    border-bottom: 1px solid var(--vscode-panel-border); white-space: nowrap;
+}
+.leaderboard-table td {
+    padding: 7px 10px; border-bottom: 1px solid var(--vscode-panel-border);
+    vertical-align: middle;
+}
+.leaderboard-table tr:hover td { background: rgba(255,255,255,0.03); }
+.leaderboard-rank {
+    width: 28px; height: 28px; border-radius: 50%; display: flex;
+    align-items: center; justify-content: center; font-size: 12px;
+    font-weight: 700; background: rgba(255,255,255,0.06);
+}
+.leaderboard-rank.gold { background: rgba(255,215,0,0.2); color: #ffd700; }
+.leaderboard-rank.silver { background: rgba(192,192,192,0.2); color: #c0c0c0; }
+.leaderboard-rank.bronze { background: rgba(205,127,50,0.2); color: #cd7f32; }
+.success-bar {
+    height: 6px; border-radius: 3px; background: rgba(255,255,255,0.06);
+    overflow: hidden; width: 80px;
+}
+.success-bar-fill { height: 100%; border-radius: 3px; background: #4ec9b0; }
+.badge-chip {
+    display: inline-block; padding: 1px 6px; border-radius: 10px;
+    font-size: 9px; font-weight: 500; margin-right: 3px;
+    background: rgba(220,220,170,0.15); color: #dcdcaa;
+}
+
+/* ── Team Composer ───────────────────────────────────────────────────── */
+.team-template-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px;
+}
+.team-template-card {
+    background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
+    border: 1px solid var(--vscode-panel-border); border-radius: 8px;
+    padding: 12px 14px; cursor: pointer; transition: border-color 0.2s, box-shadow 0.2s;
+}
+.team-template-card:hover {
+    border-color: var(--vscode-focusBorder); box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+.team-template-name { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+.team-template-desc { font-size: 11px; opacity: 0.6; margin-bottom: 8px; }
+.team-template-slots { display: flex; gap: 4px; flex-wrap: wrap; }
+.slot-chip {
+    display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px;
+    border-radius: 3px; font-size: 10px; font-weight: 500;
+    background: rgba(255,255,255,0.06);
+}
+
+/* ── Agent Messages ──────────────────────────────────────────────────── */
+.message-feed { max-height: 300px; overflow-y: auto; }
+.msg-item {
+    display: flex; gap: 8px; padding: 6px 0;
+    border-bottom: 1px solid var(--vscode-panel-border);
+}
+.msg-item:last-child { border-bottom: none; }
+.msg-avatar {
+    width: 24px; height: 24px; border-radius: 50%; display: flex;
+    align-items: center; justify-content: center; font-size: 10px;
+    font-weight: 700; flex-shrink: 0;
+    background: rgba(86,156,214,0.2); color: #569cd6;
+}
+.msg-body { flex: 1; min-width: 0; }
+.msg-header { display: flex; align-items: baseline; gap: 6px; font-size: 11px; }
+.msg-sender { font-weight: 600; }
+.msg-arrow { opacity: 0.4; }
+.msg-recipient { opacity: 0.7; }
+.msg-time { opacity: 0.4; font-size: 10px; margin-left: auto; }
+.msg-content { font-size: 12px; opacity: 0.85; margin-top: 2px; word-break: break-word; }
+.msg-unread { background: rgba(86,156,214,0.05); border-radius: 4px; padding: 4px 6px; }
+
+/* ── Send Message Panel ──────────────────────────────────────────────── */
+.send-msg-panel {
+    display: flex; gap: 6px; padding: 8px 0; align-items: center;
+}
+.send-msg-panel select {
+    padding: 4px 6px; border: 1px solid var(--vscode-input-border);
+    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+    border-radius: 3px; font-size: 11px;
+}
+.send-msg-panel input {
+    flex: 1; padding: 4px 8px; border: 1px solid var(--vscode-input-border);
+    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+    border-radius: 3px; font-size: 11px; font-family: inherit; outline: none;
+}
+.send-msg-panel input:focus { border-color: var(--vscode-focusBorder); }
 </style>
 </head>
 <body>
@@ -886,6 +1049,72 @@ html, body {
             </div>
         </section>
 
+        <!-- Org Chart Section (Collapsible) -->
+        <section id="section-org">
+            <div class="section-header collapsible" id="org-header">
+                <span class="collapse-icon" id="org-collapse-icon">&#x25BC;</span>
+                <span class="section-title">Organization</span>
+                <span class="section-count" id="org-count">0</span>
+            </div>
+            <div class="section-body" id="org-body">
+                <div class="org-tree" id="org-tree"></div>
+            </div>
+        </section>
+
+        <!-- Guilds Section (Collapsible) -->
+        <section id="section-guilds">
+            <div class="section-header collapsible" id="guilds-header">
+                <span class="collapse-icon" id="guilds-collapse-icon">&#x25BC;</span>
+                <span class="section-title">Guilds</span>
+                <span class="section-count" id="guild-count">0</span>
+            </div>
+            <div class="section-body" id="guilds-body">
+                <div class="guild-grid" id="guild-grid"></div>
+            </div>
+        </section>
+
+        <!-- Leaderboard Section (Collapsible) -->
+        <section id="section-leaderboard">
+            <div class="section-header collapsible" id="leaderboard-header">
+                <span class="collapse-icon" id="leaderboard-collapse-icon">&#x25BC;</span>
+                <span class="section-title">Agent Leaderboard</span>
+                <span class="section-count" id="leaderboard-count">0</span>
+            </div>
+            <div class="section-body" id="leaderboard-body">
+                <div id="leaderboard-container"></div>
+            </div>
+        </section>
+
+        <!-- Team Composer Section (Collapsible) -->
+        <section id="section-composer">
+            <div class="section-header collapsible" id="composer-header">
+                <span class="collapse-icon" id="composer-collapse-icon">&#x25BC;</span>
+                <span class="section-title">Team Composer</span>
+            </div>
+            <div class="section-body" id="composer-body">
+                <div class="team-template-grid" id="team-template-grid"></div>
+            </div>
+        </section>
+
+        <!-- Agent Messages Section (Collapsible) -->
+        <section id="section-messages">
+            <div class="section-header collapsible" id="messages-header">
+                <span class="collapse-icon" id="messages-collapse-icon">&#x25BC;</span>
+                <span class="section-title">Agent Messages</span>
+                <span class="section-count" id="messages-count">0</span>
+            </div>
+            <div class="section-body" id="messages-body">
+                <div class="send-msg-panel" id="send-msg-panel">
+                    <select id="msg-from-select" title="From agent"></select>
+                    <span style="opacity:0.4">&#x2192;</span>
+                    <select id="msg-to-select" title="To agent"></select>
+                    <input type="text" id="msg-input" placeholder="Type a message..." />
+                    <button class="btn primary" id="btn-send-msg">Send</button>
+                </div>
+                <div class="message-feed" id="message-feed"></div>
+            </div>
+        </section>
+
         <!-- Last Updated -->
         <div class="last-updated" id="last-updated"></div>
     </div>
@@ -915,6 +1144,20 @@ html, body {
     const statIdle = document.getElementById('stat-idle');
     const statError = document.getElementById('stat-error');
     const toggleTrack = document.getElementById('toggle-track');
+
+    // New DOM refs
+    var orgTree = document.getElementById('org-tree');
+    var orgCountEl = document.getElementById('org-count');
+    var guildGrid = document.getElementById('guild-grid');
+    var guildCountEl = document.getElementById('guild-count');
+    var leaderboardContainer = document.getElementById('leaderboard-container');
+    var leaderboardCountEl = document.getElementById('leaderboard-count');
+    var teamTemplateGrid = document.getElementById('team-template-grid');
+    var messageFeed = document.getElementById('message-feed');
+    var messagesCountEl = document.getElementById('messages-count');
+    var msgFromSelect = document.getElementById('msg-from-select');
+    var msgToSelect = document.getElementById('msg-to-select');
+    var msgInput = document.getElementById('msg-input');
 
     // ── Utility ──────────────────────────────────────────────────────────────
     function escapeHtml(str) {
@@ -1032,6 +1275,9 @@ html, body {
             html += '  <span class="team-badge" title="Team">' + escapeHtml(teamName) + '</span>';
         }
         html += '</div>';
+
+        // Persona tags
+        html += buildPersonaTags(agent);
 
         // Task
         if (taskDesc) {
@@ -1262,6 +1508,216 @@ html, body {
         teamGrid.innerHTML = html;
     }
 
+    // ── Persona Tags for Agent Cards ─────────────────────────────────────
+    function buildPersonaTags(agent) {
+        if (!agent.persona) return '';
+        var p = agent.persona;
+        var html = '<div class="persona-tags">';
+        if (p.skillLevel) {
+            html += '<span class="persona-tag skill-' + p.skillLevel + '">' + escapeHtml(p.skillLevel) + '</span>';
+        }
+        if (p.expertiseAreas && p.expertiseAreas.length > 0) {
+            for (var i = 0; i < Math.min(p.expertiseAreas.length, 3); i++) {
+                html += '<span class="persona-tag">' + escapeHtml(p.expertiseAreas[i]) + '</span>';
+            }
+        }
+        if (p.personality) {
+            html += '<span class="persona-tag">' + escapeHtml(p.personality) + '</span>';
+        }
+        html += '</div>';
+        return html;
+    }
+
+    // ── Org Chart Rendering ──────────────────────────────────────────────
+    function renderOrgChart(orgUnits) {
+        orgCountEl.textContent = orgUnits.length;
+        if (orgUnits.length === 0) {
+            orgTree.innerHTML = '<div class="empty-state"><div class="icon">&#x1F3E2;</div><div class="title">No Organization Structure</div><div class="desc">Create departments, squads, and teams to organize agents</div></div>';
+            return;
+        }
+        // Build tree: find roots, then render recursively
+        var rootUnits = orgUnits.filter(function(u) { return !u.parentId; });
+        var html = '';
+        for (var i = 0; i < rootUnits.length; i++) {
+            html += renderOrgNode(rootUnits[i], orgUnits, 0);
+        }
+        orgTree.innerHTML = html;
+    }
+
+    function renderOrgNode(unit, allUnits, depth) {
+        var typeClass = unit.type === 'department' ? 'department' : unit.type === 'squad' ? 'squad' : '';
+        var rootClass = depth === 0 ? ' root' : '';
+        var html = '<div class="org-node ' + typeClass + rootClass + '">';
+        html += '<div class="org-node-header">';
+        html += '<span class="org-node-name">' + escapeHtml(unit.name) + '</span>';
+        html += '<span class="org-node-type">' + escapeHtml(unit.type) + '</span>';
+        html += '</div>';
+        if (unit.mission) {
+            html += '<div class="org-node-meta">' + escapeHtml(unit.mission) + '</div>';
+        }
+        if (unit.memberIds && unit.memberIds.length > 0) {
+            html += '<div class="org-node-members">';
+            for (var m = 0; m < unit.memberIds.length; m++) {
+                var isLead = unit.leadAgentId === unit.memberIds[m];
+                var agentName = getAgentNameById(unit.memberIds[m]);
+                html += '<span class="org-member-chip' + (isLead ? ' lead' : '') + '">';
+                if (isLead) { html += '<span class="org-lead-icon">&#x2B50;</span> '; }
+                html += escapeHtml(agentName || unit.memberIds[m].slice(0, 8));
+                html += '</span>';
+            }
+            html += '</div>';
+        }
+        // Render children
+        var children = allUnits.filter(function(u) { return u.parentId === unit.id; });
+        for (var c = 0; c < children.length; c++) {
+            html += renderOrgNode(children[c], allUnits, depth + 1);
+        }
+        html += '</div>';
+        return html;
+    }
+
+    function getAgentNameById(agentId) {
+        if (!currentState || !currentState.agents) return null;
+        for (var i = 0; i < currentState.agents.length; i++) {
+            if (currentState.agents[i].agent.id === agentId) return currentState.agents[i].agent.name;
+        }
+        return null;
+    }
+
+    // ── Guild Rendering ──────────────────────────────────────────────────
+    function renderGuilds(guilds) {
+        guildCountEl.textContent = guilds.length;
+        if (guilds.length === 0) {
+            guildGrid.innerHTML = '<div class="empty-state"><div class="icon">&#x1F3DB;</div><div class="title">No Guilds</div><div class="desc">Create guilds to share knowledge between agents with similar expertise</div></div>';
+            return;
+        }
+        var html = '';
+        for (var i = 0; i < guilds.length; i++) {
+            var g = guilds[i];
+            html += '<div class="guild-card">';
+            html += '<div class="guild-card-header">';
+            html += '<span class="guild-card-name">' + escapeHtml(g.name) + '</span>';
+            html += '<span class="guild-expertise">' + escapeHtml(g.expertiseArea) + '</span>';
+            html += '</div>';
+            html += '<div class="guild-card-stats">';
+            html += '<span>&#x1F464; ' + (g.memberIds ? g.memberIds.length : 0) + ' members</span>';
+            html += '<span>&#x1F4DA; ' + (g.knowledgeBase ? g.knowledgeBase.length : 0) + ' learnings</span>';
+            html += '</div>';
+            if (g.knowledgeBase && g.knowledgeBase.length > 0) {
+                html += '<div class="guild-knowledge-list">';
+                var limit = Math.min(g.knowledgeBase.length, 3);
+                for (var k = 0; k < limit; k++) {
+                    html += '<div class="guild-knowledge-item">' + escapeHtml(truncate(g.knowledgeBase[k].summary, 80)) + '</div>';
+                }
+                html += '</div>';
+            }
+            html += '</div>';
+        }
+        guildGrid.innerHTML = html;
+    }
+
+    // ── Leaderboard Rendering ────────────────────────────────────────────
+    function renderLeaderboard(profiles) {
+        leaderboardCountEl.textContent = profiles.length;
+        if (profiles.length === 0) {
+            leaderboardContainer.innerHTML = '<div class="empty-state"><div class="icon">&#x1F3C6;</div><div class="title">No Agent Profiles</div><div class="desc">Agent performance stats will appear once tasks are completed</div></div>';
+            return;
+        }
+        // Sort by completed tasks descending
+        var sorted = profiles.slice().sort(function(a, b) { return b.completedTasks - a.completedTasks; });
+        var html = '<table class="leaderboard-table">';
+        html += '<thead><tr><th>#</th><th>Agent</th><th>Role</th><th>Completed</th><th>Success</th><th>Avg Time</th><th>Badges</th></tr></thead><tbody>';
+        for (var i = 0; i < sorted.length; i++) {
+            var p = sorted[i];
+            var rankClass = i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : '';
+            var successPct = Math.round(p.successRate * 100);
+            var avgTimeSec = p.avgCompletionMs > 0 ? Math.round(p.avgCompletionMs / 1000) : 0;
+            var avgTimeStr = avgTimeSec > 0 ? (avgTimeSec > 60 ? Math.round(avgTimeSec / 60) + 'm' : avgTimeSec + 's') : '--';
+            html += '<tr>';
+            html += '<td><div class="leaderboard-rank ' + rankClass + '">' + (i + 1) + '</div></td>';
+            html += '<td><strong>' + escapeHtml(p.agentName) + '</strong></td>';
+            html += '<td><span class="role-badge ' + escapeHtml(p.role) + '">' + escapeHtml(p.role) + '</span></td>';
+            html += '<td>' + p.completedTasks + '/' + p.totalTasks + '</td>';
+            html += '<td><div class="success-bar"><div class="success-bar-fill" style="width:' + successPct + '%"></div></div> ' + successPct + '%</td>';
+            html += '<td>' + avgTimeStr + '</td>';
+            html += '<td>';
+            if (p.badges && p.badges.length > 0) {
+                for (var b = 0; b < p.badges.length; b++) {
+                    html += '<span class="badge-chip">' + escapeHtml(p.badges[b]) + '</span>';
+                }
+            }
+            html += '</td></tr>';
+        }
+        html += '</tbody></table>';
+        leaderboardContainer.innerHTML = html;
+    }
+
+    // ── Team Composer Rendering ──────────────────────────────────────────
+    function renderTeamTemplates(templates) {
+        if (!templates || templates.length === 0) {
+            teamTemplateGrid.innerHTML = '<div class="empty-state"><div class="icon">&#x1F528;</div><div class="title">No Team Templates</div><div class="desc">Team templates allow quick team assembly</div></div>';
+            return;
+        }
+        var html = '';
+        for (var i = 0; i < templates.length; i++) {
+            var t = templates[i];
+            html += '<div class="team-template-card" data-action="deploy-team" data-template-id="' + escapeHtml(t.id) + '">';
+            html += '<div class="team-template-name">' + escapeHtml(t.name) + '</div>';
+            html += '<div class="team-template-desc">' + escapeHtml(t.description) + '</div>';
+            html += '<div class="team-template-slots">';
+            if (t.slots) {
+                for (var s = 0; s < t.slots.length; s++) {
+                    var slot = t.slots[s];
+                    html += '<span class="slot-chip"><span class="role-badge ' + escapeHtml(slot.role) + '">' + escapeHtml(slot.role) + '</span> ' + escapeHtml(slot.label) + '</span>';
+                }
+            }
+            html += '</div>';
+            html += '</div>';
+        }
+        teamTemplateGrid.innerHTML = html;
+    }
+
+    // ── Agent Messages Rendering ─────────────────────────────────────────
+    function renderAgentMessages(messages) {
+        messagesCountEl.textContent = messages.length;
+
+        // Update agent selects for send panel
+        if (currentState && currentState.agents) {
+            var options = '<option value="">Select...</option>';
+            for (var a = 0; a < currentState.agents.length; a++) {
+                var ag = currentState.agents[a].agent;
+                options += '<option value="' + escapeHtml(ag.id) + '">' + escapeHtml(ag.name) + '</option>';
+            }
+            msgFromSelect.innerHTML = options;
+            msgToSelect.innerHTML = options;
+        }
+
+        if (messages.length === 0) {
+            messageFeed.innerHTML = '<div class="empty-state"><div class="icon">&#x1F4AC;</div><div class="title">No Messages</div><div class="desc">Agents can send messages to each other for coordination</div></div>';
+            return;
+        }
+        var html = '';
+        var limit = Math.min(messages.length, 50);
+        for (var i = 0; i < limit; i++) {
+            var m = messages[i];
+            var fromName = getAgentNameById(m.fromAgentId) || m.fromAgentId.slice(0, 8);
+            var toName = getAgentNameById(m.toAgentId) || m.toAgentId.slice(0, 8);
+            var unreadClass = m.read ? '' : ' msg-unread';
+            html += '<div class="msg-item' + unreadClass + '">';
+            html += '<div class="msg-avatar">' + escapeHtml(fromName.charAt(0).toUpperCase()) + '</div>';
+            html += '<div class="msg-body">';
+            html += '<div class="msg-header">';
+            html += '<span class="msg-sender">' + escapeHtml(fromName) + '</span>';
+            html += '<span class="msg-arrow">&#x2192;</span>';
+            html += '<span class="msg-recipient">' + escapeHtml(toName) + '</span>';
+            html += '<span class="msg-time">' + timeAgo(m.timestamp) + '</span>';
+            html += '</div>';
+            html += '<div class="msg-content">' + escapeHtml(m.content) + '</div>';
+            html += '</div></div>';
+        }
+        messageFeed.innerHTML = html;
+    }
+
     // ── Full State Render ────────────────────────────────────────────────────
     function renderAll(state) {
         if (!state) return;
@@ -1272,6 +1728,11 @@ html, body {
         renderPipelines(state.activePipelines || []);
         renderTaskQueue(state.taskQueue || []);
         renderTeams(state.teams || []);
+        renderOrgChart(state.orgUnits || []);
+        renderGuilds(state.guilds || []);
+        renderLeaderboard(state.agentProfiles || []);
+        renderTeamTemplates(state.teamTemplates || []);
+        renderAgentMessages(state.agentMessages || []);
 
         if (state.lastUpdated) {
             lastUpdatedEl.textContent = 'Last updated: ' + new Date(state.lastUpdated).toLocaleTimeString();
@@ -1339,6 +1800,10 @@ html, body {
             case 'resume-pipeline':
                 vscode.postMessage({ type: 'resumePipeline', runId: runId });
                 break;
+
+            case 'deploy-team':
+                vscode.postMessage({ type: 'deployTeamTemplate', templateId: target.dataset.templateId });
+                break;
         }
     });
 
@@ -1395,6 +1860,52 @@ html, body {
         var icon = document.getElementById('teams-collapse-icon');
         body.classList.toggle('collapsed');
         icon.classList.toggle('collapsed');
+    });
+    document.getElementById('org-header').addEventListener('click', function() {
+        var body = document.getElementById('org-body');
+        var icon = document.getElementById('org-collapse-icon');
+        body.classList.toggle('collapsed');
+        icon.classList.toggle('collapsed');
+    });
+    document.getElementById('guilds-header').addEventListener('click', function() {
+        var body = document.getElementById('guilds-body');
+        var icon = document.getElementById('guilds-collapse-icon');
+        body.classList.toggle('collapsed');
+        icon.classList.toggle('collapsed');
+    });
+    document.getElementById('leaderboard-header').addEventListener('click', function() {
+        var body = document.getElementById('leaderboard-body');
+        var icon = document.getElementById('leaderboard-collapse-icon');
+        body.classList.toggle('collapsed');
+        icon.classList.toggle('collapsed');
+    });
+    document.getElementById('composer-header').addEventListener('click', function() {
+        var body = document.getElementById('composer-body');
+        var icon = document.getElementById('composer-collapse-icon');
+        body.classList.toggle('collapsed');
+        icon.classList.toggle('collapsed');
+    });
+    document.getElementById('messages-header').addEventListener('click', function() {
+        var body = document.getElementById('messages-body');
+        var icon = document.getElementById('messages-collapse-icon');
+        body.classList.toggle('collapsed');
+        icon.classList.toggle('collapsed');
+    });
+
+    // Send agent message
+    document.getElementById('btn-send-msg').addEventListener('click', function() {
+        var from = msgFromSelect.value;
+        var to = msgToSelect.value;
+        var content = msgInput.value.trim();
+        if (from && to && content && from !== to) {
+            vscode.postMessage({ type: 'sendAgentMessage', fromAgentId: from, toAgentId: to, content: content });
+            msgInput.value = '';
+        }
+    });
+    msgInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+            document.getElementById('btn-send-msg').click();
+        }
     });
 
 })();

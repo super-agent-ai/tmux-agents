@@ -1,4 +1,4 @@
-import { OrchestratorTask, KanbanSwimLane } from './types';
+import { OrchestratorTask, KanbanSwimLane, AgentPersona } from './types';
 
 /**
  * Build a rich context prompt for a single task.
@@ -131,6 +131,78 @@ export function buildBundleTaskPrompt(t: OrchestratorTask, otherTasks: Orchestra
 }
 
 /**
+ * Build persona context string for injection into prompts.
+ */
+export function buildPersonaContext(persona: AgentPersona): string {
+    const parts: string[] = ['## Agent Identity'];
+    parts.push(`Personality: ${persona.personality}`);
+    parts.push(`Communication style: ${persona.communicationStyle}`);
+    parts.push(`Skill level: ${persona.skillLevel}`);
+    parts.push(`Risk tolerance: ${persona.riskTolerance}`);
+    if (persona.expertiseAreas.length > 0) {
+        parts.push(`Expertise: ${persona.expertiseAreas.join(', ')}`);
+    }
+    if (persona.background) {
+        parts.push(`Background: ${persona.background}`);
+    }
+
+    // Add behavioral instructions based on persona traits
+    parts.push('');
+    parts.push('## Behavioral Guidelines');
+    switch (persona.personality) {
+        case 'methodical':
+            parts.push('- Follow a structured, step-by-step approach');
+            parts.push('- Document your reasoning before making changes');
+            parts.push('- Verify each step before proceeding to the next');
+            break;
+        case 'creative':
+            parts.push('- Consider unconventional approaches and novel solutions');
+            parts.push('- Think outside the box while staying within project constraints');
+            parts.push('- Explore alternative implementations before settling on one');
+            break;
+        case 'pragmatic':
+            parts.push('- Focus on the simplest solution that works');
+            parts.push('- Prioritize shipping over perfection');
+            parts.push('- Make practical tradeoffs when needed');
+            break;
+        case 'analytical':
+            parts.push('- Analyze the problem thoroughly before coding');
+            parts.push('- Consider edge cases and failure modes upfront');
+            parts.push('- Use data and evidence to guide decisions');
+            break;
+    }
+
+    switch (persona.communicationStyle) {
+        case 'concise':
+            parts.push('- Keep explanations brief and to the point');
+            break;
+        case 'detailed':
+            parts.push('- Provide thorough explanations of your approach and reasoning');
+            break;
+        case 'socratic':
+            parts.push('- Ask clarifying questions when requirements are ambiguous');
+            parts.push('- Guide toward solutions rather than jumping to implementation');
+            break;
+    }
+
+    switch (persona.riskTolerance) {
+        case 'conservative':
+            parts.push('- Prefer well-tested, established patterns');
+            parts.push('- Avoid experimental approaches unless explicitly requested');
+            break;
+        case 'moderate':
+            parts.push('- Balance proven approaches with reasonable experimentation');
+            break;
+        case 'experimental':
+            parts.push('- Open to trying new approaches and cutting-edge solutions');
+            parts.push('- Document risks when using experimental approaches');
+            break;
+    }
+
+    return parts.join('\n');
+}
+
+/**
  * Append standard tail options to a prompt.
  */
 export function appendPromptTail(prompt: string, options?: {
@@ -138,7 +210,15 @@ export function appendPromptTail(prompt: string, options?: {
     askForContext?: boolean;
     autoClose?: boolean;
     signalId?: string;
+    personaContext?: string;
+    guildContext?: string;
 }): string {
+    if (options?.personaContext) {
+        prompt += `\n\n${options.personaContext}`;
+    }
+    if (options?.guildContext) {
+        prompt += `\n\n${options.guildContext}`;
+    }
     if (options?.additionalInstructions) {
         prompt += `\n\nAdditional instructions: ${options.additionalInstructions}`;
     }

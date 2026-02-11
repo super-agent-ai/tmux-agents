@@ -7,9 +7,15 @@ import {
     AIStatus,
     OrchestratorTask,
     TaskStatus,
+    AgentMessage,
+    AgentPersona,
 } from './types';
 import { TmuxServiceManager } from './serviceManager';
 import { AIAssistantManager } from './aiAssistant';
+
+function generateId(): string {
+    return crypto.randomUUID?.() || 'id-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+}
 
 function evaluateAgentState(
     currentState: AgentState,
@@ -45,6 +51,11 @@ export class AgentOrchestrator implements vscode.Disposable {
 
     private readonly _onPipelineEvent = new vscode.EventEmitter<{ pipelineId: string; event: string }>();
     public readonly onPipelineEvent: vscode.Event<{ pipelineId: string; event: string }> = this._onPipelineEvent.event;
+
+    private readonly _onAgentMessage = new vscode.EventEmitter<AgentMessage>();
+    public readonly onAgentMessage: vscode.Event<AgentMessage> = this._onAgentMessage.event;
+
+    private messageQueue: Map<string, AgentMessage[]> = new Map();
 
     // ─── Service Manager ────────────────────────────────────────────────
 
@@ -133,7 +144,9 @@ export class AgentOrchestrator implements vscode.Disposable {
         }
 
         // Find an idle agent matching the task's target role
-        const idleAgents = this.getIdleAgents(pendingTask.targetRole);
+        const idleAgents = pendingTask.targetRole
+            ? this.getIdleAgentsByExpertise(pendingTask.targetRole, pendingTask.description)
+            : this.getIdleAgents();
         if (idleAgents.length === 0) {
             return;
         }
@@ -198,6 +211,75 @@ export class AgentOrchestrator implements vscode.Disposable {
         return this.taskQueue.filter(t =>
             t.pipelineStageId === stageId && t.status === TaskStatus.COMPLETED
         );
+    }
+
+    // ─── Agent Messaging ────────────────────────────────────────────────
+
+    public sendMessage(fromAgentId: string, toAgentId: string, content: string): AgentMessage {
+        const msg: AgentMessage = {
+            id: generateId(),
+            fromAgentId,
+            toAgentId,
+            content,
+            timestamp: Date.now(),
+            read: false,
+        };
+        if (!this.messageQueue.has(toAgentId)) {
+            this.messageQueue.set(toAgentId, []);
+        }
+        this.messageQueue.get(toAgentId)!.push(msg);
+        this._onAgentMessage.fire(msg);
+        return msg;
+    }
+
+    public getUnreadMessages(agentId: string): AgentMessage[] {
+        const msgs = this.messageQueue.get(agentId) || [];
+        return msgs.filter(m => !m.read);
+    }
+
+    public markMessageRead(messageId: string): void {
+        for (const msgs of this.messageQueue.values()) {
+            const msg = msgs.find(m => m.id === messageId);
+            if (msg) { msg.read = true; break; }
+        }
+    }
+
+    public getAllMessages(): AgentMessage[] {
+        const all: AgentMessage[] = [];
+        for (const msgs of this.messageQueue.values()) {
+            all.push(...msgs);
+        }
+        return all.sort((a, b) => b.timestamp - a.timestamp);
+    }
+
+    public getConversation(agentId1: string, agentId2: string): AgentMessage[] {
+        const all: AgentMessage[] = [];
+        for (const msgs of this.messageQueue.values()) {
+            for (const m of msgs) {
+                if ((m.fromAgentId === agentId1 && m.toAgentId === agentId2) ||
+                    (m.fromAgentId === agentId2 && m.toAgentId === agentId1)) {
+                    all.push(m);
+                }
+            }
+        }
+        return all.sort((a, b) => a.timestamp - b.timestamp);
+    }
+
+    // ─── Specialization-Aware Dispatch ──────────────────────────────────
+
+    public getIdleAgentsByExpertise(role: AgentRole, expertiseHint?: string): AgentInstance[] {
+        const idle = this.getIdleAgents(role);
+        if (!expertiseHint || idle.length <= 1) { return idle; }
+        // Sort by expertise match: agents with matching expertise first
+        return idle.sort((a, b) => {
+            const aMatch = a.persona?.expertiseAreas?.some(
+                e => expertiseHint.toLowerCase().includes(e.toLowerCase())
+            ) ? 1 : 0;
+            const bMatch = b.persona?.expertiseAreas?.some(
+                e => expertiseHint.toLowerCase().includes(e.toLowerCase())
+            ) ? 1 : 0;
+            return bMatch - aMatch;
+        });
     }
 
     // ─── State Monitoring ───────────────────────────────────────────────
@@ -289,6 +371,8 @@ export class AgentOrchestrator implements vscode.Disposable {
         this._onAgentStateChanged.dispose();
         this._onTaskCompleted.dispose();
         this._onPipelineEvent.dispose();
+        this._onAgentMessage.dispose();
+        this.messageQueue.clear();
         this.agents.clear();
         this.taskQueue = [];
     }

@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { AgentTemplate, AgentRole, AIProvider } from './types';
+import { AgentTemplate, AgentRole, AIProvider, TeamTemplate } from './types';
 
 function generateId(): string {
     return crypto.randomUUID?.() || 'id-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
@@ -98,7 +98,15 @@ export class AgentTemplateManager {
                 role: AgentRole.CODER,
                 aiProvider: AIProvider.CLAUDE,
                 description: 'Code writing and modification with Claude',
-                systemPrompt: 'You are a coding agent. Follow existing code conventions and patterns in the project. Read existing code before modifying it. Prefer editing existing files over creating new ones. Write unit tests for new functionality. Use descriptive commit messages that explain why, not just what.'
+                systemPrompt: 'You are a coding agent. Follow existing code conventions and patterns in the project. Read existing code before modifying it. Prefer editing existing files over creating new ones. Write unit tests for new functionality. Use descriptive commit messages that explain why, not just what.',
+                persona: {
+                    personality: 'methodical',
+                    communicationStyle: 'concise',
+                    expertiseAreas: ['TypeScript', 'JavaScript', 'Node.js'],
+                    skillLevel: 'senior',
+                    riskTolerance: 'moderate',
+                    avatar: 'C',
+                }
             },
             {
                 id: 'builtin-reviewer-gemini',
@@ -106,7 +114,15 @@ export class AgentTemplateManager {
                 role: AgentRole.REVIEWER,
                 aiProvider: AIProvider.GEMINI,
                 description: 'Code review and quality analysis with Gemini',
-                systemPrompt: 'You are a code reviewer. Focus on correctness, security vulnerabilities, performance issues, and adherence to project conventions. Provide specific line-level feedback. Rate each finding as info (suggestion), warning (should fix), or error (must fix). Summarize with an overall assessment.'
+                systemPrompt: 'You are a code reviewer. Focus on correctness, security vulnerabilities, performance issues, and adherence to project conventions. Provide specific line-level feedback. Rate each finding as info (suggestion), warning (should fix), or error (must fix). Summarize with an overall assessment.',
+                persona: {
+                    personality: 'analytical',
+                    communicationStyle: 'detailed',
+                    expertiseAreas: ['Code Review', 'Security', 'Performance'],
+                    skillLevel: 'senior',
+                    riskTolerance: 'conservative',
+                    avatar: 'R',
+                }
             },
             {
                 id: 'builtin-tester-codex',
@@ -114,7 +130,15 @@ export class AgentTemplateManager {
                 role: AgentRole.TESTER,
                 aiProvider: AIProvider.CODEX,
                 description: 'Test writing and execution with Codex',
-                systemPrompt: 'You are a test engineer. Write comprehensive tests covering happy path, edge cases, and error conditions. Use the project\'s existing test framework and patterns. Aim for high code coverage. Structure tests with clear arrange/act/assert sections and descriptive test names.'
+                systemPrompt: 'You are a test engineer. Write comprehensive tests covering happy path, edge cases, and error conditions. Use the project\'s existing test framework and patterns. Aim for high code coverage. Structure tests with clear arrange/act/assert sections and descriptive test names.',
+                persona: {
+                    personality: 'methodical',
+                    communicationStyle: 'detailed',
+                    expertiseAreas: ['Testing', 'QA', 'CI/CD'],
+                    skillLevel: 'mid',
+                    riskTolerance: 'conservative',
+                    avatar: 'T',
+                }
             },
             {
                 id: 'builtin-coder-gemini',
@@ -122,7 +146,15 @@ export class AgentTemplateManager {
                 role: AgentRole.CODER,
                 aiProvider: AIProvider.GEMINI,
                 description: 'Code writing with Gemini',
-                systemPrompt: 'You are a coding agent. Follow existing code conventions and patterns in the project. Read existing code before modifying it. Prefer editing existing files over creating new ones. Write unit tests for new functionality. Use descriptive commit messages that explain why, not just what.'
+                systemPrompt: 'You are a coding agent. Follow existing code conventions and patterns in the project. Read existing code before modifying it. Prefer editing existing files over creating new ones. Write unit tests for new functionality. Use descriptive commit messages that explain why, not just what.',
+                persona: {
+                    personality: 'creative',
+                    communicationStyle: 'concise',
+                    expertiseAreas: ['TypeScript', 'Python', 'Full-Stack'],
+                    skillLevel: 'senior',
+                    riskTolerance: 'moderate',
+                    avatar: 'G',
+                }
             },
             {
                 id: 'builtin-reviewer-claude',
@@ -130,7 +162,15 @@ export class AgentTemplateManager {
                 role: AgentRole.REVIEWER,
                 aiProvider: AIProvider.CLAUDE,
                 description: 'Code review with Claude',
-                systemPrompt: 'You are a code reviewer. Focus on correctness, security vulnerabilities, performance issues, and adherence to project conventions. Provide specific line-level feedback. Rate each finding as info (suggestion), warning (should fix), or error (must fix). Summarize with an overall assessment.'
+                systemPrompt: 'You are a code reviewer. Focus on correctness, security vulnerabilities, performance issues, and adherence to project conventions. Provide specific line-level feedback. Rate each finding as info (suggestion), warning (should fix), or error (must fix). Summarize with an overall assessment.',
+                persona: {
+                    personality: 'analytical',
+                    communicationStyle: 'detailed',
+                    expertiseAreas: ['Code Review', 'Architecture', 'Best Practices'],
+                    skillLevel: 'principal',
+                    riskTolerance: 'conservative',
+                    avatar: 'R',
+                }
             },
             {
                 id: 'builtin-researcher-claude',
@@ -138,8 +178,65 @@ export class AgentTemplateManager {
                 role: AgentRole.RESEARCHER,
                 aiProvider: AIProvider.CLAUDE,
                 description: 'Research and information gathering with Claude',
-                systemPrompt: 'You are a research agent. Gather information thoroughly and provide structured findings with clear sections. Cite sources when possible. Compare alternatives with pros/cons when relevant. Highlight key takeaways and actionable recommendations at the end.'
+                systemPrompt: 'You are a research agent. Gather information thoroughly and provide structured findings with clear sections. Cite sources when possible. Compare alternatives with pros/cons when relevant. Highlight key takeaways and actionable recommendations at the end.',
+                persona: {
+                    personality: 'analytical',
+                    communicationStyle: 'detailed',
+                    expertiseAreas: ['Research', 'Analysis', 'Documentation'],
+                    skillLevel: 'senior',
+                    riskTolerance: 'moderate',
+                    avatar: 'S',
+                }
             }
+        ];
+    }
+
+    // ─── Team Templates ─────────────────────────────────────────────────────
+
+    getBuiltInTeamTemplates(): TeamTemplate[] {
+        return [
+            {
+                id: 'team-fullstack',
+                name: 'Full-Stack Team',
+                description: '2 coders + 1 reviewer + 1 tester for comprehensive feature development',
+                slots: [
+                    { role: AgentRole.CODER, templateId: 'builtin-coder-claude', label: 'Lead Coder' },
+                    { role: AgentRole.CODER, templateId: 'builtin-coder-gemini', label: 'Support Coder' },
+                    { role: AgentRole.REVIEWER, templateId: 'builtin-reviewer-claude', label: 'Code Reviewer' },
+                    { role: AgentRole.TESTER, templateId: 'builtin-tester-codex', label: 'Test Engineer' },
+                ],
+            },
+            {
+                id: 'team-rapid-mvp',
+                name: 'Rapid MVP',
+                description: '3 coders + 1 devops for fast prototyping and deployment',
+                slots: [
+                    { role: AgentRole.CODER, templateId: 'builtin-coder-claude', label: 'Backend Coder' },
+                    { role: AgentRole.CODER, templateId: 'builtin-coder-gemini', label: 'Frontend Coder' },
+                    { role: AgentRole.CODER, templateId: 'builtin-coder-claude', label: 'API Coder' },
+                    { role: AgentRole.DEVOPS, label: 'DevOps Engineer' },
+                ],
+            },
+            {
+                id: 'team-research',
+                name: 'Research Squad',
+                description: '2 researchers + 1 coder for deep investigation and prototyping',
+                slots: [
+                    { role: AgentRole.RESEARCHER, templateId: 'builtin-researcher-claude', label: 'Lead Researcher' },
+                    { role: AgentRole.RESEARCHER, label: 'Support Researcher' },
+                    { role: AgentRole.CODER, templateId: 'builtin-coder-claude', label: 'Prototype Coder' },
+                ],
+            },
+            {
+                id: 'team-review',
+                name: 'Code Review Team',
+                description: '2 reviewers + 1 tester for thorough code quality assessment',
+                slots: [
+                    { role: AgentRole.REVIEWER, templateId: 'builtin-reviewer-claude', label: 'Security Reviewer' },
+                    { role: AgentRole.REVIEWER, templateId: 'builtin-reviewer-gemini', label: 'Quality Reviewer' },
+                    { role: AgentRole.TESTER, templateId: 'builtin-tester-codex', label: 'Integration Tester' },
+                ],
+            },
         ];
     }
 }

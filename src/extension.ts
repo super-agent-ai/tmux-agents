@@ -21,7 +21,9 @@ import { handleKanbanMessage } from './commands/kanbanHandlers';
 import { registerSessionCommands } from './commands/sessionCommands';
 import { registerAgentCommands } from './commands/agentCommands';
 import { checkAutoCompletions, checkAutoPilot } from './autoMonitor';
-import { buildSingleTaskPrompt, buildTaskBoxPrompt, appendPromptTail } from './promptBuilder';
+import { buildSingleTaskPrompt, buildTaskBoxPrompt, appendPromptTail, buildPersonaContext } from './promptBuilder';
+import { OrganizationManager } from './organizationManager';
+import { GuildManager } from './guildManager';
 
 function getServiceForItem(
     serviceManager: TmuxServiceManager,
@@ -103,6 +105,8 @@ export function activate(context: vscode.ExtensionContext) {
     const pipelineEngine = new PipelineEngine();
     const templateManager = new AgentTemplateManager();
     const teamManager = new TeamManager();
+    const organizationManager = new OrganizationManager();
+    const guildManager = new GuildManager();
 
     // ── Database ──────────────────────────────────────────────────────────────
     const dbDir = context.globalStorageUri.fsPath;
@@ -171,6 +175,13 @@ export function activate(context: vscode.ExtensionContext) {
                     pipelineEngine.savePipeline(pipeline);
                 }
             }
+
+            // Load org units and guilds
+            organizationManager.loadOrgUnits(database.getAllOrgUnits());
+            guildManager.loadGuilds(database.getAllGuilds());
+
+            // Load conversations into chat view
+            chatViewProvider.loadConversations(database.getAllConversations());
 
             updateKanban();
             updateDashboard();
@@ -258,9 +269,7 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
                                 const capturedPane = paneIndex;
                                 setTimeout(async () => {
                                     try {
-                                        await service.sendKeys(capturedSession, capturedWin, capturedPane, '');
                                         await service.sendKeys(capturedSession, capturedWin, capturedPane, capturedPrompt);
-                                        await service.sendKeys(capturedSession, capturedWin, capturedPane, '');
                                     } catch (err) {
                                         console.warn('Failed to send verification prompt:', err);
                                     }
@@ -304,6 +313,31 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
         updateKanban();
     });
 
+    // Wire up org/guild/message persistence
+    const orgChangedDisposable = organizationManager.onOrgChanged(unit => {
+        database.saveOrgUnit(unit);
+        updateDashboard();
+    });
+    const guildChangedDisposable = guildManager.onGuildChanged(guild => {
+        database.saveGuild(guild);
+        updateDashboard();
+    });
+    const agentMessageDisposable = orchestrator.onAgentMessage(msg => {
+        database.saveAgentMessage(msg);
+        updateDashboard();
+    });
+
+    // Wire up conversation persistence from chat view
+    chatViewProvider.onConversationChanged((conv) => {
+        database.saveConversation(conv);
+    });
+    chatViewProvider.onConversationMessageAdded(({ conversationId, entry }) => {
+        database.saveConversationMessage(conversationId, entry);
+    });
+    chatViewProvider.onConversationDeleted((convId) => {
+        database.deleteConversation(convId);
+    });
+
     // Wire up dashboard actions
     const dashboardActionDisposable = dashboardView.onAction(async ({ action, payload }) => {
         switch (action) {
@@ -340,6 +374,22 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
             case 'openChat':
                 vscode.commands.executeCommand('tmux-agents-chat.focus');
                 break;
+            case 'sendAgentMessage': {
+                const msg = orchestrator.sendMessage(payload.fromAgentId, payload.toAgentId, payload.content);
+                database.saveAgentMessage(msg);
+                updateDashboard();
+                break;
+            }
+            case 'deployTeamTemplate': {
+                const template = templateManager.getBuiltInTeamTemplates().find(t => t.id === payload.templateId);
+                if (!template) { break; }
+                const teamName = template.name + '-' + Date.now().toString(36).slice(-4);
+                const team = teamManager.createTeam(teamName, template.description);
+                database.saveTeam(team);
+                vscode.window.showInformationMessage(`Team "${teamName}" created with ${template.slots.length} slots. Use "Spawn Agent" to fill slots.`);
+                updateDashboard();
+                break;
+            }
             case 'refresh':
                 updateDashboard();
                 break;
@@ -425,11 +475,26 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
                     prompt = buildSingleTaskPrompt(t, lane);
                 }
 
+                // Build persona/guild context if the task is assigned to an agent
+                let personaContext: string | undefined;
+                let guildContext: string | undefined;
+                if (t.assignedAgentId) {
+                    const agent = orchestrator.getAgent(t.assignedAgentId);
+                    if (agent?.persona) {
+                        personaContext = buildPersonaContext(agent.persona);
+                    }
+                    if (agent) {
+                        guildContext = guildManager.getGuildContextForAgent(agent.id) || undefined;
+                    }
+                }
+
                 prompt = appendPromptTail(prompt, {
                     additionalInstructions: options?.additionalInstructions,
                     askForContext: options?.askForContext,
                     autoClose: t.autoClose,
                     signalId: t.autoClose ? t.id.slice(-8) : undefined,
+                    personaContext,
+                    guildContext,
                 });
 
                 const resolvedProvider = aiManager.resolveProvider(undefined, lane?.aiProvider);
@@ -439,9 +504,7 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
                 setTimeout(async () => {
                     try {
                         const escaped = prompt.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-                        await service.sendKeys(lane.sessionName, winIndex, paneIndex, '');
                         await service.sendKeys(lane.sessionName, winIndex, paneIndex, escaped);
-                        await service.sendKeys(lane.sessionName, winIndex, paneIndex, '');
                     } catch (err) {
                         console.warn('Failed to send prompt:', err);
                     }
@@ -505,6 +568,11 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
             activePipelines: pipelineEngine.getActiveRuns(),
             taskQueue: orchestrator.getTaskQueue(),
             teams: teamManager.getAllTeams(),
+            orgUnits: organizationManager.getAllOrgUnits(),
+            guilds: guildManager.getAllGuilds(),
+            agentMessages: orchestrator.getAllMessages().slice(0, 100),
+            agentProfiles: database.getAllAgentProfileStats(),
+            teamTemplates: templateManager.getBuiltInTeamTemplates(),
             lastUpdated: Date.now()
         });
     }
@@ -636,6 +704,9 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
         // Event subscriptions
         agentStateChangedDisposable,
         taskCompletedDisposable,
+        orgChangedDisposable,
+        guildChangedDisposable,
+        agentMessageDisposable,
         dashboardActionDisposable,
         graphActionDisposable,
         kanbanActionDisposable,
@@ -648,6 +719,8 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
         orchestrator,
         pipelineEngine,
         teamManager,
+        organizationManager,
+        guildManager,
         dashboardView,
         graphView,
         kanbanView
