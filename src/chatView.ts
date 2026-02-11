@@ -7,8 +7,7 @@ import { TmuxServiceManager } from './serviceManager';
 import { gatherFullExtensionContext, formatFullContextForPrompt, ContextGatheringDeps } from './tmuxContextProvider';
 import { ApiCatalog, ParsedAIResponse } from './apiCatalog';
 import { AIAssistantManager } from './aiAssistant';
-import { AIProvider, AIStatus } from './types';
-import { TmuxService } from './tmuxService';
+import { AIProvider } from './types';
 
 const execAsync = util.promisify(cp.exec);
 const readFile = util.promisify(fs.readFile);
@@ -119,28 +118,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private voiceProc: cp.ChildProcess | null = null;
     private voiceTmpFile: string = '';
 
-    // ── Tmux-backed AI Session State ────────────────────────────────────
-    private static readonly CHAT_SESSION = '__ai-chat__';
-    private static readonly WIN = '0';
-    private static readonly PANE = '0';
-    private static readonly POLL_MS = 250;
-    private static readonly IDLE_POLL_MS = 2000;
-    private static readonly POLL_LINES = 200;
-    private static readonly STABLE_MS = 3000;
-    private static readonly MAX_RESPONSE_MS = 300_000;
-
+    // ── Streaming CLI State ────────────────────────────────────────────
     private selectedProvider: AIProvider = AIProvider.CLAUDE;
-    private sessionReady = false;
-    private systemPromptInjected = false;
-    private pollTimer: ReturnType<typeof setInterval> | null = null;
-    private idlePollTimer: ReturnType<typeof setInterval> | null = null;
-    private lastCapturedContent = '';
-    private lastContentLength = 0;
-    private streamBuffer = '';
-    private isAwaitingResponse = false;
-    private lastContentChangeTime = 0;
-    private responseStartTime = 0;
-    private sessionEnsurePromise: Promise<void> | null = null;
+    private currentProc: cp.ChildProcess | null = null;
 
     constructor(
         private readonly serviceManager: TmuxServiceManager,
@@ -174,25 +154,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 this.removeItem(msg.index);
             } else if (msg.type === 'clearHistory') {
                 this.conversationHistory = [];
-                this.systemPromptInjected = false;
                 this.postMessage({ type: 'clearMessages' });
             } else if (msg.type === 'setModel') {
-                if (msg.model !== this.selectedModel) {
-                    this.selectedModel = msg.model;
-                    await this.restartSession();
-                }
+                this.selectedModel = msg.model;
             } else if (msg.type === 'setProvider') {
-                if (msg.provider !== this.selectedProvider) {
-                    this.selectedProvider = msg.provider as AIProvider;
-                    await this.restartSession();
-                }
+                this.selectedProvider = msg.provider as AIProvider;
+                const models = this.getProviderModels();
+                this.selectedModel = models[0].value;
+                this.postMessage({ type: 'updateModels', models, selected: this.selectedModel });
             } else if (msg.type === 'stop') {
                 this.abortRequested = true;
-                const svc = this.getLocalService();
-                if (svc) {
-                    try {
-                        await svc.sendRawKeys(ChatViewProvider.CHAT_SESSION, ChatViewProvider.WIN, ChatViewProvider.PANE, 'C-c');
-                    } catch { /* ignore */ }
+                if (this.currentProc) {
+                    this.currentProc.kill();
+                    this.currentProc = null;
                 }
             } else if (msg.type === 'startVoice') {
                 await this.startVoiceRecording();
@@ -652,319 +626,28 @@ except sr.RequestError as e:
             ? text.slice(0, MAX_FILE_CHARS) + `\n\n[... truncated]` : text;
     }
 
-    // ── Tmux Session Lifecycle ─────────────────────────────────────────────
+    // ── Provider Models ────────────────────────────────────────────────────
 
-    private getLocalService(): TmuxService | undefined {
-        return this.serviceManager.getService('local');
-    }
+    private static readonly PROVIDER_MODELS: Record<string, { value: string; label: string }[]> = {
+        claude: [
+            { value: 'opus', label: 'Opus' },
+            { value: 'sonnet', label: 'Sonnet' },
+            { value: 'haiku', label: 'Haiku' },
+        ],
+        gemini: [
+            { value: '2.5-pro', label: '2.5 Pro' },
+            { value: '2.5-flash', label: '2.5 Flash' },
+        ],
+        codex: [
+            { value: 'o3', label: 'O3' },
+            { value: 'gpt-4o', label: 'GPT-4o' },
+            { value: 'o4-mini', label: 'O4 Mini' },
+        ],
+    };
 
-    private async ensureSession(): Promise<void> {
-        if (this.sessionEnsurePromise) { return this.sessionEnsurePromise; }
-        this.sessionEnsurePromise = this._ensureSessionImpl();
-        try { await this.sessionEnsurePromise; }
-        finally { this.sessionEnsurePromise = null; }
-    }
-
-    private async _ensureSessionImpl(): Promise<void> {
-        const svc = this.getLocalService();
-        if (!svc) { throw new Error('No local tmux service available'); }
-
-        if (await svc.hasSession(ChatViewProvider.CHAT_SESSION)) {
-            const content = await svc.capturePaneContent(
-                ChatViewProvider.CHAT_SESSION, ChatViewProvider.WIN, ChatViewProvider.PANE, 20
-            );
-            if (content.trim().length > 0) {
-                this.sessionReady = true;
-                this.postMessage({ type: 'sessionStatus', status: 'connected' });
-                this.startIdlePolling();
-                return;
-            }
-            await this.destroySession();
-        }
-
-        await this.createChatSession(svc);
-    }
-
-    private async createChatSession(svc: TmuxService): Promise<void> {
-        this.postMessage({ type: 'sessionStatus', status: 'starting' });
-        const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-        await svc.newSession(ChatViewProvider.CHAT_SESSION, { cwd });
-
-        const launchCmd = this.aiManager
-            ? this.aiManager.getInteractiveLaunchCommand(this.selectedProvider, this.selectedModel)
-            : `claude --model ${this.selectedModel}`;
-
-        await svc.sendKeys(ChatViewProvider.CHAT_SESSION, ChatViewProvider.WIN, ChatViewProvider.PANE, launchCmd);
-
-        await this.waitForPrompt(svc, 30000);
-
-        this.sessionReady = true;
-        this.systemPromptInjected = false;
-        this.lastCapturedContent = '';
-        this.lastContentLength = 0;
-        this.postMessage({ type: 'sessionStatus', status: 'connected' });
-        this.startIdlePolling();
-    }
-
-    private async waitForPrompt(svc: TmuxService, timeoutMs: number): Promise<void> {
-        const start = Date.now();
-        while (Date.now() - start < timeoutMs) {
-            const content = await svc.capturePaneContent(
-                ChatViewProvider.CHAT_SESSION, ChatViewProvider.WIN, ChatViewProvider.PANE, 30
-            );
-            if (this.detectPromptReady(content)) {
-                this.lastCapturedContent = content;
-                this.lastContentLength = content.length;
-                return;
-            }
-            await this.sleep(500);
-        }
-        // Don't throw — the CLI may not show a traditional prompt but still be ready
-        const content = await svc.capturePaneContent(
-            ChatViewProvider.CHAT_SESSION, ChatViewProvider.WIN, ChatViewProvider.PANE, 30
-        );
-        this.lastCapturedContent = content;
-        this.lastContentLength = content.length;
-    }
-
-    private async destroySession(): Promise<void> {
-        this.stopPolling();
-        this.stopIdlePolling();
-        this.sessionReady = false;
-        this.systemPromptInjected = false;
-        this.streamBuffer = '';
-        this.lastCapturedContent = '';
-        this.lastContentLength = 0;
-        try {
-            const svc = this.getLocalService();
-            if (svc) { await svc.deleteSession(ChatViewProvider.CHAT_SESSION); }
-        } catch { /* session may already be gone */ }
-        this.postMessage({ type: 'sessionStatus', status: 'disconnected' });
-    }
-
-    private async restartSession(): Promise<void> {
-        this.postMessage({ type: 'addMessage', role: 'assistant', text: `Restarting AI session (${this.selectedProvider}/${this.selectedModel})...` });
-        await this.destroySession();
-        try {
-            await this.ensureSession();
-        } catch (err) {
-            this.postMessage({ type: 'addMessage', role: 'error', text: `Failed to restart: ${err}` });
-        }
-    }
-
-    // ── Polling & Streaming ─────────────────────────────────────────────────
-
-    private startPolling(): void {
-        this.stopPolling();
-        this.pollTimer = setInterval(() => this.pollPaneContent(), ChatViewProvider.POLL_MS);
-    }
-
-    private stopPolling(): void {
-        if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
-    }
-
-    private startIdlePolling(): void {
-        this.stopIdlePolling();
-        this.idlePollTimer = setInterval(() => this.checkSessionHealth(), ChatViewProvider.IDLE_POLL_MS);
-    }
-
-    private stopIdlePolling(): void {
-        if (this.idlePollTimer) { clearInterval(this.idlePollTimer); this.idlePollTimer = null; }
-    }
-
-    private async checkSessionHealth(): Promise<void> {
-        if (this.isAwaitingResponse) { return; }
-        const svc = this.getLocalService();
-        if (!svc) { return; }
-        try {
-            if (!await svc.hasSession(ChatViewProvider.CHAT_SESSION)) {
-                this.sessionReady = false;
-                this.postMessage({ type: 'sessionStatus', status: 'disconnected' });
-            }
-        } catch { /* ignore */ }
-    }
-
-    private async pollPaneContent(): Promise<void> {
-        if (!this.sessionReady || !this.isAwaitingResponse) { return; }
-        const svc = this.getLocalService();
-        if (!svc) { return; }
-
-        try {
-            const rawContent = await svc.capturePaneContent(
-                ChatViewProvider.CHAT_SESSION, ChatViewProvider.WIN, ChatViewProvider.PANE,
-                ChatViewProvider.POLL_LINES
-            );
-            const content = this.cleanPaneContent(rawContent);
-
-            if (content === '' && this.lastCapturedContent !== '') {
-                await this.handleSessionDeath();
-                return;
-            }
-
-            const newContent = this.extractNewContent(content);
-
-            if (newContent.length > 0) {
-                this.lastContentChangeTime = Date.now();
-                this.streamBuffer += newContent;
-
-                const displayContent = this.stripToolCallJson(newContent);
-                if (displayContent.trim()) {
-                    this.postMessage({ type: 'streamChunk', text: displayContent });
-                }
-
-                await this.detectAndExecuteToolCalls();
-            }
-
-            this.lastCapturedContent = content;
-            this.lastContentLength = content.length;
-
-            if (this.isResponseComplete(content)) {
-                await this.onResponseComplete();
-            }
-
-            if (Date.now() - this.responseStartTime > ChatViewProvider.MAX_RESPONSE_MS) {
-                await this.onResponseComplete();
-            }
-        } catch (err) {
-            console.warn('Poll error:', err);
-        }
-    }
-
-    private extractNewContent(currentContent: string): string {
-        if (!this.lastCapturedContent) { return ''; }
-
-        const oldLines = this.lastCapturedContent.trimEnd().split('\n');
-        const searchWindow = Math.min(oldLines.length, 20);
-
-        for (let anchorSize = searchWindow; anchorSize >= 3; anchorSize--) {
-            const anchor = oldLines.slice(-anchorSize).join('\n');
-            const idx = currentContent.lastIndexOf(anchor);
-            if (idx >= 0) {
-                const matchEnd = idx + anchor.length;
-                if (matchEnd < currentContent.length) {
-                    return currentContent.substring(matchEnd);
-                }
-                return '';
-            }
-        }
-
-        if (currentContent.length > this.lastContentLength) {
-            return currentContent.substring(this.lastContentLength);
-        }
-        return '';
-    }
-
-    private isResponseComplete(content: string): boolean {
-        const timeSinceChange = Date.now() - this.lastContentChangeTime;
-        if (timeSinceChange < ChatViewProvider.STABLE_MS) { return false; }
-        return this.detectPromptReady(content);
-    }
-
-    private detectPromptReady(content: string): boolean {
-        if (this.aiManager) {
-            const status = this.aiManager.detectAIStatus(this.selectedProvider, content);
-            if (status === AIStatus.WAITING) { return true; }
-        }
-        const lines = content.trimEnd().split('\n');
-        const lastContent = lines.slice(-5).join('\n');
-        const promptPatterns = [/>\s*$/m, /\$\s*$/m, />>>\s*$/m, /❯\s*$/m];
-        return promptPatterns.some(p => p.test(lastContent));
-    }
-
-    private async onResponseComplete(): Promise<void> {
-        this.isAwaitingResponse = false;
-        this.stopPolling();
-        if (this.streamBuffer.trim()) {
-            this.conversationHistory.push({ role: 'assistant', content: this.streamBuffer });
-        }
-        this.streamBuffer = '';
-    }
-
-    private async handleSessionDeath(): Promise<void> {
-        this.isAwaitingResponse = false;
-        this.sessionReady = false;
-        this.stopPolling();
-        this.postMessage({ type: 'sessionStatus', status: 'disconnected' });
-        this.postMessage({ type: 'addMessage', role: 'error', text: 'AI session died. Recreating...' });
-        this.postMessage({ type: 'streamEnd' });
-        this.postMessage({ type: 'setLoading', loading: false });
-
-        await this.sleep(1000);
-        try {
-            await this.ensureSession();
-            this.postMessage({ type: 'addMessage', role: 'assistant', text: 'Session reconnected.' });
-        } catch {
-            this.postMessage({ type: 'addMessage', role: 'error', text: 'Failed to recreate session.' });
-        }
-    }
-
-    // ── Tool Call Detection & Execution ─────────────────────────────────────
-
-    private async detectAndExecuteToolCalls(): Promise<void> {
-        const jsonBlockRegex = /```json\s*\n?([\s\S]*?)```/g;
-        const blocks: string[] = [];
-        let match: RegExpExecArray | null;
-        while ((match = jsonBlockRegex.exec(this.streamBuffer)) !== null) {
-            blocks.push(match[1].trim());
-        }
-
-        if (blocks.length === 0) {
-            const openFence = this.streamBuffer.lastIndexOf('```json');
-            if (openFence >= 0) {
-                const afterFence = this.streamBuffer.substring(openFence);
-                if (afterFence.indexOf('```', 7) < 0) { return; } // incomplete
-            }
-            return;
-        }
-
-        const lastBlock = blocks[blocks.length - 1];
-        const parsed = this.apiCatalog.parseResponse('```json\n' + lastBlock + '\n```');
-
-        if (parsed.actions.length > 0) {
-            this.postMessage({ type: 'addMessage', role: 'tool', text: `Executing ${parsed.actions.length} action(s)...` });
-
-            const results = await this.apiCatalog.executeActions(parsed.actions);
-            const resultLines: string[] = [];
-            let executedCount = 0;
-            for (let i = 0; i < results.length; i++) {
-                const r = results[i];
-                const actionName = parsed.actions[i]?.action || 'unknown';
-                resultLines.push(`${r.success ? 'OK' : 'ERR'}: [${actionName}] ${r.message}`);
-                if (r.success) { executedCount++; }
-            }
-
-            const toolText = resultLines.join('\n');
-            this.postMessage({ type: 'addMessage', role: 'tool', text: toolText });
-            this.conversationHistory.push({ role: 'tool', content: toolText });
-            if (executedCount > 0 && this.refreshCallback) { this.refreshCallback(); }
-
-            if (parsed.next === 'user') { return; }
-
-            await this.sendToolResultsToSession(toolText);
-            this.streamBuffer = '';
-            this.lastContentChangeTime = Date.now();
-            this.responseStartTime = Date.now();
-        }
-    }
-
-    private async sendToolResultsToSession(resultText: string): Promise<void> {
-        const svc = this.getLocalService();
-        if (!svc) { return; }
-        const message = `Tool execution results:\n${resultText}\n\nContinue processing based on the results above.`;
-        await this.sendMultilineToPane(svc, message);
-    }
-
-    private async sendMultilineToPane(svc: TmuxService, text: string): Promise<void> {
-        const target = `${ChatViewProvider.CHAT_SESSION}:${ChatViewProvider.WIN}.${ChatViewProvider.PANE}`;
-        const escaped = text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\$/g, '\\$').replace(/`/g, '\\`');
-        try {
-            await svc.execCommand(`tmux set-buffer -- "${escaped}"`);
-            await svc.execCommand(`tmux paste-buffer -t "${target}"`);
-            await svc.execCommand(`tmux send-keys -t "${target}" Enter`);
-        } catch {
-            const singleLine = text.replace(/\n/g, ' ').substring(0, 500);
-            await svc.sendKeys(ChatViewProvider.CHAT_SESSION, ChatViewProvider.WIN, ChatViewProvider.PANE, singleLine);
-        }
+    private getProviderModels(): { value: string; label: string }[] {
+        return ChatViewProvider.PROVIDER_MODELS[this.selectedProvider]
+            || ChatViewProvider.PROVIDER_MODELS.claude;
     }
 
     // ── System Prompt ───────────────────────────────────────────────────────
@@ -992,28 +675,70 @@ ${this.apiCatalog.getCatalogText()}
 7. Actions marked [returns data] will report output in tool results.`;
     }
 
-    private async injectSystemPrompt(): Promise<void> {
-        if (this.systemPromptInjected) { return; }
-        const svc = this.getLocalService();
-        if (!svc) { return; }
+    // ── Streaming CLI Spawn ─────────────────────────────────────────────────
 
-        const prompt = await this.buildSystemPrompt();
-        await this.sendMultilineToPane(svc, prompt);
+    private spawnStreaming(
+        prompt: string,
+        onChunk: (text: string) => void,
+        timeoutMs: number = 120_000,
+    ): Promise<string> {
+        return new Promise((resolve, reject) => {
+            const spawnCfg = this.aiManager
+                ? this.aiManager.getSpawnConfig(this.selectedProvider)
+                : { command: 'claude', args: ['--print', '-'], env: {}, cwd: undefined, shell: true };
 
-        this.isAwaitingResponse = true;
-        this.responseStartTime = Date.now();
-        this.lastContentChangeTime = Date.now();
+            const args = ['--model', this.selectedModel, ...spawnCfg.args];
 
-        const content = await svc.capturePaneContent(
-            ChatViewProvider.CHAT_SESSION, ChatViewProvider.WIN, ChatViewProvider.PANE,
-            ChatViewProvider.POLL_LINES
-        );
-        this.lastCapturedContent = content;
-        this.lastContentLength = content.length;
+            const proc = cp.spawn(spawnCfg.command, args, {
+                stdio: ['pipe', 'pipe', 'pipe'],
+                env: { ...process.env, ...spawnCfg.env },
+                cwd: spawnCfg.cwd || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+                shell: spawnCfg.shell,
+            });
 
-        this.startPolling();
-        await this.waitForResponseComplete(60000);
-        this.systemPromptInjected = true;
+            this.currentProc = proc;
+            let fullOutput = '';
+            let stderr = '';
+            let timedOut = false;
+
+            const timer = setTimeout(() => {
+                timedOut = true;
+                proc.kill();
+                reject(new Error('Command timed out'));
+            }, timeoutMs);
+
+            proc.stdout!.on('data', (chunk: Buffer) => {
+                const text = chunk.toString();
+                fullOutput += text;
+                onChunk(text);
+            });
+
+            proc.stderr!.on('data', (chunk: Buffer) => {
+                stderr += chunk.toString();
+            });
+
+            proc.on('close', (code: number | null) => {
+                clearTimeout(timer);
+                this.currentProc = null;
+                if (timedOut) { return; }
+                if (this.abortRequested) {
+                    reject(new Error('Stopped by user'));
+                } else if (code === 0) {
+                    resolve(fullOutput);
+                } else {
+                    reject(new Error(stderr || fullOutput || `Process exited with code ${code}`));
+                }
+            });
+
+            proc.on('error', (err: Error) => {
+                clearTimeout(timer);
+                this.currentProc = null;
+                reject(err);
+            });
+
+            proc.stdin!.write(prompt);
+            proc.stdin!.end();
+        });
     }
 
     // ── Chat Message Handling ────────────────────────────────────────────────
@@ -1030,44 +755,7 @@ ${this.apiCatalog.getCatalogText()}
         this.abortRequested = false;
 
         try {
-            await this.ensureSession();
-
-            if (!this.systemPromptInjected) {
-                await this.injectSystemPrompt();
-            }
-
-            const fileContext = this.buildFileContext();
-            let message = userText;
-            if (fileContext) {
-                message += `\n\n## Attached Files/Folders\n${fileContext}`;
-            }
-
-            // Refresh state context
-            const context = await gatherFullExtensionContext(this.serviceManager, this.contextDeps);
-            const stateText = formatFullContextForPrompt(context);
-            message += `\n\n## Current System State (refreshed)\n${stateText}`;
-
-            const svc = this.getLocalService();
-            if (!svc) { throw new Error('No tmux service'); }
-
-            const baseline = await svc.capturePaneContent(
-                ChatViewProvider.CHAT_SESSION, ChatViewProvider.WIN, ChatViewProvider.PANE,
-                ChatViewProvider.POLL_LINES
-            );
-            this.lastCapturedContent = this.cleanPaneContent(baseline);
-            this.lastContentLength = this.lastCapturedContent.length;
-            this.streamBuffer = '';
-
-            await this.sendMultilineToPane(svc, message);
-
-            this.isAwaitingResponse = true;
-            this.responseStartTime = Date.now();
-            this.lastContentChangeTime = Date.now();
-            this.postMessage({ type: 'streamStart' });
-            this.startPolling();
-
-            await this.waitForResponseComplete(ChatViewProvider.MAX_RESPONSE_MS);
-
+            await this.runAgentLoop();
         } catch (e: any) {
             if (this.abortRequested) {
                 this.postMessage({ type: 'addMessage', role: 'error', text: 'Stopped by user.' });
@@ -1078,24 +766,86 @@ ${this.apiCatalog.getCatalogText()}
                 this.postMessage({ type: 'addMessage', role: 'error', text: errMsg });
             }
         } finally {
-            this.isAwaitingResponse = false;
-            this.stopPolling();
             this.abortRequested = false;
+            this.currentProc = null;
             this.postMessage({ type: 'setLoading', loading: false });
-            this.postMessage({ type: 'streamEnd' });
         }
     }
 
-    private waitForResponseComplete(timeoutMs: number): Promise<void> {
-        return new Promise((resolve) => {
-            const check = setInterval(() => {
-                if (!this.isAwaitingResponse || this.abortRequested) {
-                    clearInterval(check);
-                    resolve();
-                }
-            }, 500);
-            setTimeout(() => { clearInterval(check); resolve(); }, timeoutMs);
-        });
+    private async runAgentLoop(): Promise<void> {
+        for (let step = 0; step < MAX_AGENT_STEPS; step++) {
+            if (this.abortRequested) { break; }
+
+            const prompt = await this.buildPrompt();
+
+            this.postMessage({ type: 'streamStart' });
+            if (step > 0) {
+                this.postMessage({ type: 'setLoading', loading: true, step: step + 1 });
+            }
+
+            let output: string;
+            try {
+                output = await this.spawnStreaming(prompt, (chunk) => {
+                    this.postMessage({ type: 'streamChunk', text: chunk });
+                });
+            } catch (e) {
+                this.postMessage({ type: 'streamEnd' });
+                throw e;
+            }
+
+            this.postMessage({ type: 'streamEnd' });
+
+            if (!output.trim()) { break; }
+            this.conversationHistory.push({ role: 'assistant', content: output });
+
+            // Check for tool calls
+            const parsed = this.apiCatalog.parseResponse(output);
+            if (parsed.actions.length === 0 || parsed.next === 'user') {
+                break;
+            }
+
+            // Execute tool calls
+            this.postMessage({ type: 'addMessage', role: 'tool', text: `Executing ${parsed.actions.length} action(s)...` });
+            const results = await this.apiCatalog.executeActions(parsed.actions);
+
+            const resultLines: string[] = [];
+            let executedCount = 0;
+            for (let i = 0; i < results.length; i++) {
+                const r = results[i];
+                const actionName = parsed.actions[i]?.action || 'unknown';
+                resultLines.push(`${r.success ? 'OK' : 'ERR'}: [${actionName}] ${r.message}`);
+                if (r.success) { executedCount++; }
+            }
+
+            const toolText = resultLines.join('\n');
+            this.postMessage({ type: 'addMessage', role: 'tool', text: toolText });
+            this.conversationHistory.push({ role: 'tool', content: toolText });
+
+            if (executedCount > 0 && this.refreshCallback) { this.refreshCallback(); }
+        }
+    }
+
+    private async buildPrompt(): Promise<string> {
+        const systemPrompt = await this.buildSystemPrompt();
+        const parts = [systemPrompt];
+
+        const history = this.conversationHistory.slice(-30);
+        if (history.length > 0) {
+            parts.push('\n## Conversation');
+            for (const entry of history) {
+                const label = entry.role === 'user' ? 'User'
+                    : entry.role === 'assistant' ? 'Assistant'
+                    : 'Tool Results';
+                parts.push(`\n### ${label}\n${entry.content}`);
+            }
+        }
+
+        const fileContext = this.buildFileContext();
+        if (fileContext) {
+            parts.push(`\n## Attached Files/Folders\n${fileContext}`);
+        }
+
+        return parts.join('\n');
     }
 
     private buildFileContext(): string {
@@ -1109,21 +859,6 @@ ${this.apiCatalog.getCatalogText()}
     }
 
     // ── Utilities ───────────────────────────────────────────────────────────
-
-    private cleanPaneContent(raw: string): string {
-        return raw
-            .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
-            .replace(/\x1b\].*?\x07/g, '')
-            .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
-    }
-
-    private stripToolCallJson(text: string): string {
-        return text.replace(/```json\s*\n?[\s\S]*?```/g, '').trim();
-    }
-
-    private sleep(ms: number): Promise<void> {
-        return new Promise(resolve => setTimeout(resolve, ms));
-    }
 
     private postMessage(msg: any): void {
         this.webviewView?.webview.postMessage(msg);
@@ -1305,19 +1040,6 @@ body {
     border-radius: 3px; font-size: 11px; outline: none; cursor: pointer;
 }
 #provider-select:focus { border-color: var(--vscode-focusBorder); }
-#session-dot {
-    width: 8px; height: 8px; border-radius: 50%;
-    background: var(--vscode-terminal-ansiRed, #f44);
-    flex-shrink: 0; transition: background 0.3s;
-}
-#session-dot.connected { background: var(--vscode-terminal-ansiGreen, #4c4); }
-#session-dot.starting { background: var(--vscode-terminal-ansiYellow, #cc4); animation: dot-pulse 1s ease-in-out infinite; }
-#session-dot.disconnected { background: var(--vscode-terminal-ansiRed, #f44); }
-@keyframes dot-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
-}
-
 /* ── Streaming Message ───────────────────────────────────────────────── */
 .msg.streaming { border-left-color: var(--vscode-terminal-ansiCyan); }
 .msg.streaming .stream-body::after {
@@ -1332,7 +1054,6 @@ body {
 </head>
 <body>
 <div id="toolbar">
-    <span id="session-dot" class="disconnected" title="Session disconnected"></span>
     <select id="provider-select" title="Select AI provider">
         <option value="claude" selected>Claude</option>
         <option value="gemini">Gemini</option>
@@ -1398,7 +1119,6 @@ var loadingEl = document.getElementById('loading');
 var filesBar = document.getElementById('files-bar');
 var modelSelect = document.getElementById('model-select');
 var providerSelect = document.getElementById('provider-select');
-var sessionDot = document.getElementById('session-dot');
 var clearBtn = document.getElementById('clear-btn');
 var streamingDiv = null;
 var suggestionsEl = document.getElementById('suggestions');
@@ -1721,11 +1441,15 @@ window.addEventListener('message', function(e) {
             streamingDiv.classList.remove('streaming');
             streamingDiv = null;
         }
-    } else if (msg.type === 'sessionStatus') {
-        sessionDot.className = msg.status;
-        sessionDot.id = 'session-dot';
-        var titles = { connected: 'Session connected', starting: 'Session starting...', disconnected: 'Session disconnected' };
-        sessionDot.title = titles[msg.status] || msg.status;
+    } else if (msg.type === 'updateModels') {
+        modelSelect.innerHTML = '';
+        msg.models.forEach(function(m) {
+            var opt = document.createElement('option');
+            opt.value = m.value;
+            opt.textContent = m.label;
+            if (msg.selected && m.value === msg.selected) { opt.selected = true; }
+            modelSelect.appendChild(opt);
+        });
     }
 });
 </script>
