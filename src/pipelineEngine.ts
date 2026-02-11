@@ -405,10 +405,18 @@ export class PipelineEngine implements vscode.Disposable {
 
         try {
             const { execSync } = require('child_process');
-            const prompt = `You are a pipeline designer. Given this task description, create a pipeline of stages.
+            const prompt = `You are a pipeline designer for an AI agent orchestration system. Break the given task into a pipeline of 2-5 stages.
+
+## Output Format
 Output ONLY a JSON array of stages. Each stage: {"name": "...", "role": "coder|reviewer|tester|researcher|devops", "type": "sequential", "task": "...", "dependsOn": []}
-The dependsOn array should reference stage names of predecessor stages (use the exact name string).
-Keep it to 2-5 stages. Be concise.
+
+## Stage Design Rules
+- **Names**: Use short, descriptive kebab-case names (e.g., "implement-api", "write-tests", "review-changes")
+- **Dependencies**: The first stage must have an empty dependsOn array. Later stages reference predecessor stage names they depend on.
+- **Granularity**: Each stage should be a single coherent unit of work that one agent can complete independently.
+- **Task descriptions**: Write specific, actionable instructions the agent can execute without clarification. Include relevant file paths or module names when possible.
+- **Roles**: Choose the most appropriate role — coder for implementation, tester for tests, reviewer for review, researcher for investigation, devops for infrastructure.
+- **Final stage**: When the task involves code changes, end with a reviewer or tester stage that verifies the work done in prior stages.
 
 Task: ${description}`;
 

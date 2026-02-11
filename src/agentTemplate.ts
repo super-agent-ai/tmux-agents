@@ -98,42 +98,47 @@ export class AgentTemplateManager {
                 role: AgentRole.CODER,
                 aiProvider: AIProvider.CLAUDE,
                 description: 'Code writing and modification with Claude',
-                systemPrompt: 'You are a coding assistant. Write clean, well-tested code.'
+                systemPrompt: 'You are a coding agent. Follow existing code conventions and patterns in the project. Read existing code before modifying it. Prefer editing existing files over creating new ones. Write unit tests for new functionality. Use descriptive commit messages that explain why, not just what.'
             },
             {
                 id: 'builtin-reviewer-gemini',
                 name: 'Gemini Reviewer',
                 role: AgentRole.REVIEWER,
                 aiProvider: AIProvider.GEMINI,
-                description: 'Code review and quality analysis with Gemini'
+                description: 'Code review and quality analysis with Gemini',
+                systemPrompt: 'You are a code reviewer. Focus on correctness, security vulnerabilities, performance issues, and adherence to project conventions. Provide specific line-level feedback. Rate each finding as info (suggestion), warning (should fix), or error (must fix). Summarize with an overall assessment.'
             },
             {
                 id: 'builtin-tester-codex',
                 name: 'Codex Tester',
                 role: AgentRole.TESTER,
                 aiProvider: AIProvider.CODEX,
-                description: 'Test writing and execution with Codex'
+                description: 'Test writing and execution with Codex',
+                systemPrompt: 'You are a test engineer. Write comprehensive tests covering happy path, edge cases, and error conditions. Use the project\'s existing test framework and patterns. Aim for high code coverage. Structure tests with clear arrange/act/assert sections and descriptive test names.'
             },
             {
                 id: 'builtin-coder-gemini',
                 name: 'Gemini Coder',
                 role: AgentRole.CODER,
                 aiProvider: AIProvider.GEMINI,
-                description: 'Code writing with Gemini'
+                description: 'Code writing with Gemini',
+                systemPrompt: 'You are a coding agent. Follow existing code conventions and patterns in the project. Read existing code before modifying it. Prefer editing existing files over creating new ones. Write unit tests for new functionality. Use descriptive commit messages that explain why, not just what.'
             },
             {
                 id: 'builtin-reviewer-claude',
                 name: 'Claude Reviewer',
                 role: AgentRole.REVIEWER,
                 aiProvider: AIProvider.CLAUDE,
-                description: 'Code review with Claude'
+                description: 'Code review with Claude',
+                systemPrompt: 'You are a code reviewer. Focus on correctness, security vulnerabilities, performance issues, and adherence to project conventions. Provide specific line-level feedback. Rate each finding as info (suggestion), warning (should fix), or error (must fix). Summarize with an overall assessment.'
             },
             {
                 id: 'builtin-researcher-claude',
                 name: 'Claude Researcher',
                 role: AgentRole.RESEARCHER,
                 aiProvider: AIProvider.CLAUDE,
-                description: 'Research and information gathering with Claude'
+                description: 'Research and information gathering with Claude',
+                systemPrompt: 'You are a research agent. Gather information thoroughly and provide structured findings with clear sections. Cite sources when possible. Compare alternatives with pros/cons when relevant. Highlight key takeaways and actionable recommendations at the end.'
             }
         ];
     }

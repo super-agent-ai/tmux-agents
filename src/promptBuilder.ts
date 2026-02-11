@@ -6,7 +6,7 @@ import { OrchestratorTask, KanbanSwimLane } from './types';
 export function buildSingleTaskPrompt(t: OrchestratorTask, lane?: KanbanSwimLane): string {
     const sections: string[] = [];
 
-    sections.push(`Implement the following task:`);
+    sections.push(`Implement the following task. Read existing code before modifying files. Work within the project's working directory. Test your changes if a test framework is available.`);
     sections.push(``);
 
     // Core identity
@@ -46,7 +46,7 @@ export function buildSingleTaskPrompt(t: OrchestratorTask, lane?: KanbanSwimLane
 export function buildTaskBoxPrompt(parent: OrchestratorTask, subtasks: OrchestratorTask[], lane?: KanbanSwimLane): string {
     const sections: string[] = [];
 
-    sections.push(`Implement the following ${subtasks.length} tasks together:`);
+    sections.push(`Implement the following ${subtasks.length} tasks together in this session. Complete them in dependency order — if a later task depends on an earlier one's output, finish the earlier task first. Note what each task produced (files changed, outputs) so subsequent tasks can build on it.`);
 
     // Parent context
     if (parent.description) {
@@ -66,7 +66,7 @@ export function buildTaskBoxPrompt(parent: OrchestratorTask, subtasks: Orchestra
         if (sub.targetRole) { sections.push(`Role: ${sub.targetRole}`); }
     }
 
-    sections.push(`\nAll tasks should be completed together in this session. Coordinate the work across all tasks.`);
+    sections.push(`\nAll tasks should be completed together in this session.`);
 
     // Swim lane context
     if (lane) {
@@ -88,7 +88,7 @@ export function buildTaskBoxPrompt(parent: OrchestratorTask, subtasks: Orchestra
 export function buildBundleTaskPrompt(t: OrchestratorTask, otherTasks: OrchestratorTask[], lane?: KanbanSwimLane): string {
     const sections: string[] = [];
 
-    sections.push(`Implement the following task:`);
+    sections.push(`Implement the following task. Read existing code before modifying files. Work within the project's working directory.`);
     sections.push(``);
 
     sections.push(`Task ID: ${t.id}`);
@@ -109,7 +109,7 @@ export function buildBundleTaskPrompt(t: OrchestratorTask, otherTasks: Orchestra
             const desc = ot.input ? ` - ${ot.input.slice(0, 100)}` : '';
             sections.push(`- [${ot.id.slice(0, 12)}] ${ot.description}${desc}`);
         }
-        sections.push(`Coordinate with the other tasks if relevant.`);
+        sections.push(`Avoid modifying the same files as parallel tasks. Coordinate through the shared working directory.`);
     }
 
     // Swim lane context
@@ -148,7 +148,7 @@ export function appendPromptTail(prompt: string, options?: {
         prompt += `\n\nStart implementing immediately without asking for confirmation.`;
     }
     if (options?.autoClose && options?.signalId) {
-        prompt += `\n\nIMPORTANT: When you have completed ALL the work for this task, output a brief summary of what you did followed by the completion signal, exactly in this format:\n<promise-summary>${options.signalId}\nYour summary of what was accomplished (2-5 sentences)\n</promise-summary>\n<promise>${options.signalId}-DONE</promise>\nThese signals will be detected automatically. Only output them when you are fully done.`;
+        prompt += `\n\nIMPORTANT: When you have completed ALL the work for this task, output a brief summary of what you did followed by the completion signal, exactly in this format:\n<promise-summary>${options.signalId}\nYour summary of what was accomplished (2-5 sentences). Include: files created or modified, whether tests pass, and any remaining issues.\n</promise-summary>\n<promise>${options.signalId}-DONE</promise>\nThese signals will be detected automatically. Only output them when you are fully done.`;
     }
     return prompt;
 }

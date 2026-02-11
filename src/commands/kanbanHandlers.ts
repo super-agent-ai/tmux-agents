@@ -841,7 +841,15 @@ export async function handleKanbanMessage(
             try {
                 const content = await svc.capturePaneContent(t.tmuxSessionName, t.tmuxWindowIndex, t.tmuxPaneIndex, 50);
                 const summary = await new Promise<string>((resolve) => {
-                    const prompt = `Summarize what was accomplished in this terminal session in 3-5 sentences. Focus on what was done, key changes made, and the outcome.\n\n${content.slice(-3000)}`;
+                    const prompt = `Summarize this terminal session concisely for a kanban task card. Use this structure:
+1. What tool/command was run (e.g., "Ran vitest", "Built with tsc", "Claude agent session")
+2. What was accomplished — mention concrete artifacts: files created/modified, tests passed/failed, errors encountered
+3. Final outcome: success, failure, or still in-progress. Note if the process exited cleanly or if errors remain.
+
+Keep it technical but brief (3-5 sentences). Do not speculate beyond what the output shows.
+
+Terminal output:
+${content.slice(-3000)}`;
                     const spawnCfg = ctx.aiManager.getSpawnConfig(ctx.aiManager.getDefaultProvider());
                     const cmdStr = [spawnCfg.command, ...spawnCfg.args].join(' ');
                     const proc = cp.exec(cmdStr, { env: { ...process.env, ...spawnCfg.env }, cwd: safeCwd(spawnCfg.cwd), maxBuffer: 10 * 1024 * 1024, timeout: 20000 }, (error, stdout) => {
@@ -873,15 +881,31 @@ export async function handleKanbanMessage(
                     let prompt = `You are a task planner for a software development team. Given a rough description, generate a detailed task specification.
 
 Respond ONLY with valid JSON (no markdown, no code fences), in this exact format:
-{"title": "Short task title (under 60 chars)", "description": "Detailed description with context, acceptance criteria, and implementation notes. Be specific and actionable.", "role": "coder"}
+{"title": "Short task title (under 60 chars)", "description": "Detailed description", "role": "coder"}
 
-The "role" field should be one of: coder, reviewer, tester, devops, researcher, or empty string if unclear.`;
+## Title Rules
+- Start with an action verb: Add, Fix, Refactor, Update, Implement, Write, Configure, Remove
+- Keep under 60 characters
+
+## Description Structure
+Write the description with three sections separated by newlines:
+- **What**: What to build, change, or fix (1-2 sentences)
+- **Acceptance Criteria**: Bulleted list of done-when conditions (e.g., "- API returns 200 on valid input", "- Unit tests cover edge cases")
+- **Implementation Notes**: Technical hints — files to touch, patterns to follow, dependencies to consider
+
+## Role Selection
+- coder: Implementation, bug fixes, refactoring, scripting
+- reviewer: Code review, security audit, architecture assessment
+- tester: Writing tests, improving coverage, test infrastructure
+- devops: CI/CD, Docker, deployment, infrastructure
+- researcher: Investigation, comparison, analysis, documentation
+- Empty string if unclear`;
 
                     if (payload.currentTitle || payload.currentInput) {
                         prompt += `\n\nExisting task context:`;
                         if (payload.currentTitle) { prompt += `\nCurrent title: ${payload.currentTitle}`; }
                         if (payload.currentInput) { prompt += `\nCurrent description: ${payload.currentInput}`; }
-                        prompt += `\n\nRefine and expand based on the user's new input below. Keep relevant existing context.`;
+                        prompt += `\n\nRefine and expand based on the user's new input below. Preserve user-provided details and do not overwrite them — integrate new information with existing context.`;
                     }
 
                     prompt += `\n\nUser's input: ${text}`;
@@ -956,7 +980,14 @@ The "role" field should be one of: coder, reviewer, tester, devops, researcher, 
                             const combinedContent = paneContents.join('\n---\n').slice(0, 3000);
                             try {
                                 summary = await new Promise<string>((resolve, reject) => {
-                                    const prompt = `Summarize what is happening in this tmux session in 2-3 short lines. Focus on: what project/task, what tools/commands are running, current status.\n\n${combinedContent}`;
+                                    const prompt = `Summarize this tmux session in exactly 3 short lines:
+Line 1: Project/repo name and primary language (e.g., "myapp — TypeScript/React")
+Line 2: What is actively running — build, test suite, dev server, AI agent (name it: Claude, Gemini, Codex), or idle shell
+Line 3: Current status — building, passing, failing, waiting for input, error, or complete
+
+If a shell is idle with no running process, say "Idle shell" on Line 2.
+
+${combinedContent}`;
                                     const spawnCfg = ctx.aiManager.getSpawnConfig(ctx.aiManager.getDefaultProvider());
                                     const cmdStr3 = [spawnCfg.command, ...spawnCfg.args].join(' ');
                                     const proc = cp.exec(cmdStr3, { env: { ...process.env, ...spawnCfg.env }, cwd: safeCwd(spawnCfg.cwd), maxBuffer: 10 * 1024 * 1024, timeout: 15000 }, (error, stdout) => {

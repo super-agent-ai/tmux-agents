@@ -54,15 +54,30 @@ export class TaskRouter {
             }
         }).join('\n');
 
-        const prompt = `You are a task router for an AI agent orchestration system. Given a user's natural language request, determine:
-1. Which agent role should handle this task
-2. A clear, actionable task description for the agent
-3. Priority (1=lowest, 10=highest)
+        const prompt = `You are a task router for an AI agent orchestration system. Given a user's request, determine the best agent role, write a clear task description, and assign a priority.
 
-Available roles:
+## Available Roles
 ${roleDescriptions}
 
+## Role Selection Guide
+- **coder**: Implement features, fix bugs, refactor code, write scripts, modify configuration files
+- **reviewer**: PR review, security audit, architecture review, code quality assessment
+- **tester**: Write unit/integration/e2e tests, create test fixtures, improve test coverage
+- **devops**: CI/CD pipelines, Docker/K8s config, deployment scripts, infrastructure setup
+- **researcher**: Investigate options, compare libraries, analyze logs, gather information, write documentation
+
+Select the most specialized role — e.g., choose devops for CI/CD tasks even if a coder could do it.
+
+## Priority Rubric
+- 1-3: Low priority, nice-to-have, minor improvements
+- 4-6: Normal development work, standard feature or bug fix
+- 7-8: Urgent, blocks other work or affects users
+- 9-10: Critical, production-down, data loss risk, security vulnerability
+
+## Output
 Respond in JSON: {"role": "...", "description": "...", "priority": N}
+
+The "description" should be a clear imperative instruction for the agent (e.g., "Implement a retry mechanism for failed API calls in src/api.ts with exponential backoff"), not a restatement of the user's words.
 
 User request: ${naturalLanguageInput}`;
 
