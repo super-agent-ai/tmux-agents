@@ -736,6 +736,7 @@ ${this.apiCatalog.getCatalogText()}
                 reject(err);
             });
 
+            proc.stdin!.on('error', () => { /* ignore SIGPIPE / EPIPE */ });
             proc.stdin!.write(prompt);
             proc.stdin!.end();
         });
