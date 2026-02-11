@@ -529,6 +529,13 @@ html, body {
     background: rgba(78,201,176,0.15); color: #4ec9b0;
     font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;
 }
+.dep-badge {
+    display: inline-flex; align-items: center; gap: 3px;
+    font-size: 9px; padding: 1px 6px; border-radius: 3px;
+    background: rgba(220,220,170,0.15); color: #dcdcaa;
+    font-weight: 600; letter-spacing: 0.3px;
+}
+.dep-badge.met { background: rgba(78,201,176,0.15); color: #4ec9b0; }
 
 /* ── Modal toggle switch (pill style) ────────────────────────────────── */
 .auto-toggles-row {
@@ -894,6 +901,10 @@ html, body {
                 </div>
             </div>
         </div>
+        <div class="field" id="tm-deps-field">
+            <label>Depends On</label>
+            <select id="tm-deps" multiple style="height:80px"></select>
+        </div>
         <div class="field" id="tm-output-field" style="display:none">
             <label>Completion Summary</label>
             <div id="tm-output" class="modal-output"></div>
@@ -1088,6 +1099,7 @@ html, body {
     var tmaSummarize = document.getElementById('tma-summarize');
     var tmaCloseWindow = document.getElementById('tma-close-window');
     var tmaDelete = document.getElementById('tma-delete');
+    var tmDeps = document.getElementById('tm-deps');
     var tmAiInput = document.getElementById('tm-ai-input');
     var tmAiField = document.getElementById('tm-ai-field');
     var tmaAiGen = document.getElementById('tma-ai-gen');
@@ -1303,6 +1315,14 @@ html, body {
         if (task.autoClose) autoFlags.push('C');
         if (autoFlags.length > 0) {
             html += '<span class="auto-badge" title="Auto: ' + (task.autoStart ? 'Start ' : '') + (task.autoPilot ? 'Pilot ' : '') + (task.autoClose ? 'Close' : '') + '">&#x26A1; ' + autoFlags.join('') + '</span>';
+        }
+        if (task.dependsOn && task.dependsOn.length > 0) {
+            var allMet = true;
+            for (var di = 0; di < task.dependsOn.length; di++) {
+                var dep = findTask(task.dependsOn[di]);
+                if (!dep || dep.kanbanColumn !== 'done') { allMet = false; break; }
+            }
+            html += '<span class="dep-badge' + (allMet ? ' met' : '') + '" title="Dependencies: ' + task.dependsOn.length + (allMet ? ' (all met)' : ' (pending)') + '">' + (allMet ? '&#x1F513;' : '&#x1F512;') + ' ' + task.dependsOn.length + '</span>';
         }
         html += '</div>';
 
@@ -2004,6 +2024,17 @@ html, body {
         task && task.autoStart ? tmAutoStart.classList.add('active') : tmAutoStart.classList.remove('active');
         task && task.autoPilot ? tmAutoPilot.classList.add('active') : tmAutoPilot.classList.remove('active');
         task && task.autoClose ? tmAutoClose.classList.add('active') : tmAutoClose.classList.remove('active');
+        // Populate dependencies multi-select
+        var depsHtml = '';
+        var currentDeps = (task && task.dependsOn) ? task.dependsOn : [];
+        for (var di = 0; di < tasks.length; di++) {
+            var dt = tasks[di];
+            if (dt.kanbanColumn === 'done') continue;
+            if (task && dt.id === task.id) continue;
+            var sel = currentDeps.indexOf(dt.id) !== -1 ? ' selected' : '';
+            depsHtml += '<option value="' + esc(dt.id) + '"' + sel + '>' + esc(dt.description) + ' (' + esc(shortId(dt.id)) + ')</option>';
+        }
+        tmDeps.innerHTML = depsHtml;
         if (task && task.output) {
             tmOutput.textContent = task.output;
             tmOutputField.style.display = '';
@@ -2071,6 +2102,11 @@ html, body {
         var autoClose = tmAutoClose.classList.contains('active');
         var taskProvider = tmProvider.value || undefined;
         var taskModel = tmModel.value || undefined;
+        var selectedDeps = [];
+        for (var oi = 0; oi < tmDeps.options.length; oi++) {
+            if (tmDeps.options[oi].selected) selectedDeps.push(tmDeps.options[oi].value);
+        }
+        var dependsOn = selectedDeps.length > 0 ? selectedDeps : undefined;
 
         if (editingTaskId) {
             vscode.postMessage({
@@ -2086,7 +2122,8 @@ html, body {
                     autoPilot: autoPilot,
                     autoClose: autoClose,
                     aiProvider: taskProvider,
-                    aiModel: taskModel
+                    aiModel: taskModel,
+                    dependsOn: dependsOn || []
                 }
             });
             var t = findTask(editingTaskId);
@@ -2101,6 +2138,7 @@ html, body {
                 t.autoClose = autoClose;
                 t.aiProvider = taskProvider;
                 t.aiModel = taskModel;
+                t.dependsOn = dependsOn;
             }
         } else {
             vscode.postMessage({
@@ -2115,7 +2153,8 @@ html, body {
                 autoPilot: autoPilot,
                 autoClose: autoClose,
                 aiProvider: taskProvider,
-                aiModel: taskModel
+                aiModel: taskModel,
+                dependsOn: dependsOn
             });
         }
         closeTaskModal();

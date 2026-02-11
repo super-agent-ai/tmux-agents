@@ -32,6 +32,11 @@ CREATE TABLE IF NOT EXISTS subtask_relations (
     PRIMARY KEY (parentId, childId),
     FOREIGN KEY (parentId) REFERENCES tasks(id),
     FOREIGN KEY (childId) REFERENCES tasks(id));
+CREATE TABLE IF NOT EXISTS task_dependencies (
+    taskId TEXT NOT NULL, dependsOnTaskId TEXT NOT NULL,
+    PRIMARY KEY (taskId, dependsOnTaskId),
+    FOREIGN KEY (taskId) REFERENCES tasks(id),
+    FOREIGN KEY (dependsOnTaskId) REFERENCES tasks(id));
 CREATE TABLE IF NOT EXISTS agents (
     id TEXT PRIMARY KEY, templateId TEXT NOT NULL, name TEXT NOT NULL,
     role TEXT NOT NULL, aiProvider TEXT NOT NULL,
@@ -292,6 +297,15 @@ export class Database {
                 for (const cid of task.subtaskIds) { stmt.run([task.id, cid]); }
                 stmt.free();
             }
+            // Rebuild dependency relations
+            this.run('DELETE FROM task_dependencies WHERE taskId=?', [task.id]);
+            if (task.dependsOn && task.dependsOn.length > 0) {
+                const depStmt = this.db.prepare(
+                    'INSERT OR REPLACE INTO task_dependencies (taskId,dependsOnTaskId) VALUES (?,?)'
+                );
+                for (const depId of task.dependsOn) { depStmt.run([task.id, depId]); }
+                depStmt.free();
+            }
             this.scheduleSave();
         } catch (err) { console.error('[Database] saveTask:', err); }
     }
@@ -300,6 +314,7 @@ export class Database {
         if (!this.db) { return; }
         try {
             this.run('DELETE FROM subtask_relations WHERE parentId=? OR childId=?', [id, id]);
+            this.run('DELETE FROM task_dependencies WHERE taskId=? OR dependsOnTaskId=?', [id, id]);
             this.run('DELETE FROM tasks WHERE id=?', [id]);
             this.scheduleSave();
         } catch (err) { console.error('[Database] deleteTask:', err); }
@@ -329,6 +344,14 @@ export class Database {
         if (!this.db) { return []; }
         try {
             const res = this.db.exec('SELECT childId FROM subtask_relations WHERE parentId=?', [parentId]);
+            return res.length === 0 ? [] : res[0].values.map((v: any[]) => v[0] as string);
+        } catch { return []; }
+    }
+
+    private getDependsOnIds(taskId: string): string[] {
+        if (!this.db) { return []; }
+        try {
+            const res = this.db.exec('SELECT dependsOnTaskId FROM task_dependencies WHERE taskId=?', [taskId]);
             return res.length === 0 ? [] : res[0].values.map((v: any[]) => v[0] as string);
         } catch { return []; }
     }
@@ -363,6 +386,8 @@ export class Database {
         if (r.aiModel != null) { t.aiModel = r.aiModel; }
         const subs = this.getSubtaskIds(t.id);
         if (subs.length > 0) { t.subtaskIds = subs; }
+        const deps = this.getDependsOnIds(t.id);
+        if (deps.length > 0) { t.dependsOn = deps; }
         return t;
     }
 

@@ -3,7 +3,7 @@ import { TmuxServiceManager } from './serviceManager';
 import { TmuxSessionProvider } from './treeProvider';
 import { AgentOrchestrator } from './orchestrator';
 import { Database } from './database';
-import { TaskStatus } from './types';
+import { TaskStatus, OrchestratorTask, KanbanSwimLane } from './types';
 
 export interface AutoMonitorContext {
     serviceManager: TmuxServiceManager;
@@ -12,6 +12,8 @@ export interface AutoMonitorContext {
     database: Database;
     updateKanban: () => void;
     updateDashboard: () => Promise<void>;
+    startTaskFlow: (task: OrchestratorTask) => Promise<void>;
+    swimLanes: KanbanSwimLane[];
 }
 
 export async function checkAutoCompletions(ctx: AutoMonitorContext): Promise<void> {
@@ -67,6 +69,8 @@ export async function checkAutoCompletions(ctx: AutoMonitorContext): Promise<voi
                     }
                 }
                 ctx.tmuxSessionProvider.refresh();
+                // Trigger dependents: start tasks waiting on this one
+                await triggerAutoMonitorDependents(ctx, task.id);
                 ctx.updateKanban();
                 await ctx.updateDashboard();
                 vscode.window.showInformationMessage(`Auto task completed: ${task.description.slice(0, 50)}`);
@@ -113,6 +117,22 @@ export async function checkAutoPilot(ctx: AutoMonitorContext): Promise<void> {
             }
         } catch (err) {
             console.warn(`[AutoPilot] Error checking task ${task.id}:`, err);
+        }
+    }
+}
+
+async function triggerAutoMonitorDependents(ctx: AutoMonitorContext, completedTaskId: string): Promise<void> {
+    const allTasks = ctx.orchestrator.getTaskQueue();
+    for (const task of allTasks) {
+        if (!task.dependsOn || !task.dependsOn.includes(completedTaskId)) { continue; }
+        const allMet = task.dependsOn.every(depId => {
+            const dep = ctx.orchestrator.getTask(depId);
+            return dep && dep.status === TaskStatus.COMPLETED;
+        });
+        if (allMet && task.autoStart && (task.kanbanColumn === 'todo' || task.kanbanColumn === 'backlog') && task.swimLaneId) {
+            task.kanbanColumn = 'todo';
+            ctx.database.saveTask(task);
+            await ctx.startTaskFlow(task);
         }
     }
 }
