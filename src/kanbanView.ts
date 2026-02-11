@@ -851,6 +851,28 @@ html, body {
             <select id="tm-lane"></select>
         </div>
         <div class="field">
+            <label>AI Provider</label>
+            <select id="tm-provider">
+                <option value="">(Use default)</option>
+                <option value="claude">Claude</option>
+                <option value="gemini">Gemini</option>
+                <option value="codex">Codex</option>
+                <option value="opencode">OpenCode</option>
+                <option value="cursor">Cursor</option>
+                <option value="copilot">Copilot</option>
+                <option value="aider">Aider</option>
+                <option value="amp">Amp</option>
+                <option value="cline">Cline</option>
+                <option value="kiro">Kiro</option>
+            </select>
+        </div>
+        <div class="field">
+            <label>Model</label>
+            <select id="tm-model">
+                <option value="">(Use default)</option>
+            </select>
+        </div>
+        <div class="field">
             <div class="auto-toggles-row">
                 <div class="auto-toggle-item">
                     <label class="modal-toggle" id="tm-auto-start" tabindex="0">
@@ -922,6 +944,19 @@ html, body {
                 <option value="claude">Claude</option>
                 <option value="gemini">Gemini</option>
                 <option value="codex">Codex</option>
+                <option value="opencode">OpenCode</option>
+                <option value="cursor">Cursor</option>
+                <option value="copilot">Copilot</option>
+                <option value="aider">Aider</option>
+                <option value="amp">Amp</option>
+                <option value="cline">Cline</option>
+                <option value="kiro">Kiro</option>
+            </select>
+        </div>
+        <div class="field">
+            <label>Model</label>
+            <select id="el-model">
+                <option value="">(Use default)</option>
             </select>
         </div>
         <div class="field">
@@ -1060,6 +1095,94 @@ html, body {
     var aiGenError = document.getElementById('ai-gen-error');
     var aiGenCancel = document.getElementById('ai-gen-cancel');
     var aiGenAborted = false;
+
+    // Task modal AI provider/model refs
+    var tmProvider = document.getElementById('tm-provider');
+    var tmModel = document.getElementById('tm-model');
+
+    /* ── Provider → Model Map ────────────────────────────────────────────── */
+    var PROVIDER_MODELS = {
+        claude: [
+            { value: 'opus', label: 'Opus 4.6' },
+            { value: 'sonnet', label: 'Sonnet 4.5' },
+            { value: 'haiku', label: 'Haiku 4.5' },
+            { value: 'opusplan', label: 'Opus Plan' },
+        ],
+        gemini: [
+            { value: 'gemini-3-pro-preview', label: '3 Pro' },
+            { value: 'gemini-3-flash-preview', label: '3 Flash' },
+            { value: 'gemini-2.5-pro', label: '2.5 Pro' },
+            { value: 'gemini-2.5-flash', label: '2.5 Flash' },
+        ],
+        codex: [
+            { value: 'gpt-5.3-codex', label: 'GPT-5.3 Codex' },
+            { value: 'gpt-5.2-codex', label: 'GPT-5.2 Codex' },
+            { value: 'gpt-5.1-codex-mini', label: 'GPT-5.1 Mini' },
+            { value: 'gpt-5.2', label: 'GPT-5.2' },
+        ],
+        opencode: [
+            { value: 'anthropic/claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5' },
+            { value: 'anthropic/claude-opus-4-6', label: 'Claude Opus 4.6' },
+            { value: 'openai/gpt-5.2', label: 'GPT-5.2' },
+            { value: 'google/gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+        ],
+        cursor: [
+            { value: 'auto', label: 'Auto' },
+            { value: 'sonnet-4', label: 'Claude Sonnet 4' },
+            { value: 'opus-4.1', label: 'Claude Opus 4.1' },
+            { value: 'gpt-5', label: 'GPT-5' },
+            { value: 'composer', label: 'Composer' },
+        ],
+        copilot: [
+            { value: 'claude-sonnet-4.5', label: 'Claude Sonnet 4.5' },
+            { value: 'claude-sonnet-4', label: 'Claude Sonnet 4' },
+            { value: 'claude-haiku-4.5', label: 'Claude Haiku 4.5' },
+            { value: 'gpt-5', label: 'GPT-5' },
+        ],
+        aider: [
+            { value: 'sonnet', label: 'Claude Sonnet' },
+            { value: 'opus', label: 'Claude Opus' },
+            { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+            { value: 'gpt-5.2', label: 'GPT-5.2' },
+            { value: 'o3-pro', label: 'o3-Pro' },
+            { value: 'deepseek', label: 'DeepSeek' },
+        ],
+        amp: [
+            { value: 'smart', label: 'Smart (Opus 4.6)' },
+            { value: 'rush', label: 'Rush (Haiku 4.5)' },
+            { value: 'deep', label: 'Deep (GPT-5.2 Codex)' },
+        ],
+        cline: [
+            { value: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5' },
+            { value: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
+            { value: 'gpt-4o', label: 'GPT-4o' },
+            { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+            { value: 'kimi-k2.5', label: 'Kimi K2.5' },
+        ],
+        kiro: [
+            { value: 'auto', label: 'Auto' },
+            { value: 'claude-opus-4.6', label: 'Claude Opus 4.6' },
+            { value: 'claude-opus-4.5', label: 'Claude Opus 4.5' },
+            { value: 'claude-sonnet-4.5', label: 'Claude Sonnet 4.5' },
+            { value: 'claude-sonnet-4', label: 'Claude Sonnet 4' },
+            { value: 'claude-haiku-4.5', label: 'Claude Haiku 4.5' },
+        ],
+    };
+
+    function populateModelDropdown(selectEl, providerValue, selectedModel) {
+        var html = '<option value="">(Use default)</option>';
+        var models = PROVIDER_MODELS[providerValue] || [];
+        for (var i = 0; i < models.length; i++) {
+            var sel = models[i].value === selectedModel ? ' selected' : '';
+            html += '<option value="' + esc(models[i].value) + '"' + sel + '>' + esc(models[i].label) + '</option>';
+        }
+        selectEl.innerHTML = html;
+    }
+
+    // Wire provider→model for task modal
+    tmProvider.addEventListener('change', function() {
+        populateModelDropdown(tmModel, tmProvider.value, '');
+    });
 
     /* ── Helpers ─────────────────────────────────────────────────────────── */
 
@@ -1747,9 +1870,15 @@ html, body {
     var elSession = document.getElementById('el-session');
     var elDir = document.getElementById('el-dir');
     var elProvider = document.getElementById('el-provider');
+    var elModel = document.getElementById('el-model');
     var elContext = document.getElementById('el-context');
     var editingLaneId = null;
     var editingLaneServerId = null;
+
+    // Wire provider→model for edit lane modal
+    elProvider.addEventListener('change', function() {
+        populateModelDropdown(elModel, elProvider.value, '');
+    });
 
     elServer.addEventListener('change', function() {
         if (editingLaneServerId && elServer.value !== editingLaneServerId) {
@@ -1769,6 +1898,7 @@ html, body {
         elSession.value = lane.sessionName || '';
         elDir.value = lane.workingDirectory || '~/';
         elProvider.value = lane.aiProvider || '';
+        populateModelDropdown(elModel, lane.aiProvider || '', lane.aiModel || '');
         elContext.value = lane.contextInstructions || '';
         editLaneOverlay.classList.add('active');
         elName.focus();
@@ -1798,6 +1928,7 @@ html, body {
             }
         }
         var provider = elProvider.value || undefined;
+        var model = elModel.value || undefined;
         var context = elContext.value.trim() || undefined;
         vscode.postMessage({
             type: 'editSwimLane',
@@ -1807,6 +1938,7 @@ html, body {
             sessionName: session,
             workingDirectory: dir,
             aiProvider: provider,
+            aiModel: model,
             contextInstructions: context
         });
         // Update local state
@@ -1820,6 +1952,7 @@ html, body {
                 if (session) swimLanes[i].sessionName = session;
                 if (dir) swimLanes[i].workingDirectory = dir;
                 swimLanes[i].aiProvider = provider;
+                swimLanes[i].aiModel = model;
                 swimLanes[i].contextInstructions = context;
                 break;
             }
@@ -1866,6 +1999,8 @@ html, body {
         tmPriorityVal.textContent = tmPriority.value;
         updatePriorityColor();
         populateLaneDropdown(task ? (task.swimLaneId || '') : (laneId || ''));
+        tmProvider.value = task ? (task.aiProvider || '') : '';
+        populateModelDropdown(tmModel, task ? (task.aiProvider || '') : '', task ? (task.aiModel || '') : '');
         task && task.autoStart ? tmAutoStart.classList.add('active') : tmAutoStart.classList.remove('active');
         task && task.autoPilot ? tmAutoPilot.classList.add('active') : tmAutoPilot.classList.remove('active');
         task && task.autoClose ? tmAutoClose.classList.add('active') : tmAutoClose.classList.remove('active');
@@ -1934,6 +2069,8 @@ html, body {
         var autoStart = tmAutoStart.classList.contains('active');
         var autoPilot = tmAutoPilot.classList.contains('active');
         var autoClose = tmAutoClose.classList.contains('active');
+        var taskProvider = tmProvider.value || undefined;
+        var taskModel = tmModel.value || undefined;
 
         if (editingTaskId) {
             vscode.postMessage({
@@ -1947,7 +2084,9 @@ html, body {
                     swimLaneId: laneId || undefined,
                     autoStart: autoStart,
                     autoPilot: autoPilot,
-                    autoClose: autoClose
+                    autoClose: autoClose,
+                    aiProvider: taskProvider,
+                    aiModel: taskModel
                 }
             });
             var t = findTask(editingTaskId);
@@ -1960,6 +2099,8 @@ html, body {
                 t.autoStart = autoStart;
                 t.autoPilot = autoPilot;
                 t.autoClose = autoClose;
+                t.aiProvider = taskProvider;
+                t.aiModel = taskModel;
             }
         } else {
             vscode.postMessage({
@@ -1972,7 +2113,9 @@ html, body {
                 swimLaneId: laneId,
                 autoStart: autoStart,
                 autoPilot: autoPilot,
-                autoClose: autoClose
+                autoClose: autoClose,
+                aiProvider: taskProvider,
+                aiModel: taskModel
             });
         }
         closeTaskModal();

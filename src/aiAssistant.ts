@@ -45,6 +45,14 @@ export class AIAssistantManager {
     }
 
     /**
+     * Resolve the effective model for a given context.
+     * Priority: task model > lane model > undefined (CLI default).
+     */
+    resolveModel(taskModel?: string, laneModel?: string): string | undefined {
+        return taskModel || laneModel || undefined;
+    }
+
+    /**
      * Read provider config from VS Code settings.
      */
     private normalizeArgs(raw: unknown): string[] {

@@ -515,8 +515,9 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
                     guildContext,
                 });
 
-                const resolvedProvider = aiManager.resolveProvider(undefined, lane?.aiProvider);
-                const launchCmd = aiManager.getLaunchCommand(resolvedProvider);
+                const resolvedProvider = aiManager.resolveProvider(t.aiProvider, lane?.aiProvider);
+                const resolvedModel = aiManager.resolveModel(t.aiModel, lane?.aiModel);
+                const launchCmd = aiManager.getInteractiveLaunchCommand(resolvedProvider, resolvedModel);
                 await service.sendKeys(lane.sessionName, winIndex, paneIndex, launchCmd);
 
                 setTimeout(async () => {

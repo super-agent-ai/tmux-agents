@@ -138,14 +138,14 @@ export class Database {
     private migrate(): void {
         if (!this.db) { return; }
         // Add tmux columns to tasks table if missing
-        const cols = ['tmuxSessionName', 'tmuxWindowIndex', 'tmuxPaneIndex', 'tmuxServerId', 'autoMode', 'autoStart', 'autoPilot', 'autoClose'];
+        const cols = ['tmuxSessionName', 'tmuxWindowIndex', 'tmuxPaneIndex', 'tmuxServerId', 'autoMode', 'autoStart', 'autoPilot', 'autoClose', 'aiProvider', 'aiModel'];
         for (const col of cols) {
             try {
                 this.db.run(`ALTER TABLE tasks ADD COLUMN ${col} TEXT`);
             } catch { /* column already exists */ }
         }
         // Add aiProvider and contextInstructions columns to swim_lanes if missing
-        for (const col of ['aiProvider', 'contextInstructions']) {
+        for (const col of ['aiProvider', 'contextInstructions', 'aiModel']) {
             try {
                 this.db.run(`ALTER TABLE swim_lanes ADD COLUMN ${col} TEXT`);
             } catch { /* column already exists */ }
@@ -196,11 +196,12 @@ export class Database {
         if (!this.db) { return; }
         try {
             this.run(
-                `INSERT OR REPLACE INTO swim_lanes (id,name,serverId,workingDirectory,sessionName,createdAt,sessionActive,aiProvider,contextInstructions)
-                 VALUES (?,?,?,?,?,?,?,?,?)`,
+                `INSERT OR REPLACE INTO swim_lanes (id,name,serverId,workingDirectory,sessionName,createdAt,sessionActive,aiProvider,contextInstructions,aiModel)
+                 VALUES (?,?,?,?,?,?,?,?,?,?)`,
                 [lane.id, lane.name, lane.serverId, lane.workingDirectory,
                  lane.sessionName, lane.createdAt, lane.sessionActive ? 1 : 0,
-                 lane.aiProvider || null, lane.contextInstructions || null]
+                 lane.aiProvider || null, lane.contextInstructions || null,
+                 lane.aiModel || null]
             );
             this.scheduleSave();
         } catch (err) { console.error('[Database] saveSwimLane:', err); }
@@ -225,7 +226,8 @@ export class Database {
         workingDirectory: r.workingDirectory, sessionName: r.sessionName,
         createdAt: r.createdAt, sessionActive: r.sessionActive === 1,
         aiProvider: r.aiProvider || undefined,
-        contextInstructions: r.contextInstructions || undefined
+        contextInstructions: r.contextInstructions || undefined,
+        aiModel: r.aiModel || undefined
     });
 
     // ─── Favourite Folders ─────────────────────────────────────────────────
@@ -265,8 +267,9 @@ export class Database {
                  (id,description,targetRole,assignedAgentId,status,priority,input,output,
                   pipelineStageId,createdAt,startedAt,completedAt,errorMessage,kanbanColumn,
                   swimLaneId,parentTaskId,verificationStatus,
-                  tmuxSessionName,tmuxWindowIndex,tmuxPaneIndex,tmuxServerId,autoStart,autoPilot,autoClose)
-                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+                  tmuxSessionName,tmuxWindowIndex,tmuxPaneIndex,tmuxServerId,autoStart,autoPilot,autoClose,
+                  aiProvider,aiModel)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
                 [task.id, task.description, task.targetRole ?? null,
                  task.assignedAgentId ?? null, task.status, task.priority,
                  task.input ?? null, task.output ?? null,
@@ -277,7 +280,8 @@ export class Database {
                  task.verificationStatus ?? 'none',
                  task.tmuxSessionName ?? null, task.tmuxWindowIndex ?? null,
                  task.tmuxPaneIndex ?? null, task.tmuxServerId ?? null,
-                 task.autoStart ? 1 : 0, task.autoPilot ? 1 : 0, task.autoClose ? 1 : 0]
+                 task.autoStart ? 1 : 0, task.autoPilot ? 1 : 0, task.autoClose ? 1 : 0,
+                 task.aiProvider ?? null, task.aiModel ?? null]
             );
             // Rebuild subtask relations
             this.run('DELETE FROM subtask_relations WHERE parentId=?', [task.id]);
@@ -355,6 +359,8 @@ export class Database {
         if (r.autoStart != null) { t.autoStart = r.autoStart === 1 || r.autoStart === '1'; }
         if (r.autoPilot != null) { t.autoPilot = r.autoPilot === 1 || r.autoPilot === '1'; }
         if (r.autoClose != null) { t.autoClose = r.autoClose === 1 || r.autoClose === '1'; }
+        if (r.aiProvider != null) { t.aiProvider = r.aiProvider as AIProvider; }
+        if (r.aiModel != null) { t.aiModel = r.aiModel; }
         const subs = this.getSubtaskIds(t.id);
         if (subs.length > 0) { t.subtaskIds = subs; }
         return t;

@@ -185,7 +185,8 @@ export async function handleKanbanMessage(
                             await service.sendKeys(lane.sessionName, win.index, pIdx, `cd ${lane.workingDirectory}`);
                         }
                         const debugProvider = ctx.aiManager.resolveProvider(undefined, lane.aiProvider);
-                        const launchCmd = ctx.aiManager.getLaunchCommand(debugProvider);
+                        const debugModel = ctx.aiManager.resolveModel(undefined, lane.aiModel);
+                        const launchCmd = ctx.aiManager.getInteractiveLaunchCommand(debugProvider, debugModel);
                         await service.sendKeys(lane.sessionName, win.index, pIdx, launchCmd);
                     }
                 }
@@ -236,7 +237,8 @@ export async function handleKanbanMessage(
                         await service.sendKeys(lane.sessionName, win.index, pIdx, `cd ${lane.workingDirectory}`);
                     }
                     const restartProvider = ctx.aiManager.resolveProvider(undefined, lane.aiProvider);
-                    const launchCmd = ctx.aiManager.getLaunchCommand(restartProvider);
+                    const restartModel = ctx.aiManager.resolveModel(undefined, lane.aiModel);
+                    const launchCmd = ctx.aiManager.getInteractiveLaunchCommand(restartProvider, restartModel);
                     await service.sendKeys(lane.sessionName, win.index, pIdx, launchCmd);
 
                     const terminal = await ctx.smartAttachment.attachToSession(service, lane.sessionName, {
@@ -298,7 +300,9 @@ export async function handleKanbanMessage(
                 priority: payload.priority || 5,
                 kanbanColumn: payload.kanbanColumn || 'todo',
                 swimLaneId: payload.swimLaneId || undefined,
-                createdAt: Date.now()
+                createdAt: Date.now(),
+                aiProvider: payload.aiProvider || undefined,
+                aiModel: payload.aiModel || undefined,
             };
             if (payload.autoStart) { task.autoStart = true; }
             if (payload.autoPilot) { task.autoPilot = true; }
@@ -389,6 +393,8 @@ export async function handleKanbanMessage(
                 if (payload.updates.autoStart !== undefined) t.autoStart = !!payload.updates.autoStart;
                 if (payload.updates.autoPilot !== undefined) t.autoPilot = !!payload.updates.autoPilot;
                 if (payload.updates.autoClose !== undefined) t.autoClose = !!payload.updates.autoClose;
+                if (payload.updates.aiProvider !== undefined) t.aiProvider = payload.updates.aiProvider || undefined;
+                if (payload.updates.aiModel !== undefined) t.aiModel = payload.updates.aiModel || undefined;
             }
             if (t) { ctx.database.saveTask(t); }
             ctx.updateKanban();
@@ -582,8 +588,9 @@ export async function handleKanbanMessage(
                             signalId: t.autoClose ? t.id.slice(-8) : undefined,
                         });
 
-                        const bundleProvider = ctx.aiManager.resolveProvider(undefined, lane.aiProvider);
-                        const launchCmd = ctx.aiManager.getLaunchCommand(bundleProvider);
+                        const bundleProvider = ctx.aiManager.resolveProvider(t.aiProvider, lane.aiProvider);
+                        const bundleModel = ctx.aiManager.resolveModel(t.aiModel, lane?.aiModel);
+                        const launchCmd = ctx.aiManager.getInteractiveLaunchCommand(bundleProvider, bundleModel);
                         await service.sendKeys(lane.sessionName, winIndex, paneIndex, launchCmd);
 
                         const capturedPrompt = prompt;
@@ -785,6 +792,7 @@ export async function handleKanbanMessage(
             if (payload.name) lane.name = payload.name;
             if (payload.workingDirectory) lane.workingDirectory = payload.workingDirectory;
             lane.aiProvider = payload.aiProvider || undefined;
+            lane.aiModel = payload.aiModel || undefined;
             lane.contextInstructions = payload.contextInstructions || undefined;
 
             // Handle server change — kill old session first
