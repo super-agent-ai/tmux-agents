@@ -642,7 +642,10 @@
         "command": "tmux-agents.openKanban",
         "title": "Open Kanban Board",
         "category": "Tmux Orchestrator",
-        "icon": "$(project)"
+        "icon": {
+          "light": "resources/light/kanban.svg",
+          "dark": "resources/dark/kanban.svg"
+        }
       },
       {
         "command": "tmux-agents.quickTeamCoding",
