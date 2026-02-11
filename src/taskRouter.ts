@@ -17,8 +17,12 @@ function spawnWithStdin(command: string, args: string[], input: string, timeoutM
             resolve(stdout);
         });
         proc.stdin!.on('error', () => {});
-        proc.stdin!.write(input);
-        proc.stdin!.end();
+        process.nextTick(() => {
+            if (proc.stdin && proc.stdin.writable && !proc.killed) {
+                proc.stdin.write(input);
+                proc.stdin.end();
+            }
+        });
     });
 }
 

@@ -14,19 +14,24 @@ const readFile = util.promisify(fs.readFile);
 const fsStat = util.promisify(fs.stat);
 const readdir = util.promisify(fs.readdir);
 
-/** Run a command with stdin piped in using cp.exec (reliable shell resolution) */
+/** Validate cwd exists; return undefined (process default) if not */
+function safeCwd(dir?: string): string | undefined {
+    if (!dir) { return undefined; }
+    try { return fs.existsSync(dir) ? dir : undefined; } catch { return undefined; }
+}
+
+/** Run a command with stdin piped in using cp.exec */
 function spawnWithStdin(command: string, args: string[], input: string, timeoutMs: number = 60000, onSpawn?: (proc: cp.ChildProcess) => void, cwd?: string): Promise<string> {
     return new Promise((resolve, reject) => {
         const cmdStr = [command, ...args].join(' ');
-        const proc = cp.exec(cmdStr, { cwd, maxBuffer: 10 * 1024 * 1024, timeout: timeoutMs }, (error, stdout, stderr) => {
+        const proc = cp.exec(cmdStr, { cwd: safeCwd(cwd), maxBuffer: 10 * 1024 * 1024, timeout: timeoutMs }, (error, stdout, stderr) => {
             if (error && error.killed) { reject(new Error('Command timed out')); return; }
             if (error) { reject(new Error(stderr || stdout || error.message)); return; }
             resolve(stdout);
         });
         if (onSpawn) { onSpawn(proc); }
         proc.stdin!.on('error', () => {});
-        proc.stdin!.write(input);
-        proc.stdin!.end();
+        if (proc.stdin!.writable) { proc.stdin!.write(input); proc.stdin!.end(); }
     });
 }
 
@@ -678,7 +683,7 @@ ${this.apiCatalog.getCatalogText()}
 
             const args = ['--model', this.selectedModel, ...spawnCfg.args];
             const cmdStr = [spawnCfg.command, ...args].join(' ');
-            const execCwd = spawnCfg.cwd || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            const execCwd = safeCwd(spawnCfg.cwd) || safeCwd(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath);
 
             let fullOutput = '';
             let timedOut = false;
@@ -723,9 +728,15 @@ ${this.apiCatalog.getCatalogText()}
                 reject(err);
             });
 
+            // Defer stdin write — if the process fails to spawn (bad cwd, missing binary),
+            // writing immediately causes SIGPIPE which crashes VS Code's extension host.
             proc.stdin!.on('error', () => {});
-            proc.stdin!.write(prompt);
-            proc.stdin!.end();
+            process.nextTick(() => {
+                if (proc.stdin && proc.stdin.writable && !proc.killed) {
+                    proc.stdin.write(prompt);
+                    proc.stdin.end();
+                }
+            });
         });
     }
 
