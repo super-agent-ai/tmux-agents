@@ -10,7 +10,7 @@ import { TeamManager } from '../teamManager';
 import { KanbanViewProvider } from '../kanbanView';
 import { Database } from '../database';
 import { OrchestratorTask, TaskStatus, KanbanSwimLane, FavouriteFolder } from '../types';
-import { buildBundleTaskPrompt, appendPromptTail } from '../promptBuilder';
+import { buildBundleTaskPrompt, buildDebugPrompt, appendPromptTail } from '../promptBuilder';
 
 export interface KanbanHandlerContext {
     serviceManager: TmuxServiceManager;
@@ -207,22 +207,20 @@ export async function handleKanbanMessage(
                         await service.sendKeys(lane.sessionName, win.index, pIdx, launchCmd);
 
                         // Auto-insert swim lane instructions after CLI is ready
-                        if (lane.contextInstructions) {
-                            const capturedSession = lane.sessionName;
-                            const capturedWin = win.index;
-                            const capturedPane = pIdx;
-                            const instructions = lane.contextInstructions;
-                            setTimeout(async () => {
-                                try {
-                                    const escaped = instructions.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-                                    await service.sendKeys(capturedSession, capturedWin, capturedPane, '');
-                                    await service.sendKeys(capturedSession, capturedWin, capturedPane, escaped);
-                                    await service.sendKeys(capturedSession, capturedWin, capturedPane, '');
-                                } catch (err) {
-                                    console.warn('Failed to send debug instructions:', err);
-                                }
-                            }, 3000);
-                        }
+                        const debugPrompt = buildDebugPrompt(lane);
+                        const capturedSession = lane.sessionName;
+                        const capturedWin = win.index;
+                        const capturedPane = pIdx;
+                        setTimeout(async () => {
+                            try {
+                                const escaped = debugPrompt.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+                                await service.sendKeys(capturedSession, capturedWin, capturedPane, '');
+                                await service.sendKeys(capturedSession, capturedWin, capturedPane, escaped);
+                                await service.sendKeys(capturedSession, capturedWin, capturedPane, '');
+                            } catch (err) {
+                                console.warn('Failed to send debug instructions:', err);
+                            }
+                        }, 3000);
                     }
                 }
 
@@ -277,22 +275,20 @@ export async function handleKanbanMessage(
                     await service.sendKeys(lane.sessionName, win.index, pIdx, launchCmd);
 
                     // Auto-insert swim lane instructions after CLI is ready
-                    if (lane.contextInstructions) {
-                        const capturedSession = lane.sessionName;
-                        const capturedWin = win.index;
-                        const capturedPane = pIdx;
-                        const instructions = lane.contextInstructions;
-                        setTimeout(async () => {
-                            try {
-                                const escaped = instructions.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-                                await service.sendKeys(capturedSession, capturedWin, capturedPane, '');
-                                await service.sendKeys(capturedSession, capturedWin, capturedPane, escaped);
-                                await service.sendKeys(capturedSession, capturedWin, capturedPane, '');
-                            } catch (err) {
-                                console.warn('Failed to send debug instructions:', err);
-                            }
-                        }, 3000);
-                    }
+                    const restartDebugPrompt = buildDebugPrompt(lane);
+                    const rCapturedSession = lane.sessionName;
+                    const rCapturedWin = win.index;
+                    const rCapturedPane = pIdx;
+                    setTimeout(async () => {
+                        try {
+                            const escaped = restartDebugPrompt.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+                            await service.sendKeys(rCapturedSession, rCapturedWin, rCapturedPane, '');
+                            await service.sendKeys(rCapturedSession, rCapturedWin, rCapturedPane, escaped);
+                            await service.sendKeys(rCapturedSession, rCapturedWin, rCapturedPane, '');
+                        } catch (err) {
+                            console.warn('Failed to send debug instructions:', err);
+                        }
+                    }, 3000);
 
                     const terminal = await ctx.smartAttachment.attachToSession(service, lane.sessionName, {
                         windowIndex: win.index,

@@ -203,6 +203,31 @@ export function buildPersonaContext(persona: AgentPersona): string {
 }
 
 /**
+ * Build a structured prompt for a debug session in a swim lane.
+ */
+export function buildDebugPrompt(lane: KanbanSwimLane): string {
+    const sections: string[] = [];
+
+    sections.push(`You are a debug / exploration assistant for the project below. Help the user investigate issues, run commands, and explore the codebase.`);
+    sections.push(``);
+
+    sections.push(`--- Project Context ---`);
+    sections.push(`Project: ${lane.name}`);
+    if (lane.workingDirectory) { sections.push(`Working Directory: ${lane.workingDirectory}`); }
+
+    if (lane.contextInstructions) {
+        sections.push(``);
+        sections.push(`--- Swim Lane Instructions ---`);
+        sections.push(lane.contextInstructions);
+    }
+
+    sections.push(``);
+    sections.push(`Follow the instructions above for all work in this session. Await further directions from the user.`);
+
+    return sections.join('\n');
+}
+
+/**
  * Append standard tail options to a prompt.
  */
 export function appendPromptTail(prompt: string, options?: {
