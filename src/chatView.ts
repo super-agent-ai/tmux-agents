@@ -7,7 +7,8 @@ import { TmuxServiceManager } from './serviceManager';
 import { gatherFullExtensionContext, formatFullContextForPrompt, ContextGatheringDeps } from './tmuxContextProvider';
 import { ApiCatalog, ParsedAIResponse } from './apiCatalog';
 import { AIAssistantManager } from './aiAssistant';
-import { AIProvider } from './types';
+import { AIProvider, AIStatus } from './types';
+import { TmuxService } from './tmuxService';
 
 const execAsync = util.promisify(cp.exec);
 const readFile = util.promisify(fs.readFile);
@@ -114,10 +115,32 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private attachedItems: AttachedItem[] = [];
     private selectedModel: string = 'opus';
     private conversationHistory: ConversationEntry[] = [];
-    private currentProc: cp.ChildProcess | null = null;
     private abortRequested: boolean = false;
     private voiceProc: cp.ChildProcess | null = null;
     private voiceTmpFile: string = '';
+
+    // ── Tmux-backed AI Session State ────────────────────────────────────
+    private static readonly CHAT_SESSION = '__ai-chat__';
+    private static readonly WIN = '0';
+    private static readonly PANE = '0';
+    private static readonly POLL_MS = 250;
+    private static readonly IDLE_POLL_MS = 2000;
+    private static readonly POLL_LINES = 200;
+    private static readonly STABLE_MS = 3000;
+    private static readonly MAX_RESPONSE_MS = 300_000;
+
+    private selectedProvider: AIProvider = AIProvider.CLAUDE;
+    private sessionReady = false;
+    private systemPromptInjected = false;
+    private pollTimer: ReturnType<typeof setInterval> | null = null;
+    private idlePollTimer: ReturnType<typeof setInterval> | null = null;
+    private lastCapturedContent = '';
+    private lastContentLength = 0;
+    private streamBuffer = '';
+    private isAwaitingResponse = false;
+    private lastContentChangeTime = 0;
+    private responseStartTime = 0;
+    private sessionEnsurePromise: Promise<void> | null = null;
 
     constructor(
         private readonly serviceManager: TmuxServiceManager,
@@ -125,7 +148,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         private readonly apiCatalog: ApiCatalog,
         private readonly contextDeps: ContextGatheringDeps,
         private readonly aiManager?: AIAssistantManager
-    ) {}
+    ) {
+        if (this.aiManager) {
+            this.selectedProvider = this.aiManager.getDefaultProvider();
+        }
+    }
 
     public setRefreshCallback(cb: () => void): void {
         this.refreshCallback = cb;
@@ -147,14 +174,25 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 this.removeItem(msg.index);
             } else if (msg.type === 'clearHistory') {
                 this.conversationHistory = [];
+                this.systemPromptInjected = false;
                 this.postMessage({ type: 'clearMessages' });
             } else if (msg.type === 'setModel') {
-                this.selectedModel = msg.model;
+                if (msg.model !== this.selectedModel) {
+                    this.selectedModel = msg.model;
+                    await this.restartSession();
+                }
+            } else if (msg.type === 'setProvider') {
+                if (msg.provider !== this.selectedProvider) {
+                    this.selectedProvider = msg.provider as AIProvider;
+                    await this.restartSession();
+                }
             } else if (msg.type === 'stop') {
                 this.abortRequested = true;
-                if (this.currentProc) {
-                    this.currentProc.kill();
-                    this.currentProc = null;
+                const svc = this.getLocalService();
+                if (svc) {
+                    try {
+                        await svc.sendRawKeys(ChatViewProvider.CHAT_SESSION, ChatViewProvider.WIN, ChatViewProvider.PANE, 'C-c');
+                    } catch { /* ignore */ }
                 }
             } else if (msg.type === 'startVoice') {
                 await this.startVoiceRecording();
@@ -614,6 +652,370 @@ except sr.RequestError as e:
             ? text.slice(0, MAX_FILE_CHARS) + `\n\n[... truncated]` : text;
     }
 
+    // ── Tmux Session Lifecycle ─────────────────────────────────────────────
+
+    private getLocalService(): TmuxService | undefined {
+        return this.serviceManager.getService('local');
+    }
+
+    private async ensureSession(): Promise<void> {
+        if (this.sessionEnsurePromise) { return this.sessionEnsurePromise; }
+        this.sessionEnsurePromise = this._ensureSessionImpl();
+        try { await this.sessionEnsurePromise; }
+        finally { this.sessionEnsurePromise = null; }
+    }
+
+    private async _ensureSessionImpl(): Promise<void> {
+        const svc = this.getLocalService();
+        if (!svc) { throw new Error('No local tmux service available'); }
+
+        if (await svc.hasSession(ChatViewProvider.CHAT_SESSION)) {
+            const content = await svc.capturePaneContent(
+                ChatViewProvider.CHAT_SESSION, ChatViewProvider.WIN, ChatViewProvider.PANE, 20
+            );
+            if (content.trim().length > 0) {
+                this.sessionReady = true;
+                this.postMessage({ type: 'sessionStatus', status: 'connected' });
+                this.startIdlePolling();
+                return;
+            }
+            await this.destroySession();
+        }
+
+        await this.createChatSession(svc);
+    }
+
+    private async createChatSession(svc: TmuxService): Promise<void> {
+        this.postMessage({ type: 'sessionStatus', status: 'starting' });
+        const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        await svc.newSession(ChatViewProvider.CHAT_SESSION, { cwd });
+
+        const launchCmd = this.aiManager
+            ? this.aiManager.getInteractiveLaunchCommand(this.selectedProvider, this.selectedModel)
+            : `claude --model ${this.selectedModel}`;
+
+        await svc.sendKeys(ChatViewProvider.CHAT_SESSION, ChatViewProvider.WIN, ChatViewProvider.PANE, launchCmd);
+
+        await this.waitForPrompt(svc, 30000);
+
+        this.sessionReady = true;
+        this.systemPromptInjected = false;
+        this.lastCapturedContent = '';
+        this.lastContentLength = 0;
+        this.postMessage({ type: 'sessionStatus', status: 'connected' });
+        this.startIdlePolling();
+    }
+
+    private async waitForPrompt(svc: TmuxService, timeoutMs: number): Promise<void> {
+        const start = Date.now();
+        while (Date.now() - start < timeoutMs) {
+            const content = await svc.capturePaneContent(
+                ChatViewProvider.CHAT_SESSION, ChatViewProvider.WIN, ChatViewProvider.PANE, 30
+            );
+            if (this.detectPromptReady(content)) {
+                this.lastCapturedContent = content;
+                this.lastContentLength = content.length;
+                return;
+            }
+            await this.sleep(500);
+        }
+        // Don't throw — the CLI may not show a traditional prompt but still be ready
+        const content = await svc.capturePaneContent(
+            ChatViewProvider.CHAT_SESSION, ChatViewProvider.WIN, ChatViewProvider.PANE, 30
+        );
+        this.lastCapturedContent = content;
+        this.lastContentLength = content.length;
+    }
+
+    private async destroySession(): Promise<void> {
+        this.stopPolling();
+        this.stopIdlePolling();
+        this.sessionReady = false;
+        this.systemPromptInjected = false;
+        this.streamBuffer = '';
+        this.lastCapturedContent = '';
+        this.lastContentLength = 0;
+        try {
+            const svc = this.getLocalService();
+            if (svc) { await svc.deleteSession(ChatViewProvider.CHAT_SESSION); }
+        } catch { /* session may already be gone */ }
+        this.postMessage({ type: 'sessionStatus', status: 'disconnected' });
+    }
+
+    private async restartSession(): Promise<void> {
+        this.postMessage({ type: 'addMessage', role: 'assistant', text: `Restarting AI session (${this.selectedProvider}/${this.selectedModel})...` });
+        await this.destroySession();
+        try {
+            await this.ensureSession();
+        } catch (err) {
+            this.postMessage({ type: 'addMessage', role: 'error', text: `Failed to restart: ${err}` });
+        }
+    }
+
+    // ── Polling & Streaming ─────────────────────────────────────────────────
+
+    private startPolling(): void {
+        this.stopPolling();
+        this.pollTimer = setInterval(() => this.pollPaneContent(), ChatViewProvider.POLL_MS);
+    }
+
+    private stopPolling(): void {
+        if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
+    }
+
+    private startIdlePolling(): void {
+        this.stopIdlePolling();
+        this.idlePollTimer = setInterval(() => this.checkSessionHealth(), ChatViewProvider.IDLE_POLL_MS);
+    }
+
+    private stopIdlePolling(): void {
+        if (this.idlePollTimer) { clearInterval(this.idlePollTimer); this.idlePollTimer = null; }
+    }
+
+    private async checkSessionHealth(): Promise<void> {
+        if (this.isAwaitingResponse) { return; }
+        const svc = this.getLocalService();
+        if (!svc) { return; }
+        try {
+            if (!await svc.hasSession(ChatViewProvider.CHAT_SESSION)) {
+                this.sessionReady = false;
+                this.postMessage({ type: 'sessionStatus', status: 'disconnected' });
+            }
+        } catch { /* ignore */ }
+    }
+
+    private async pollPaneContent(): Promise<void> {
+        if (!this.sessionReady || !this.isAwaitingResponse) { return; }
+        const svc = this.getLocalService();
+        if (!svc) { return; }
+
+        try {
+            const rawContent = await svc.capturePaneContent(
+                ChatViewProvider.CHAT_SESSION, ChatViewProvider.WIN, ChatViewProvider.PANE,
+                ChatViewProvider.POLL_LINES
+            );
+            const content = this.cleanPaneContent(rawContent);
+
+            if (content === '' && this.lastCapturedContent !== '') {
+                await this.handleSessionDeath();
+                return;
+            }
+
+            const newContent = this.extractNewContent(content);
+
+            if (newContent.length > 0) {
+                this.lastContentChangeTime = Date.now();
+                this.streamBuffer += newContent;
+
+                const displayContent = this.stripToolCallJson(newContent);
+                if (displayContent.trim()) {
+                    this.postMessage({ type: 'streamChunk', text: displayContent });
+                }
+
+                await this.detectAndExecuteToolCalls();
+            }
+
+            this.lastCapturedContent = content;
+            this.lastContentLength = content.length;
+
+            if (this.isResponseComplete(content)) {
+                await this.onResponseComplete();
+            }
+
+            if (Date.now() - this.responseStartTime > ChatViewProvider.MAX_RESPONSE_MS) {
+                await this.onResponseComplete();
+            }
+        } catch (err) {
+            console.warn('Poll error:', err);
+        }
+    }
+
+    private extractNewContent(currentContent: string): string {
+        if (!this.lastCapturedContent) { return ''; }
+
+        const oldLines = this.lastCapturedContent.trimEnd().split('\n');
+        const searchWindow = Math.min(oldLines.length, 20);
+
+        for (let anchorSize = searchWindow; anchorSize >= 3; anchorSize--) {
+            const anchor = oldLines.slice(-anchorSize).join('\n');
+            const idx = currentContent.lastIndexOf(anchor);
+            if (idx >= 0) {
+                const matchEnd = idx + anchor.length;
+                if (matchEnd < currentContent.length) {
+                    return currentContent.substring(matchEnd);
+                }
+                return '';
+            }
+        }
+
+        if (currentContent.length > this.lastContentLength) {
+            return currentContent.substring(this.lastContentLength);
+        }
+        return '';
+    }
+
+    private isResponseComplete(content: string): boolean {
+        const timeSinceChange = Date.now() - this.lastContentChangeTime;
+        if (timeSinceChange < ChatViewProvider.STABLE_MS) { return false; }
+        return this.detectPromptReady(content);
+    }
+
+    private detectPromptReady(content: string): boolean {
+        if (this.aiManager) {
+            const status = this.aiManager.detectAIStatus(this.selectedProvider, content);
+            if (status === AIStatus.WAITING) { return true; }
+        }
+        const lines = content.trimEnd().split('\n');
+        const lastContent = lines.slice(-5).join('\n');
+        const promptPatterns = [/>\s*$/m, /\$\s*$/m, />>>\s*$/m, /❯\s*$/m];
+        return promptPatterns.some(p => p.test(lastContent));
+    }
+
+    private async onResponseComplete(): Promise<void> {
+        this.isAwaitingResponse = false;
+        this.stopPolling();
+        if (this.streamBuffer.trim()) {
+            this.conversationHistory.push({ role: 'assistant', content: this.streamBuffer });
+        }
+        this.streamBuffer = '';
+    }
+
+    private async handleSessionDeath(): Promise<void> {
+        this.isAwaitingResponse = false;
+        this.sessionReady = false;
+        this.stopPolling();
+        this.postMessage({ type: 'sessionStatus', status: 'disconnected' });
+        this.postMessage({ type: 'addMessage', role: 'error', text: 'AI session died. Recreating...' });
+        this.postMessage({ type: 'streamEnd' });
+        this.postMessage({ type: 'setLoading', loading: false });
+
+        await this.sleep(1000);
+        try {
+            await this.ensureSession();
+            this.postMessage({ type: 'addMessage', role: 'assistant', text: 'Session reconnected.' });
+        } catch {
+            this.postMessage({ type: 'addMessage', role: 'error', text: 'Failed to recreate session.' });
+        }
+    }
+
+    // ── Tool Call Detection & Execution ─────────────────────────────────────
+
+    private async detectAndExecuteToolCalls(): Promise<void> {
+        const jsonBlockRegex = /```json\s*\n?([\s\S]*?)```/g;
+        const blocks: string[] = [];
+        let match: RegExpExecArray | null;
+        while ((match = jsonBlockRegex.exec(this.streamBuffer)) !== null) {
+            blocks.push(match[1].trim());
+        }
+
+        if (blocks.length === 0) {
+            const openFence = this.streamBuffer.lastIndexOf('```json');
+            if (openFence >= 0) {
+                const afterFence = this.streamBuffer.substring(openFence);
+                if (afterFence.indexOf('```', 7) < 0) { return; } // incomplete
+            }
+            return;
+        }
+
+        const lastBlock = blocks[blocks.length - 1];
+        const parsed = this.apiCatalog.parseResponse('```json\n' + lastBlock + '\n```');
+
+        if (parsed.actions.length > 0) {
+            this.postMessage({ type: 'addMessage', role: 'tool', text: `Executing ${parsed.actions.length} action(s)...` });
+
+            const results = await this.apiCatalog.executeActions(parsed.actions);
+            const resultLines: string[] = [];
+            let executedCount = 0;
+            for (let i = 0; i < results.length; i++) {
+                const r = results[i];
+                const actionName = parsed.actions[i]?.action || 'unknown';
+                resultLines.push(`${r.success ? 'OK' : 'ERR'}: [${actionName}] ${r.message}`);
+                if (r.success) { executedCount++; }
+            }
+
+            const toolText = resultLines.join('\n');
+            this.postMessage({ type: 'addMessage', role: 'tool', text: toolText });
+            this.conversationHistory.push({ role: 'tool', content: toolText });
+            if (executedCount > 0 && this.refreshCallback) { this.refreshCallback(); }
+
+            if (parsed.next === 'user') { return; }
+
+            await this.sendToolResultsToSession(toolText);
+            this.streamBuffer = '';
+            this.lastContentChangeTime = Date.now();
+            this.responseStartTime = Date.now();
+        }
+    }
+
+    private async sendToolResultsToSession(resultText: string): Promise<void> {
+        const svc = this.getLocalService();
+        if (!svc) { return; }
+        const message = `Tool execution results:\n${resultText}\n\nContinue processing based on the results above.`;
+        await this.sendMultilineToPane(svc, message);
+    }
+
+    private async sendMultilineToPane(svc: TmuxService, text: string): Promise<void> {
+        const target = `${ChatViewProvider.CHAT_SESSION}:${ChatViewProvider.WIN}.${ChatViewProvider.PANE}`;
+        const escaped = text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\$/g, '\\$').replace(/`/g, '\\`');
+        try {
+            await svc.execCommand(`tmux set-buffer -- "${escaped}"`);
+            await svc.execCommand(`tmux paste-buffer -t "${target}"`);
+            await svc.execCommand(`tmux send-keys -t "${target}" Enter`);
+        } catch {
+            const singleLine = text.replace(/\n/g, ' ').substring(0, 500);
+            await svc.sendKeys(ChatViewProvider.CHAT_SESSION, ChatViewProvider.WIN, ChatViewProvider.PANE, singleLine);
+        }
+    }
+
+    // ── System Prompt ───────────────────────────────────────────────────────
+
+    private async buildSystemPrompt(): Promise<string> {
+        const context = await gatherFullExtensionContext(this.serviceManager, this.contextDeps);
+        const stateText = formatFullContextForPrompt(context);
+
+        return `You are an AI assistant for a tmux and agent orchestration system in VS Code (Tmux Agents extension). You can manage tmux sessions/windows/panes, spawn AI agents, create teams, run pipelines, and more.
+
+## Current System State
+${stateText}
+
+## Available Actions
+${this.apiCatalog.getCatalogText()}
+
+## Rules
+1. Briefly explain what you will do.
+2. To execute actions, output a JSON object inside a \`\`\`json code block:
+   { "actions": [{ "action": "<name>", "params": { ... } }], "next": "<executor>" }
+3. "next" field: "tool" to continue after execution, "user" when done.
+4. For server-scoped actions, include a "server" param.
+5. NEVER output raw shell commands. Only use structured actions.
+6. For multi-step tasks, use "next": "tool" to continue.
+7. Actions marked [returns data] will report output in tool results.`;
+    }
+
+    private async injectSystemPrompt(): Promise<void> {
+        if (this.systemPromptInjected) { return; }
+        const svc = this.getLocalService();
+        if (!svc) { return; }
+
+        const prompt = await this.buildSystemPrompt();
+        await this.sendMultilineToPane(svc, prompt);
+
+        this.isAwaitingResponse = true;
+        this.responseStartTime = Date.now();
+        this.lastContentChangeTime = Date.now();
+
+        const content = await svc.capturePaneContent(
+            ChatViewProvider.CHAT_SESSION, ChatViewProvider.WIN, ChatViewProvider.PANE,
+            ChatViewProvider.POLL_LINES
+        );
+        this.lastCapturedContent = content;
+        this.lastContentLength = content.length;
+
+        this.startPolling();
+        await this.waitForResponseComplete(60000);
+        this.systemPromptInjected = true;
+    }
+
     // ── Chat Message Handling ────────────────────────────────────────────────
 
     private async handleUserMessage(userText: string): Promise<void> {
@@ -626,94 +1028,74 @@ except sr.RequestError as e:
         this.postMessage({ type: 'setLoading', loading: true });
         this.conversationHistory.push({ role: 'user', content: userText });
         this.abortRequested = false;
-        this.currentProc = null;
 
         try {
+            await this.ensureSession();
+
+            if (!this.systemPromptInjected) {
+                await this.injectSystemPrompt();
+            }
+
             const fileContext = this.buildFileContext();
-            let step = 0;
-            let totalExecuted = 0;
-
-            while (step < MAX_AGENT_STEPS) {
-                if (this.abortRequested) { break; }
-                step++;
-
-                // Re-gather fresh state each iteration (state changes after tool execution)
-                const context = await gatherFullExtensionContext(this.serviceManager, this.contextDeps);
-                const stateText = formatFullContextForPrompt(context);
-
-                const isFirstStep = step === 1;
-                const currentTurn = isFirstStep
-                    ? userText
-                    : 'Continue: process the tool results above and proceed with the next step.';
-                const prompt = this.buildPrompt(stateText, currentTurn, isFirstStep ? fileContext : '');
-
-                this.postMessage({ type: 'setLoading', loading: true, step: step > 1 ? step : undefined });
-                const defaultProvider = this.aiManager?.getDefaultProvider() || AIProvider.CLAUDE;
-                const spawnCfg = this.aiManager?.getSpawnConfig(defaultProvider) || { command: 'claude', args: ['--print', '-'], env: {}, cwd: undefined, shell: false };
-                const chatArgs = [...spawnCfg.args.filter(a => a !== '-'), '--model', this.selectedModel, '-'];
-                const stdout = await spawnWithStdin(spawnCfg.command, chatArgs, prompt, 120000, (proc) => { this.currentProc = proc; }, spawnCfg.cwd, spawnCfg.shell);
-                this.currentProc = null;
-                if (this.abortRequested) { break; }
-                const response = stdout.trim();
-
-                // Strip the JSON block from displayed text
-                const displayResponse = response.replace(/```json\s*\n?[\s\S]*?```/g, '').trim();
-
-                // Parse structured response with next-executor control
-                const parsed: ParsedAIResponse = this.apiCatalog.parseResponse(response);
-                const { actions, next } = parsed;
-
-                // Display AI message with step label
-                const label = step > 1 ? `step-${step}` : undefined;
-                this.postMessage({ type: 'addMessage', role: 'assistant', text: displayResponse, label });
-                this.conversationHistory.push({ role: 'assistant', content: response });
-
-                // Execute actions if any
-                if (actions.length > 0) {
-                    const results = await this.apiCatalog.executeActions(actions);
-                    const resultLines: string[] = [];
-                    let executedCount = 0;
-                    for (let i = 0; i < results.length; i++) {
-                        const r = results[i];
-                        const actionName = actions[i]?.action || 'unknown';
-                        resultLines.push(`${r.success ? 'OK' : 'ERR'}: [${actionName}] ${r.message}`);
-                        if (r.success) { executedCount++; }
-                    }
-                    totalExecuted += executedCount;
-
-                    const toolText = resultLines.join('\n');
-                    this.postMessage({ type: 'addMessage', role: 'tool', text: toolText });
-                    this.conversationHistory.push({ role: 'tool', content: toolText });
-
-                    if (executedCount > 0 && this.refreshCallback) { this.refreshCallback(); }
-                }
-
-                // Decide whether to continue the loop
-                if (next === 'user' || (!actions.length && next !== 'assistant')) {
-                    break; // Done — wait for user
-                }
-                // next == "tool" or "assistant" → continue loop
+            let message = userText;
+            if (fileContext) {
+                message += `\n\n## Attached Files/Folders\n${fileContext}`;
             }
 
-            if (this.abortRequested) {
-                this.postMessage({ type: 'addMessage', role: 'error', text: 'Stopped by user.' });
-            } else if (step >= MAX_AGENT_STEPS) {
-                this.postMessage({ type: 'addMessage', role: 'error', text: `Reached max steps (${MAX_AGENT_STEPS}). Stopping.` });
-            }
+            // Refresh state context
+            const context = await gatherFullExtensionContext(this.serviceManager, this.contextDeps);
+            const stateText = formatFullContextForPrompt(context);
+            message += `\n\n## Current System State (refreshed)\n${stateText}`;
+
+            const svc = this.getLocalService();
+            if (!svc) { throw new Error('No tmux service'); }
+
+            const baseline = await svc.capturePaneContent(
+                ChatViewProvider.CHAT_SESSION, ChatViewProvider.WIN, ChatViewProvider.PANE,
+                ChatViewProvider.POLL_LINES
+            );
+            this.lastCapturedContent = this.cleanPaneContent(baseline);
+            this.lastContentLength = this.lastCapturedContent.length;
+            this.streamBuffer = '';
+
+            await this.sendMultilineToPane(svc, message);
+
+            this.isAwaitingResponse = true;
+            this.responseStartTime = Date.now();
+            this.lastContentChangeTime = Date.now();
+            this.postMessage({ type: 'streamStart' });
+            this.startPolling();
+
+            await this.waitForResponseComplete(ChatViewProvider.MAX_RESPONSE_MS);
+
         } catch (e: any) {
             if (this.abortRequested) {
                 this.postMessage({ type: 'addMessage', role: 'error', text: 'Stopped by user.' });
             } else {
                 const errMsg = e.message?.includes('command not found')
-                    ? 'Claude CLI not found. Install with: npm install -g @anthropic-ai/claude-code'
+                    ? 'AI CLI not found. Install the appropriate CLI tool.'
                     : `Error: ${e.message?.split('\n')[0] || 'unknown error'}`;
                 this.postMessage({ type: 'addMessage', role: 'error', text: errMsg });
             }
         } finally {
-            this.currentProc = null;
+            this.isAwaitingResponse = false;
+            this.stopPolling();
             this.abortRequested = false;
             this.postMessage({ type: 'setLoading', loading: false });
+            this.postMessage({ type: 'streamEnd' });
         }
+    }
+
+    private waitForResponseComplete(timeoutMs: number): Promise<void> {
+        return new Promise((resolve) => {
+            const check = setInterval(() => {
+                if (!this.isAwaitingResponse || this.abortRequested) {
+                    clearInterval(check);
+                    resolve();
+                }
+            }, 500);
+            setTimeout(() => { clearInterval(check); resolve(); }, timeoutMs);
+        });
     }
 
     private buildFileContext(): string {
@@ -726,59 +1108,21 @@ except sr.RequestError as e:
         return parts.join('\n\n');
     }
 
-    private buildPrompt(stateText: string, currentTurn: string, fileContext: string): string {
-        let prompt = `You are an AI assistant for a tmux and agent orchestration system in VS Code. You can manage tmux sessions/windows/panes, spawn AI agents, create teams, run pipelines, and more.
-You operate in a multi-step agentic loop. Each response you give controls what happens next.
+    // ── Utilities ───────────────────────────────────────────────────────────
 
-## Current System State
-${stateText}
+    private cleanPaneContent(raw: string): string {
+        return raw
+            .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+            .replace(/\x1b\].*?\x07/g, '')
+            .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
+    }
 
-## Available Actions
-${this.apiCatalog.getCatalogText()}`;
+    private stripToolCallJson(text: string): string {
+        return text.replace(/```json\s*\n?[\s\S]*?```/g, '').trim();
+    }
 
-        if (fileContext) {
-            prompt += `
-## Attached Files/Folders
-${fileContext}`;
-        }
-
-        prompt += `
-
-## Rules
-1. Briefly explain what you will do in this step.
-2. Then output a JSON object inside a \`\`\`json code block with this shape:
-   { "actions": [{ "action": "<name>", "params": { ... } }], "next": "<executor>" }
-3. The "next" field controls who runs next:
-   - "tool" — execute the actions, then YOU (assistant) automatically continue to process results and decide next steps. USE THIS when you have more work to do after the current actions complete.
-   - "assistant" — no actions needed yet, but you want to continue reasoning in another turn.
-   - "user" — you are COMPLETELY done with the entire request. ONLY use this when ALL parts of the user's request are fulfilled.
-4. For server-scoped actions, include a "server" param matching a serverId from the state above.
-5. CRITICAL: NEVER output raw shell commands. Only use the structured actions listed above.
-6. IMPORTANT: For multi-step tasks, you MUST use "next": "tool" to continue. For example, if the user asks to "create a session with 2 windows", first create the session with "next": "tool", then in the next turn create the windows. NEVER set "next": "user" if there is still work remaining.
-7. If no actions are needed and the task is done, respond with text only and set "next": "user" (or omit the JSON block entirely).
-8. Actions marked [returns data] will report their output in the tool results you see next turn.
-9. Use the attached files/folders as context to understand what the user wants.
-10. When continuing after tool results, check the results for errors. If all succeeded, proceed with the next step. If some failed, explain what went wrong.`;
-
-        // Include conversation history for multi-turn context
-        if (this.conversationHistory.length > 0) {
-            prompt += '\n\n## Conversation History\n';
-            for (const entry of this.conversationHistory) {
-                if (entry.role === 'user') {
-                    prompt += `\nUser: ${entry.content}`;
-                } else if (entry.role === 'assistant') {
-                    prompt += `\nAssistant: ${entry.content}`;
-                } else if (entry.role === 'tool') {
-                    prompt += `\nTool Results:\n${entry.content}`;
-                }
-            }
-        }
-
-        prompt += `
-
-## Current Turn
-${currentTurn}`;
-        return prompt;
+    private sleep(ms: number): Promise<void> {
+        return new Promise(resolve => setTimeout(resolve, ms));
     }
 
     private postMessage(msg: any): void {
@@ -953,11 +1297,47 @@ body {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.5; }
 }
+
+/* ── Provider & Session Status ───────────────────────────────────────── */
+#provider-select {
+    padding: 2px 4px; border: 1px solid var(--vscode-input-border);
+    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+    border-radius: 3px; font-size: 11px; outline: none; cursor: pointer;
+}
+#provider-select:focus { border-color: var(--vscode-focusBorder); }
+#session-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--vscode-terminal-ansiRed, #f44);
+    flex-shrink: 0; transition: background 0.3s;
+}
+#session-dot.connected { background: var(--vscode-terminal-ansiGreen, #4c4); }
+#session-dot.starting { background: var(--vscode-terminal-ansiYellow, #cc4); animation: dot-pulse 1s ease-in-out infinite; }
+#session-dot.disconnected { background: var(--vscode-terminal-ansiRed, #f44); }
+@keyframes dot-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+/* ── Streaming Message ───────────────────────────────────────────────── */
+.msg.streaming { border-left-color: var(--vscode-terminal-ansiCyan); }
+.msg.streaming .stream-body::after {
+    content: '\\25AE'; display: inline; animation: blink-cursor 0.7s steps(1) infinite;
+    color: var(--vscode-terminal-ansiCyan);
+}
+@keyframes blink-cursor {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0; }
+}
 </style>
 </head>
 <body>
 <div id="toolbar">
-    <span id="toolbar-label">Model:</span>
+    <span id="session-dot" class="disconnected" title="Session disconnected"></span>
+    <select id="provider-select" title="Select AI provider">
+        <option value="claude" selected>Claude</option>
+        <option value="gemini">Gemini</option>
+        <option value="codex">Codex</option>
+    </select>
     <select id="model-select" title="Select AI model for chat responses">
         <option value="sonnet">Sonnet</option>
         <option value="opus" selected>Opus</option>
@@ -1017,7 +1397,10 @@ var importFolderBtn = document.getElementById('import-folder-btn');
 var loadingEl = document.getElementById('loading');
 var filesBar = document.getElementById('files-bar');
 var modelSelect = document.getElementById('model-select');
+var providerSelect = document.getElementById('provider-select');
+var sessionDot = document.getElementById('session-dot');
 var clearBtn = document.getElementById('clear-btn');
+var streamingDiv = null;
 var suggestionsEl = document.getElementById('suggestions');
 var quickActionsEl = document.getElementById('quick-actions');
 var selectedSuggestion = -1;
@@ -1198,6 +1581,9 @@ importFolderBtn.addEventListener('click', function() {
 modelSelect.addEventListener('change', function() {
     vscode.postMessage({ type: 'setModel', model: modelSelect.value });
 });
+providerSelect.addEventListener('change', function() {
+    vscode.postMessage({ type: 'setProvider', provider: providerSelect.value });
+});
 clearBtn.addEventListener('click', function() {
     vscode.postMessage({ type: 'clearHistory' });
 });
@@ -1309,6 +1695,37 @@ window.addEventListener('message', function(e) {
         voiceBtn.title = 'Voice input (click to record)';
         inputEl.placeholder = 'Ask anything or type / for commands...';
         addMessage('error', msg.text);
+    } else if (msg.type === 'streamStart') {
+        /* Create a streaming message div */
+        streamingDiv = document.createElement('div');
+        streamingDiv.className = 'msg assistant streaming';
+        var lbl = document.createElement('div');
+        lbl.className = 'msg-label';
+        lbl.textContent = 'AI';
+        streamingDiv.appendChild(lbl);
+        var body = document.createElement('div');
+        body.className = 'stream-body';
+        streamingDiv.appendChild(body);
+        messagesEl.appendChild(streamingDiv);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+    } else if (msg.type === 'streamChunk') {
+        if (streamingDiv) {
+            var body = streamingDiv.querySelector('.stream-body');
+            if (body) {
+                body.textContent += msg.text;
+                messagesEl.scrollTop = messagesEl.scrollHeight;
+            }
+        }
+    } else if (msg.type === 'streamEnd') {
+        if (streamingDiv) {
+            streamingDiv.classList.remove('streaming');
+            streamingDiv = null;
+        }
+    } else if (msg.type === 'sessionStatus') {
+        sessionDot.className = msg.status;
+        sessionDot.id = 'session-dot';
+        var titles = { connected: 'Session connected', starting: 'Session starting...', disconnected: 'Session disconnected' };
+        sessionDot.title = titles[msg.status] || msg.status;
     }
 });
 </script>

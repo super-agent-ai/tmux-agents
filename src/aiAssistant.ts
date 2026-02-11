@@ -191,6 +191,19 @@ export class AIAssistantManager {
     }
 
     /**
+     * Get the CLI command to launch a provider interactively (no --print, no stdin pipe).
+     * Suitable for running inside a tmux pane.
+     */
+    getInteractiveLaunchCommand(provider: AIProvider, model?: string): string {
+        const config = this.getProviderConfig(provider);
+        const envPrefix = this.buildEnvPrefix(config.env);
+        const args = config.args.filter(a => a !== '--print' && a !== '-');
+        if (model) { args.push('--model', model); }
+        const parts = [envPrefix + config.command, ...args];
+        return parts.join(' ');
+    }
+
+    /**
      * Get the command to fork/continue a session for a given AI provider.
      */
     getForkCommand(provider: AIProvider, _sessionName: string): string {

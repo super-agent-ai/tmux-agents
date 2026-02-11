@@ -535,6 +535,16 @@ export class TmuxService {
         await exec(cmd);
     }
 
+    public async sendRawKeys(sessionName: string, windowIndex: string, paneIndex: string, keys: string): Promise<void> {
+        const cmd = this.buildCommand(`tmux send-keys -t "${sessionName}:${windowIndex}.${paneIndex}" ${keys}`);
+        await exec(cmd);
+    }
+
+    public async hasSession(sessionName: string): Promise<boolean> {
+        const sessions = await this.getSessions();
+        return sessions.includes(sessionName);
+    }
+
     /**
      * Execute an arbitrary shell command on this server (local or remote).
      */
