@@ -662,11 +662,17 @@ ${this.apiCatalog.getCatalogText()}
 1. Briefly explain what you will do.
 2. To execute actions, output a JSON object inside a \`\`\`json code block:
    { "actions": [{ "action": "<name>", "params": { ... } }], "next": "<executor>" }
-3. "next" field: "tool" to continue after execution, "user" when done.
+3. **"next" field is critical — get it right:**
+   - Use \`"next": "tool"\` (DEFAULT) — the system will execute your actions and return results so you can verify success, react to output, or continue with follow-up steps. **Always use "tool" when:**
+     - The action creates, modifies, or deletes something (tasks, sessions, windows, panes, agents, pipelines)
+     - The action has \`autoStart\`, \`autoPilot\`, or \`autoClose\` flags
+     - The action returns data you should report to the user
+     - You need to chain multiple actions or verify the result
+     - You are unsure — **when in doubt, always use "tool"**
+   - Use \`"next": "user"\` (RARE) — only when you are 100% finished with the user's entire request AND there is nothing to verify or follow up on. Typical case: a simple informational answer with no actions at all.
 4. For server-scoped actions, include a "server" param.
 5. NEVER output raw shell commands. Only use structured actions.
-6. For multi-step tasks, use "next": "tool" to continue.
-7. Actions marked [returns data] will report output in tool results.`;
+6. Actions marked [returns data] will report output in tool results — use \`"next": "tool"\` to receive and relay this data to the user.`;
     }
 
     // ── Streaming CLI Spawn ─────────────────────────────────────────────────
