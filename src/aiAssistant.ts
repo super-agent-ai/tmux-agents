@@ -94,6 +94,12 @@ export class AIAssistantManager {
         if (base === 'codex') {
             return AIProvider.CODEX;
         }
+        if (base === 'opencode') {
+            return AIProvider.OPENCODE;
+        }
+        if (base === 'cursor-agent' || base === 'cursor') {
+            return AIProvider.CURSOR;
+        }
 
         return null;
     }
@@ -198,7 +204,13 @@ export class AIAssistantManager {
         const config = this.getProviderConfig(provider);
         const envPrefix = this.buildEnvPrefix(config.env);
         const args = config.args.filter(a => a !== '--print' && a !== '-');
-        if (model) { args.push('--model', model); }
+        if (model) {
+            if (provider === AIProvider.OPENCODE) {
+                args.push('-m', model);
+            } else {
+                args.push('--model', model);
+            }
+        }
         const parts = [envPrefix + config.command, ...args];
         return parts.join(' ');
     }
@@ -216,7 +228,7 @@ export class AIAssistantManager {
     /**
      * Get spawn-friendly config for cp.spawn: { command, args, env }.
      */
-    getSpawnConfig(provider: AIProvider): { command: string; args: string[]; env: Record<string, string>; cwd?: string; shell: boolean } {
+    getSpawnConfig(provider: AIProvider, model?: string): { command: string; args: string[]; env: Record<string, string>; cwd?: string; shell: boolean } {
         const cfg = vscode.workspace.getConfiguration('tmuxAgents');
         const allProviders = cfg.get<Record<string, any>>('aiProviders') || {};
         const key = provider as string;
@@ -226,7 +238,24 @@ export class AIAssistantManager {
             || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
             || undefined;
         const shell = p.shell ?? true;
-        return { command: config.pipeCommand, args: ['--print', '-'], env: config.env, cwd, shell };
+
+        if (provider === AIProvider.OPENCODE) {
+            const args = ['run'];
+            if (model) { args.push('-m', model); }
+            return { command: config.pipeCommand, args, env: config.env, cwd, shell };
+        }
+
+        if (provider === AIProvider.CURSOR) {
+            const args: string[] = ['--print', '--output-format', 'text'];
+            if (model) { args.push('--model', model); }
+            return { command: config.pipeCommand, args, env: config.env, cwd, shell };
+        }
+
+        // Default: claude, gemini, codex
+        const args: string[] = [];
+        if (model) { args.push('--model', model); }
+        args.push('--print', '-');
+        return { command: config.pipeCommand, args, env: config.env, cwd, shell };
     }
 
     /**

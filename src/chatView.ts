@@ -800,6 +800,19 @@ except sr.RequestError as e:
             { value: 'gpt-4o', label: 'GPT-4o' },
             { value: 'o4-mini', label: 'O4 Mini' },
         ],
+        opencode: [
+            { value: 'anthropic/claude-sonnet-4-5-20250929', label: 'Claude Sonnet' },
+            { value: 'anthropic/claude-opus-4-6', label: 'Claude Opus' },
+            { value: 'openai/gpt-4o', label: 'GPT-4o' },
+            { value: 'google/gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+        ],
+        cursor: [
+            { value: 'sonnet-4', label: 'Sonnet 4' },
+            { value: 'opus-4.1', label: 'Opus 4.1' },
+            { value: 'gpt-5', label: 'GPT-5' },
+            { value: 'grok', label: 'Grok' },
+            { value: 'auto', label: 'Auto' },
+        ],
     };
 
     private getProviderModels(): { value: string; label: string }[] {
@@ -850,10 +863,17 @@ ${this.apiCatalog.getCatalogText()}
     ): Promise<string> {
         return new Promise((resolve, reject) => {
             const spawnCfg = this.aiManager
-                ? this.aiManager.getSpawnConfig(this.selectedProvider)
-                : { command: 'claude', args: ['--print', '-'], env: {}, cwd: undefined, shell: true };
+                ? this.aiManager.getSpawnConfig(this.selectedProvider, this.selectedModel)
+                : { command: 'claude', args: ['--model', this.selectedModel, '--print', '-'], env: {}, cwd: undefined, shell: true };
 
-            const args = ['--model', this.selectedModel, ...spawnCfg.args];
+            const args = [...spawnCfg.args];
+            // Cursor takes prompt as positional arg; others pipe to stdin
+            const useStdin = this.selectedProvider !== AIProvider.CURSOR;
+            if (!useStdin) {
+                // Shell-escape the prompt and append as argument
+                const escaped = prompt.replace(/'/g, "'\\''");
+                args.push(`'${escaped}'`);
+            }
             const cmdStr = [spawnCfg.command, ...args].join(' ');
             const execCwd = safeCwd(spawnCfg.cwd) || safeCwd(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath);
 
@@ -903,12 +923,14 @@ ${this.apiCatalog.getCatalogText()}
             // Defer stdin write — if the process fails to spawn (bad cwd, missing binary),
             // writing immediately causes SIGPIPE which crashes VS Code's extension host.
             proc.stdin!.on('error', () => {});
-            process.nextTick(() => {
-                if (proc.stdin && proc.stdin.writable && !proc.killed) {
-                    proc.stdin.write(prompt);
-                    proc.stdin.end();
-                }
-            });
+            if (useStdin) {
+                process.nextTick(() => {
+                    if (proc.stdin && proc.stdin.writable && !proc.killed) {
+                        proc.stdin.write(prompt);
+                        proc.stdin.end();
+                    }
+                });
+            }
         });
     }
 
@@ -1331,6 +1353,8 @@ body {
         <option value="claude" selected>Claude</option>
         <option value="gemini">Gemini</option>
         <option value="codex">Codex</option>
+        <option value="opencode">OpenCode</option>
+        <option value="cursor">Cursor</option>
     </select>
     <select id="model-select" title="Select AI model for chat responses">
         <option value="sonnet">Sonnet</option>
@@ -1338,7 +1362,7 @@ body {
         <option value="haiku">Haiku</option>
     </select>
     <span id="toolbar-spacer"></span>
-    <button id="new-chat-btn" title="Start new conversation" style="padding:2px 8px;border:none;border-radius:3px;cursor:pointer;background:var(--vscode-button-background);color:var(--vscode-button-foreground);font-size:11px;">+ New</button>
+    <button id="new-chat-btn" title="Start new conversation" style="padding:2px 6px;border:none;border-radius:3px;cursor:pointer;background:var(--vscode-button-background);color:var(--vscode-button-foreground);font-size:14px;line-height:1;">+</button>
     <button id="clear-btn" title="Clear chat history">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
             <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 13A6 6 0 1 1 8 2a6 6 0 0 1 0 12zm3.15-8.85l-1.3-1.3L8 5.71 6.15 3.85l-1.3 1.3L6.71 7 4.85 8.85l1.3 1.3L8 8.29l1.85 1.86 1.3-1.3L9.29 7l1.86-1.85z"/>

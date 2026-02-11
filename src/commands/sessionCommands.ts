@@ -571,7 +571,9 @@ export function registerSessionCommands(
             [
                 { label: 'Claude', provider: AIProvider.CLAUDE },
                 { label: 'Gemini', provider: AIProvider.GEMINI },
-                { label: 'Codex', provider: AIProvider.CODEX }
+                { label: 'Codex', provider: AIProvider.CODEX },
+                { label: 'OpenCode', provider: AIProvider.OPENCODE },
+                { label: 'Cursor', provider: AIProvider.CURSOR }
             ],
             { placeHolder: 'Select AI provider' }
         );
@@ -615,7 +617,9 @@ export function registerSessionCommands(
             [
                 { label: 'Claude', provider: AIProvider.CLAUDE },
                 { label: 'Gemini', provider: AIProvider.GEMINI },
-                { label: 'Codex', provider: AIProvider.CODEX }
+                { label: 'Codex', provider: AIProvider.CODEX },
+                { label: 'OpenCode', provider: AIProvider.OPENCODE },
+                { label: 'Cursor', provider: AIProvider.CURSOR }
             ],
             { placeHolder: 'Select AI provider' }
         );
@@ -668,7 +672,9 @@ export function registerSessionCommands(
                 [
                     { label: 'Claude', provider: AIProvider.CLAUDE },
                     { label: 'Gemini', provider: AIProvider.GEMINI },
-                    { label: 'Codex', provider: AIProvider.CODEX }
+                    { label: 'Codex', provider: AIProvider.CODEX },
+                    { label: 'OpenCode', provider: AIProvider.OPENCODE },
+                    { label: 'Cursor', provider: AIProvider.CURSOR }
                 ],
                 { placeHolder: 'Select AI provider for fork' }
             );
@@ -859,6 +865,8 @@ async function createAISessionCommand(
 
     const prefix = provider === AIProvider.CLAUDE ? 'claude'
         : provider === AIProvider.GEMINI ? 'gemini'
+        : provider === AIProvider.OPENCODE ? 'opencode'
+        : provider === AIProvider.CURSOR ? 'cursor'
         : 'codex';
 
     let nextId = 0;

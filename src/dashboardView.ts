@@ -275,11 +275,14 @@ html, body {
 }
 
 /* ── Section Headers ──────────────────────────────────────────────────────── */
+section {
+    margin-bottom: 8px;
+}
 .section-header {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-bottom: 12px;
+    margin-bottom: 8px;
     cursor: default;
 }
 .section-header.collapsible {
@@ -708,6 +711,19 @@ html, body {
 .task-table tr:hover td {
     background: rgba(255,255,255,0.03);
 }
+.btn-attach {
+    background: none;
+    border: 1px solid var(--vscode-button-secondaryBackground, #333);
+    color: var(--vscode-button-secondaryForeground, #ccc);
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.btn-attach:hover {
+    background: var(--vscode-button-secondaryHoverBackground, #444);
+}
 .task-desc {
     max-width: 300px;
     white-space: nowrap;
@@ -765,24 +781,24 @@ html, body {
 /* ── Empty State ──────────────────────────────────────────────────────────── */
 .empty-state {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     align-items: center;
     justify-content: center;
-    padding: 40px 20px;
+    padding: 12px 12px;
     text-align: center;
-    opacity: 0.45;
+    opacity: 0.4;
     gap: 8px;
 }
 .empty-state .icon {
-    font-size: 36px;
-    margin-bottom: 4px;
+    font-size: 18px;
 }
 .empty-state .title {
-    font-size: 14px;
+    font-size: 12px;
     font-weight: 600;
 }
 .empty-state .desc {
-    font-size: 12px;
+    font-size: 11px;
+    display: none;
 }
 
 /* ── Spinner (for spawning state) ─────────────────────────────────────────── */
@@ -1446,7 +1462,7 @@ html, body {
 
         var html = '<table class="task-table">';
         html += '<thead><tr>';
-        html += '<th>Priority</th><th>Description</th><th>Target Role</th><th>Status</th><th>Assigned</th>';
+        html += '<th>Priority</th><th>Description</th><th>Role</th><th>Status</th><th>Assigned</th><th></th>';
         html += '</tr></thead><tbody>';
 
         // Sort by priority descending
@@ -1466,12 +1482,18 @@ html, body {
                 }
             }
 
+            var hasTmux = task.tmuxSessionName && task.tmuxServerId;
+            var attachBtn = hasTmux
+                ? '<button class="btn-attach" data-attach-task="' + escapeHtml(task.id) + '" title="Attach to ' + escapeHtml(task.tmuxSessionName + ':' + (task.tmuxWindowIndex || '0') + '.' + (task.tmuxPaneIndex || '0')) + '">&#x1F4CE; Attach</button>'
+                : '';
+
             html += '<tr>';
             html += '<td><span class="priority-indicator ' + priClass + '">' + (task.priority || 0) + '</span></td>';
-            html += '<td><span class="task-desc">' + escapeHtml(truncate(task.description, 60)) + '</span></td>';
+            html += '<td><span class="task-desc">' + escapeHtml(truncate(task.description, 50)) + '</span></td>';
             html += '<td>' + (task.targetRole ? '<span class="role-badge ' + escapeHtml(task.targetRole) + '">' + escapeHtml(task.targetRole) + '</span>' : '<span style="opacity:0.4">Any</span>') + '</td>';
             html += '<td><span class="status-badge ' + statusClass + '">' + escapeHtml(task.status || 'pending') + '</span></td>';
             html += '<td>' + (agentName ? escapeHtml(agentName) : '<span style="opacity:0.4">--</span>') + '</td>';
+            html += '<td>' + attachBtn + '</td>';
             html += '</tr>';
         }
 
@@ -1751,6 +1773,13 @@ html, body {
 
     // ── Event Delegation ─────────────────────────────────────────────────────
     document.getElementById('app').addEventListener('click', function(e) {
+        // Handle attach-to-task buttons
+        var attachBtn = e.target.closest('[data-attach-task]');
+        if (attachBtn) {
+            vscode.postMessage({ type: 'attachToTask', taskId: attachBtn.dataset.attachTask });
+            return;
+        }
+
         var target = e.target.closest('[data-action]');
         if (!target) return;
 

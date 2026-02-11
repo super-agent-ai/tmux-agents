@@ -187,6 +187,38 @@ export class AgentTemplateManager {
                     riskTolerance: 'moderate',
                     avatar: 'S',
                 }
+            },
+            {
+                id: 'builtin-coder-opencode',
+                name: 'OpenCode Coder',
+                role: AgentRole.CODER,
+                aiProvider: AIProvider.OPENCODE,
+                description: 'Code writing with OpenCode (multi-provider)',
+                systemPrompt: 'You are a coding agent. Follow existing code conventions and patterns in the project. Read existing code before modifying it. Prefer editing existing files over creating new ones. Write unit tests for new functionality. Use descriptive commit messages that explain why, not just what.',
+                persona: {
+                    personality: 'pragmatic',
+                    communicationStyle: 'concise',
+                    expertiseAreas: ['TypeScript', 'Go', 'Full-Stack'],
+                    skillLevel: 'senior',
+                    riskTolerance: 'moderate',
+                    avatar: 'O',
+                }
+            },
+            {
+                id: 'builtin-coder-cursor',
+                name: 'Cursor Coder',
+                role: AgentRole.CODER,
+                aiProvider: AIProvider.CURSOR,
+                description: 'Code writing with Cursor Agent CLI',
+                systemPrompt: 'You are a coding agent. Follow existing code conventions and patterns in the project. Read existing code before modifying it. Prefer editing existing files over creating new ones. Write unit tests for new functionality. Use descriptive commit messages that explain why, not just what.',
+                persona: {
+                    personality: 'pragmatic',
+                    communicationStyle: 'concise',
+                    expertiseAreas: ['TypeScript', 'React', 'Full-Stack'],
+                    skillLevel: 'senior',
+                    riskTolerance: 'moderate',
+                    avatar: 'U',
+                }
             }
         ];
     }

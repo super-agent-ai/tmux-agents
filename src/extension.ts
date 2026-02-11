@@ -348,6 +348,24 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
                 orchestrator.removeAgent(payload.agentId);
                 updateDashboard();
                 break;
+            case 'attachToTask': {
+                const task = orchestrator.getTask(payload.taskId);
+                if (!task?.tmuxSessionName || !task.tmuxServerId) {
+                    vscode.window.showWarningMessage('No tmux session info for this task');
+                    break;
+                }
+                const svc = serviceManager.getService(task.tmuxServerId);
+                if (!svc) {
+                    vscode.window.showWarningMessage(`Server not found: ${task.tmuxServerId}`);
+                    break;
+                }
+                const terminal = await smartAttachment.attachToSession(svc, task.tmuxSessionName, {
+                    windowIndex: task.tmuxWindowIndex,
+                    paneIndex: task.tmuxPaneIndex
+                });
+                terminal.show();
+                break;
+            }
             case 'pausePipeline':
                 pipelineEngine.pauseRun(payload.runId);
                 updateDashboard();

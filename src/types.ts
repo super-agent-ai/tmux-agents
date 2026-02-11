@@ -59,7 +59,9 @@ export const PROCESS_CATEGORY_ICONS: Record<ProcessCategory, string> = {
 export enum AIProvider {
     CLAUDE = 'claude',
     GEMINI = 'gemini',
-    CODEX = 'codex'
+    CODEX = 'codex',
+    OPENCODE = 'opencode',
+    CURSOR = 'cursor'
 }
 
 export enum AIStatus {
