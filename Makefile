@@ -1,14 +1,26 @@
-.PHONY: compile test install clean
+.PHONY: compile test watch package install uninstall clean
+
+VERSION := $(shell node -p "require('./package.json').version")
+VSIX    := tmux-agents-$(VERSION).vsix
 
 compile:
 	npm run compile
 
 test:
-	npm test
+	npx vitest run --no-coverage
 
-install: compile
+watch:
+	npm run watch
+
+package: compile
 	npx @vscode/vsce package --no-dependencies
-	code --install-extension tmux-agents-0.1.0.vsix --force
+
+install: package
+	code --install-extension $(VSIX) --force
+	@echo "Installed tmux-agents v$(VERSION). Reload VS Code to activate."
+
+uninstall:
+	code --uninstall-extension super-agent.tmux-agents || true
 
 clean:
 	rm -rf out tmux-agents-*.vsix
