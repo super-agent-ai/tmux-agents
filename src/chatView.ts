@@ -825,6 +825,40 @@ except sr.RequestError as e:
             { value: 'gpt-5', label: 'GPT-5' },
             { value: 'composer', label: 'Composer' },
         ],
+        copilot: [
+            { value: 'claude-sonnet-4.5', label: 'Claude Sonnet 4.5' },
+            { value: 'claude-sonnet-4', label: 'Claude Sonnet 4' },
+            { value: 'claude-haiku-4.5', label: 'Claude Haiku 4.5' },
+            { value: 'gpt-5', label: 'GPT-5' },
+        ],
+        aider: [
+            { value: 'sonnet', label: 'Claude Sonnet' },
+            { value: 'opus', label: 'Claude Opus' },
+            { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+            { value: 'gpt-5.2', label: 'GPT-5.2' },
+            { value: 'o3-pro', label: 'o3-Pro' },
+            { value: 'deepseek', label: 'DeepSeek' },
+        ],
+        amp: [
+            { value: 'smart', label: 'Smart (Opus 4.6)' },
+            { value: 'rush', label: 'Rush (Haiku 4.5)' },
+            { value: 'deep', label: 'Deep (GPT-5.2 Codex)' },
+        ],
+        cline: [
+            { value: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5' },
+            { value: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
+            { value: 'gpt-4o', label: 'GPT-4o' },
+            { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+            { value: 'kimi-k2.5', label: 'Kimi K2.5' },
+        ],
+        kiro: [
+            { value: 'auto', label: 'Auto' },
+            { value: 'claude-opus-4.6', label: 'Claude Opus 4.6' },
+            { value: 'claude-opus-4.5', label: 'Claude Opus 4.5' },
+            { value: 'claude-sonnet-4.5', label: 'Claude Sonnet 4.5' },
+            { value: 'claude-sonnet-4', label: 'Claude Sonnet 4' },
+            { value: 'claude-haiku-4.5', label: 'Claude Haiku 4.5' },
+        ],
     };
 
     private getProviderModels(): { value: string; label: string }[] {
@@ -879,10 +913,23 @@ ${this.apiCatalog.getCatalogText()}
                 : { command: 'claude', args: ['--model', this.selectedModel, '--print', '-'], env: {}, cwd: undefined, shell: true };
 
             const args = [...spawnCfg.args];
-            // Cursor takes prompt as positional arg; others pipe to stdin
-            const useStdin = this.selectedProvider !== AIProvider.CURSOR;
-            if (!useStdin) {
-                // Shell-escape the prompt and append as argument
+            // Determine how prompt is passed: stdin pipe vs CLI argument
+            const isAider = this.selectedProvider === AIProvider.AIDER;
+            const isAmp = this.selectedProvider === AIProvider.AMP;
+            const isCline = this.selectedProvider === AIProvider.CLINE;
+            const isKiro = this.selectedProvider === AIProvider.KIRO;
+            const positionalPrompt = this.selectedProvider === AIProvider.CURSOR || this.selectedProvider === AIProvider.COPILOT || isCline || isKiro;
+            const useStdin = !positionalPrompt && !isAider && !isAmp;
+            if (isAider) {
+                // aider uses --message "prompt" flag
+                const escaped = prompt.replace(/'/g, "'\\''");
+                args.push('--message', `'${escaped}'`);
+            } else if (isAmp) {
+                // amp uses -x "prompt" flag for execute mode
+                const escaped = prompt.replace(/'/g, "'\\''");
+                args.push('-x', `'${escaped}'`);
+            } else if (positionalPrompt) {
+                // Cursor and Copilot take prompt as positional arg
                 const escaped = prompt.replace(/'/g, "'\\''");
                 args.push(`'${escaped}'`);
             }
@@ -1379,6 +1426,11 @@ body {
         <option value="codex">Codex</option>
         <option value="opencode">OpenCode</option>
         <option value="cursor">Cursor</option>
+        <option value="copilot">Copilot</option>
+        <option value="aider">Aider</option>
+        <option value="amp">Amp</option>
+        <option value="cline">Cline</option>
+        <option value="kiro">Kiro</option>
     </select>
     <select id="model-select" title="Select AI model for chat responses">
         <option value="opus" selected>Opus 4.6</option>

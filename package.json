@@ -199,7 +199,12 @@
             "gemini",
             "codex",
             "opencode",
-            "cursor"
+            "cursor",
+            "copilot",
+            "aider",
+            "amp",
+            "cline",
+            "kiro"
           ],
           "description": "Default AI provider used for tasks and swimlanes when no provider is explicitly set."
         },
@@ -211,7 +216,12 @@
             "gemini",
             "codex",
             "opencode",
-            "cursor"
+            "cursor",
+            "copilot",
+            "aider",
+            "amp",
+            "cline",
+            "kiro"
           ],
           "description": "Fallback AI provider used when the default provider fails or is unavailable."
         },
@@ -258,9 +268,48 @@
                 "--resume"
               ],
               "env": {}
+            },
+            "copilot": {
+              "command": "copilot",
+              "pipeCommand": "copilot",
+              "args": [],
+              "forkArgs": [
+                "--continue"
+              ],
+              "env": {}
+            },
+            "aider": {
+              "command": "aider",
+              "pipeCommand": "aider",
+              "args": [],
+              "forkArgs": [],
+              "env": {}
+            },
+            "amp": {
+              "command": "amp",
+              "pipeCommand": "amp",
+              "args": [],
+              "forkArgs": [],
+              "env": {}
+            },
+            "cline": {
+              "command": "cline",
+              "pipeCommand": "cline",
+              "args": [],
+              "forkArgs": [],
+              "env": {}
+            },
+            "kiro": {
+              "command": "kiro-cli",
+              "pipeCommand": "kiro-cli",
+              "args": [],
+              "forkArgs": [
+                "--resume"
+              ],
+              "env": {}
             }
           },
-          "description": "AI provider configurations. Each key (claude, gemini, codex, opencode, cursor) supports: command (interactive CLI), pipeCommand (pipe mode CLI), args (launch arguments), forkArgs (fork/continue arguments), env (environment variables).",
+          "description": "AI provider configurations. Each key (claude, gemini, codex, opencode, cursor, copilot, aider, amp, cline, kiro) supports: command (interactive CLI), pipeCommand (pipe mode CLI), args (launch arguments), forkArgs (fork/continue arguments), env (environment variables).",
           "additionalProperties": {
             "type": "object",
             "properties": {

@@ -61,7 +61,12 @@ export enum AIProvider {
     GEMINI = 'gemini',
     CODEX = 'codex',
     OPENCODE = 'opencode',
-    CURSOR = 'cursor'
+    CURSOR = 'cursor',
+    COPILOT = 'copilot',
+    AIDER = 'aider',
+    AMP = 'amp',
+    CLINE = 'cline',
+    KIRO = 'kiro'
 }
 
 export enum AIStatus {
