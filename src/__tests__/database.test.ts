@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as actualPath from 'path';
 import { TaskStatus, AgentRole, AIProvider, AgentState, PipelineStatus } from '../types';
-import type { OrchestratorTask, AgentInstance, KanbanSwimLane, Pipeline, PipelineRun, AgentTeam } from '../types';
+import type { OrchestratorTask, AgentInstance, KanbanSwimLane, Pipeline, PipelineRun, AgentTeam, TaskStatusHistoryEntry, TaskComment } from '../types';
 
 // The Database class does `require(path.join(__dirname, 'sql-wasm.js'))`.
 // In test context __dirname is the src/ dir, not out/ where compiled files live.
@@ -336,6 +336,130 @@ describe('Database', () => {
             db.savePipelineRun(run);
             db.deletePipelineRun('r2');
             expect(db.getPipelineRun('r2')).toBeUndefined();
+        });
+    });
+
+    // ─── Task Comments ──────────────────────────────────────────────────
+
+    describe('task comments', () => {
+        const makeTask = (id: string, overrides: Partial<OrchestratorTask> = {}): OrchestratorTask => ({
+            id,
+            description: `Task ${id}`,
+            status: TaskStatus.PENDING,
+            priority: 5,
+            createdAt: Date.now(),
+            verificationStatus: 'none',
+            ...overrides,
+        });
+
+        it('adds and retrieves comments', () => {
+            db.saveTask(makeTask('ct1'));
+            const c1: TaskComment = { id: 'c1', taskId: 'ct1', text: 'First comment', createdAt: 1000 };
+            const c2: TaskComment = { id: 'c2', taskId: 'ct1', text: 'Second comment', createdAt: 2000 };
+            db.addComment(c1);
+            db.addComment(c2);
+            const comments = db.getComments('ct1');
+            expect(comments).toHaveLength(2);
+            expect(comments[0].text).toBe('First comment');
+            expect(comments[1].text).toBe('Second comment');
+        });
+
+        it('deletes a comment', () => {
+            db.saveTask(makeTask('ct2'));
+            db.addComment({ id: 'c3', taskId: 'ct2', text: 'To delete', createdAt: 1000 });
+            db.deleteComment('c3');
+            expect(db.getComments('ct2')).toHaveLength(0);
+        });
+
+        it('cascades comments on task delete', () => {
+            db.saveTask(makeTask('ct3'));
+            db.addComment({ id: 'c4', taskId: 'ct3', text: 'Will cascade', createdAt: 1000 });
+            db.deleteTask('ct3');
+            expect(db.getComments('ct3')).toHaveLength(0);
+        });
+    });
+
+    // ─── Task Tags ──────────────────────────────────────────────────────
+
+    describe('task tags', () => {
+        const makeTask = (id: string, overrides: Partial<OrchestratorTask> = {}): OrchestratorTask => ({
+            id,
+            description: `Task ${id}`,
+            status: TaskStatus.PENDING,
+            priority: 5,
+            createdAt: Date.now(),
+            verificationStatus: 'none',
+            ...overrides,
+        });
+
+        it('saves and retrieves tags', () => {
+            db.saveTask(makeTask('tt1'));
+            db.saveTags('tt1', ['bug', 'urgent']);
+            const tags = db.getTags('tt1');
+            expect(tags.sort()).toEqual(['bug', 'urgent']);
+        });
+
+        it('replaces tags on re-save', () => {
+            db.saveTask(makeTask('tt2'));
+            db.saveTags('tt2', ['feature', 'docs']);
+            db.saveTags('tt2', ['refactor']);
+            const tags = db.getTags('tt2');
+            expect(tags).toEqual(['refactor']);
+        });
+
+        it('cascades tags on task delete', () => {
+            db.saveTask(makeTask('tt3'));
+            db.saveTags('tt3', ['test']);
+            db.deleteTask('tt3');
+            expect(db.getTags('tt3')).toHaveLength(0);
+        });
+    });
+
+    // ─── Task Status History ────────────────────────────────────────────
+
+    describe('task status history', () => {
+        const makeTask = (id: string, overrides: Partial<OrchestratorTask> = {}): OrchestratorTask => ({
+            id,
+            description: `Task ${id}`,
+            status: TaskStatus.PENDING,
+            priority: 5,
+            createdAt: Date.now(),
+            verificationStatus: 'none',
+            ...overrides,
+        });
+
+        it('adds and retrieves status history', () => {
+            db.saveTask(makeTask('sh1'));
+            const entry: TaskStatusHistoryEntry = {
+                id: 'h1', taskId: 'sh1',
+                fromStatus: 'pending', toStatus: 'in_progress',
+                fromColumn: 'todo', toColumn: 'in_progress',
+                changedAt: 1000
+            };
+            db.addStatusHistory(entry);
+            const history = db.getStatusHistory('sh1');
+            expect(history).toHaveLength(1);
+            expect(history[0].fromStatus).toBe('pending');
+            expect(history[0].toStatus).toBe('in_progress');
+            expect(history[0].fromColumn).toBe('todo');
+            expect(history[0].toColumn).toBe('in_progress');
+        });
+
+        it('returns history in chronological order', () => {
+            db.saveTask(makeTask('sh2'));
+            db.addStatusHistory({ id: 'h2', taskId: 'sh2', fromStatus: 'pending', toStatus: 'in_progress', fromColumn: 'todo', toColumn: 'in_progress', changedAt: 1000 });
+            db.addStatusHistory({ id: 'h3', taskId: 'sh2', fromStatus: 'in_progress', toStatus: 'completed', fromColumn: 'in_progress', toColumn: 'done', changedAt: 2000 });
+            const history = db.getStatusHistory('sh2');
+            expect(history).toHaveLength(2);
+            expect(history[0].changedAt).toBe(1000);
+            expect(history[1].changedAt).toBe(2000);
+        });
+
+        it('cascades history on task delete', () => {
+            db.saveTask(makeTask('sh3'));
+            db.addStatusHistory({ id: 'h4', taskId: 'sh3', fromStatus: 'pending', toStatus: 'in_progress', fromColumn: 'todo', toColumn: 'in_progress', changedAt: 1000 });
+            db.deleteTask('sh3');
+            expect(db.getStatusHistory('sh3')).toHaveLength(0);
         });
     });
 });

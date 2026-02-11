@@ -9,7 +9,7 @@ import { AgentOrchestrator } from '../orchestrator';
 import { TeamManager } from '../teamManager';
 import { KanbanViewProvider } from '../kanbanView';
 import { Database } from '../database';
-import { OrchestratorTask, TaskStatus, KanbanSwimLane, FavouriteFolder } from '../types';
+import { OrchestratorTask, TaskStatus, KanbanSwimLane, FavouriteFolder, TaskStatusHistoryEntry, TaskComment } from '../types';
 import { buildBundleTaskPrompt, buildDebugPrompt, appendPromptTail } from '../promptBuilder';
 
 export interface KanbanHandlerContext {
@@ -358,6 +358,9 @@ export async function handleKanbanMessage(
             if (payload.dependsOn && payload.dependsOn.length > 0) { task.dependsOn = payload.dependsOn; }
             ctx.orchestrator.submitTask(task);
             ctx.database.saveTask(task);
+            if (payload.tags && payload.tags.length > 0) {
+                ctx.database.saveTags(task.id, payload.tags);
+            }
             // Auto-cascade: when autoStart + dependencies, force deps to auto-start/pilot/close
             if (task.autoStart && task.dependsOn && task.dependsOn.length > 0) {
                 for (const depId of task.dependsOn) {
@@ -414,6 +417,8 @@ export async function handleKanbanMessage(
         case 'moveTask': {
             const t = ctx.orchestrator.getTask(payload.taskId);
             if (t) {
+                const oldColumn = t.kanbanColumn || 'backlog';
+                const oldStatus = t.status;
                 t.kanbanColumn = payload.kanbanColumn;
                 if (payload.kanbanColumn === 'done') {
                     t.status = TaskStatus.COMPLETED;
@@ -443,6 +448,17 @@ export async function handleKanbanMessage(
                     }
                 }
                 if (t) { ctx.database.saveTask(t); }
+                if (oldColumn !== payload.kanbanColumn) {
+                    ctx.database.addStatusHistory({
+                        id: 'hist-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+                        taskId: t.id,
+                        fromStatus: oldStatus,
+                        toStatus: t.status,
+                        fromColumn: oldColumn,
+                        toColumn: payload.kanbanColumn,
+                        changedAt: Date.now()
+                    });
+                }
                 if (t && t.autoStart && payload.kanbanColumn === 'todo' && t.swimLaneId) {
                     await ctx.startTaskFlow(t);
                 }
@@ -1154,6 +1170,44 @@ ${combinedContent}`;
             ctx.updateKanban();
             ctx.tmuxSessionProvider.refresh();
             vscode.window.showInformationMessage(`Imported ${importedWindows} window(s) as tasks`);
+            break;
+        }
+        case 'addComment': {
+            const comment: TaskComment = {
+                id: 'comment-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+                taskId: payload.taskId,
+                text: payload.text,
+                createdAt: Date.now()
+            };
+            ctx.database.addComment(comment);
+            ctx.updateKanban();
+            break;
+        }
+        case 'deleteComment': {
+            ctx.database.deleteComment(payload.commentId);
+            ctx.updateKanban();
+            break;
+        }
+        case 'addTag': {
+            const t = ctx.orchestrator.getTask(payload.taskId);
+            if (t) {
+                const currentTags = ctx.database.getTags(t.id);
+                if (!currentTags.includes(payload.tag)) {
+                    currentTags.push(payload.tag);
+                    ctx.database.saveTags(t.id, currentTags);
+                }
+            }
+            ctx.updateKanban();
+            break;
+        }
+        case 'removeTag': {
+            const t = ctx.orchestrator.getTask(payload.taskId);
+            if (t) {
+                const currentTags = ctx.database.getTags(t.id);
+                const filtered = currentTags.filter(tag => tag !== payload.tag);
+                ctx.database.saveTags(t.id, filtered);
+            }
+            ctx.updateKanban();
             break;
         }
         case 'refresh':

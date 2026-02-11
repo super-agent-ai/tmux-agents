@@ -6,7 +6,7 @@ import {
     AIProvider, PipelineStatus, StageResult, PipelineStage,
     FavouriteFolder, OrganizationUnit, OrgUnitType, Guild,
     GuildKnowledge, AgentMessage, ChatConversation, ConversationEntry,
-    AgentProfileStats
+    AgentProfileStats, TaskStatusHistoryEntry, TaskComment
 } from './types';
 
 // sql.js types (loaded dynamically to avoid node_modules dependency in packaged extension)
@@ -95,6 +95,19 @@ CREATE TABLE IF NOT EXISTS conversation_messages (
     id TEXT PRIMARY KEY, conversationId TEXT NOT NULL, role TEXT NOT NULL,
     content TEXT NOT NULL, timestamp INTEGER NOT NULL,
     FOREIGN KEY (conversationId) REFERENCES conversations(id));
+CREATE TABLE IF NOT EXISTS task_status_history (
+    id TEXT PRIMARY KEY, taskId TEXT NOT NULL, fromStatus TEXT NOT NULL,
+    toStatus TEXT NOT NULL, fromColumn TEXT NOT NULL, toColumn TEXT NOT NULL,
+    changedAt INTEGER NOT NULL,
+    FOREIGN KEY (taskId) REFERENCES tasks(id));
+CREATE TABLE IF NOT EXISTS task_comments (
+    id TEXT PRIMARY KEY, taskId TEXT NOT NULL, text TEXT NOT NULL,
+    createdAt INTEGER NOT NULL,
+    FOREIGN KEY (taskId) REFERENCES tasks(id));
+CREATE TABLE IF NOT EXISTS task_tags (
+    taskId TEXT NOT NULL, tag TEXT NOT NULL,
+    PRIMARY KEY (taskId, tag),
+    FOREIGN KEY (taskId) REFERENCES tasks(id));
 `;
 
 export class Database {
@@ -313,6 +326,9 @@ export class Database {
     deleteTask(id: string): void {
         if (!this.db) { return; }
         try {
+            this.run('DELETE FROM task_status_history WHERE taskId=?', [id]);
+            this.run('DELETE FROM task_comments WHERE taskId=?', [id]);
+            this.run('DELETE FROM task_tags WHERE taskId=?', [id]);
             this.run('DELETE FROM subtask_relations WHERE parentId=? OR childId=?', [id, id]);
             this.run('DELETE FROM task_dependencies WHERE taskId=? OR dependsOnTaskId=?', [id, id]);
             this.run('DELETE FROM tasks WHERE id=?', [id]);
@@ -388,7 +404,88 @@ export class Database {
         if (subs.length > 0) { t.subtaskIds = subs; }
         const deps = this.getDependsOnIds(t.id);
         if (deps.length > 0) { t.dependsOn = deps; }
+        const tags = this.getTags(t.id);
+        if (tags.length > 0) { t.tags = tags; }
+        const comments = this.getComments(t.id);
+        if (comments.length > 0) { t.comments = comments; }
+        const history = this.getStatusHistory(t.id);
+        if (history.length > 0) { t.statusHistory = history; }
         return t;
+    }
+
+    // ─── Task Status History ────────────────────────────────────────────────
+
+    addStatusHistory(entry: TaskStatusHistoryEntry): void {
+        if (!this.db) { return; }
+        try {
+            this.run(
+                `INSERT INTO task_status_history (id,taskId,fromStatus,toStatus,fromColumn,toColumn,changedAt)
+                 VALUES (?,?,?,?,?,?,?)`,
+                [entry.id, entry.taskId, entry.fromStatus, entry.toStatus,
+                 entry.fromColumn, entry.toColumn, entry.changedAt]
+            );
+            this.scheduleSave();
+        } catch (err) { console.error('[Database] addStatusHistory:', err); }
+    }
+
+    getStatusHistory(taskId: string): TaskStatusHistoryEntry[] {
+        return this.queryAll(
+            'SELECT * FROM task_status_history WHERE taskId=? ORDER BY changedAt ASC',
+            r => ({ id: r.id, taskId: r.taskId, fromStatus: r.fromStatus, toStatus: r.toStatus, fromColumn: r.fromColumn, toColumn: r.toColumn, changedAt: r.changedAt }),
+            [taskId]
+        );
+    }
+
+    // ─── Task Comments ───────────────────────────────────────────────────
+
+    addComment(comment: TaskComment): void {
+        if (!this.db) { return; }
+        try {
+            this.run(
+                `INSERT INTO task_comments (id,taskId,text,createdAt) VALUES (?,?,?,?)`,
+                [comment.id, comment.taskId, comment.text, comment.createdAt]
+            );
+            this.scheduleSave();
+        } catch (err) { console.error('[Database] addComment:', err); }
+    }
+
+    deleteComment(commentId: string): void {
+        if (!this.db) { return; }
+        try {
+            this.run('DELETE FROM task_comments WHERE id=?', [commentId]);
+            this.scheduleSave();
+        } catch (err) { console.error('[Database] deleteComment:', err); }
+    }
+
+    getComments(taskId: string): TaskComment[] {
+        return this.queryAll(
+            'SELECT * FROM task_comments WHERE taskId=? ORDER BY createdAt ASC',
+            r => ({ id: r.id, taskId: r.taskId, text: r.text, createdAt: r.createdAt }),
+            [taskId]
+        );
+    }
+
+    // ─── Task Tags ───────────────────────────────────────────────────────
+
+    saveTags(taskId: string, tags: string[]): void {
+        if (!this.db) { return; }
+        try {
+            this.run('DELETE FROM task_tags WHERE taskId=?', [taskId]);
+            if (tags.length > 0) {
+                const stmt = this.db.prepare('INSERT OR REPLACE INTO task_tags (taskId,tag) VALUES (?,?)');
+                for (const tag of tags) { stmt.run([taskId, tag]); }
+                stmt.free();
+            }
+            this.scheduleSave();
+        } catch (err) { console.error('[Database] saveTags:', err); }
+    }
+
+    getTags(taskId: string): string[] {
+        if (!this.db) { return []; }
+        try {
+            const res = this.db.exec('SELECT tag FROM task_tags WHERE taskId=?', [taskId]);
+            return res.length === 0 ? [] : res[0].values.map((v: any[]) => v[0] as string);
+        } catch { return []; }
     }
 
     // ─── Agents ─────────────────────────────────────────────────────────────

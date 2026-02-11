@@ -398,6 +398,31 @@ export interface OrchestratorTask {
     aiProvider?: AIProvider;
     /** AI model override for this task (uses swim lane → global fallback when unset) */
     aiModel?: string;
+    /** Status change history entries */
+    statusHistory?: TaskStatusHistoryEntry[];
+    /** Comments on this task */
+    comments?: TaskComment[];
+    /** Tags for categorization */
+    tags?: string[];
+}
+
+// ─── Task Metadata ──────────────────────────────────────────────────────
+
+export interface TaskStatusHistoryEntry {
+    id: string;
+    taskId: string;
+    fromStatus: string;
+    toStatus: string;
+    fromColumn: string;
+    toColumn: string;
+    changedAt: number;
+}
+
+export interface TaskComment {
+    id: string;
+    taskId: string;
+    text: string;
+    createdAt: number;
 }
 
 // ─── Favourite Folders ──────────────────────────────────────────────────────
