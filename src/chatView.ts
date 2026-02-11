@@ -1051,12 +1051,10 @@ body {
 }
 #send:hover { background: var(--vscode-button-hoverBackground); }
 #send:disabled { opacity: 0.5; cursor: default; }
-#stop {
-    padding: 4px 10px; border: none; border-radius: 3px; cursor: pointer;
+#send.stop-mode {
     background: var(--vscode-errorForeground, #f44); color: #fff;
-    font-size: 12px; flex-shrink: 0; display: none;
 }
-#stop:hover { opacity: 0.85; }
+#send.stop-mode:hover { opacity: 0.85; }
 #loading { display: none; padding: 8px; text-align: center; opacity: 0.7; font-size: 11px; }
 
 /* ── Voice Input ─────────────────────────────────────────────────────── */
@@ -1150,14 +1148,13 @@ body {
     </button>
     <input id="input" placeholder="Ask anything or type / for commands..." title="Type a message or / for slash commands" />
     <button id="send" title="Send message to AI">Send</button>
-    <button id="stop" title="Stop generation">Stop</button>
 </div>
 <script>
 var vscode = acquireVsCodeApi();
 var messagesEl = document.getElementById('messages');
 var inputEl = document.getElementById('input');
 var sendBtn = document.getElementById('send');
-var stopBtn = document.getElementById('stop');
+var isLoading = false;
 var importFileBtn = document.getElementById('import-file-btn');
 var importFolderBtn = document.getElementById('import-folder-btn');
 var loadingEl = document.getElementById('loading');
@@ -1398,9 +1395,6 @@ providerSelect.addEventListener('change', function() {
 clearBtn.addEventListener('click', function() {
     vscode.postMessage({ type: 'clearHistory' });
 });
-stopBtn.addEventListener('click', function() {
-    vscode.postMessage({ type: 'stop' });
-});
 
 /* ── Voice Input ───────────────────────────────────────────────────── */
 var voiceBtn = document.getElementById('voice-btn');
@@ -1417,7 +1411,13 @@ voiceBtn.addEventListener('click', function() {
     }
 });
 
-sendBtn.addEventListener('click', send);
+sendBtn.addEventListener('click', function() {
+    if (isLoading) {
+        vscode.postMessage({ type: 'stop' });
+    } else {
+        send();
+    }
+});
 
 inputEl.addEventListener('input', function() {
     var val = inputEl.value;
@@ -1470,8 +1470,17 @@ window.addEventListener('message', function(e) {
         var stepText = msg.step ? 'Thinking (Step ' + msg.step + ')...' : 'Thinking...';
         loadingEl.textContent = stepText;
         loadingEl.style.display = msg.loading ? 'block' : 'none';
-        sendBtn.style.display = msg.loading ? 'none' : '';
-        stopBtn.style.display = msg.loading ? 'inline-block' : 'none';
+        isLoading = msg.loading;
+        if (msg.loading) {
+            sendBtn.textContent = 'Stop';
+            sendBtn.title = 'Stop generation';
+            sendBtn.classList.add('stop-mode');
+            sendBtn.disabled = false;
+        } else {
+            sendBtn.textContent = 'Send';
+            sendBtn.title = 'Send message to AI';
+            sendBtn.classList.remove('stop-mode');
+        }
         inputEl.disabled = msg.loading;
         importFileBtn.disabled = msg.loading;
         importFolderBtn.disabled = msg.loading;
