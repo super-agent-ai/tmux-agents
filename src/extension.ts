@@ -77,6 +77,11 @@ console.warn = (...args: any[]) => { log('[WARN] ' + args.map(String).join(' '))
 console.error = (...args: any[]) => { log('[ERROR] ' + args.map(String).join(' ')); _origError(...args); };
 
 export function activate(context: vscode.ExtensionContext) {
+    // Prevent VS Code's SIGPIPE handler from crashing the extension host
+    // when a child process exits before we finish writing to its stdin.
+    process.removeAllListeners('SIGPIPE');
+    process.on('SIGPIPE', () => { /* intentionally ignored */ });
+
     log('Tmux Agents activating...');
     const serviceManager = new TmuxServiceManager();
     const tmuxSessionProvider = new TmuxSessionProvider(serviceManager, context.extensionPath);

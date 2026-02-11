@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
+import * as fs from 'fs';
 import { TmuxServiceManager } from '../serviceManager';
 import { TmuxSessionProvider } from '../treeProvider';
 import { SmartAttachmentService } from '../smartAttachment';
@@ -28,6 +29,11 @@ export interface KanbanHandlerContext {
     startTaskFlow: (task: OrchestratorTask, options?: { additionalInstructions?: string; askForContext?: boolean }) => Promise<void>;
     buildTaskWindowName: (task: OrchestratorTask) => string;
     cleanupInitWindow: (serverId: string, sessionName: string) => Promise<void>;
+}
+
+function safeCwd(dir?: string): string | undefined {
+    if (!dir) { return undefined; }
+    try { return fs.existsSync(dir) ? dir : undefined; } catch { return undefined; }
 }
 
 export async function handleKanbanMessage(
@@ -837,14 +843,12 @@ export async function handleKanbanMessage(
                 const summary = await new Promise<string>((resolve) => {
                     const prompt = `Summarize what was accomplished in this terminal session in 3-5 sentences. Focus on what was done, key changes made, and the outcome.\n\n${content.slice(-3000)}`;
                     const spawnCfg = ctx.aiManager.getSpawnConfig(ctx.aiManager.getDefaultProvider());
-                    const proc = cp.spawn(spawnCfg.command, spawnCfg.args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...spawnCfg.env }, cwd: spawnCfg.cwd, shell: spawnCfg.shell });
-                    let stdout = '';
-                    const timer = setTimeout(() => { proc.kill(); resolve(''); }, 20000);
-                    proc.stdout!.on('data', (d: Buffer) => { stdout += d.toString(); });
-                    proc.on('close', (code) => { clearTimeout(timer); resolve(code === 0 ? stdout.trim() : ''); });
-                    proc.on('error', () => { clearTimeout(timer); resolve(''); });
-                    proc.stdin!.write(prompt);
-                    proc.stdin!.end();
+                    const cmdStr = [spawnCfg.command, ...spawnCfg.args].join(' ');
+                    const proc = cp.exec(cmdStr, { env: { ...process.env, ...spawnCfg.env }, cwd: safeCwd(spawnCfg.cwd), maxBuffer: 10 * 1024 * 1024, timeout: 20000 }, (error, stdout) => {
+                        resolve(error ? '' : stdout.trim());
+                    });
+                    proc.stdin!.on('error', () => {});
+                    process.nextTick(() => { if (proc.stdin && proc.stdin.writable && !proc.killed) { proc.stdin.write(prompt); proc.stdin.end(); } });
                 });
                 if (summary) {
                     const separator = t.input ? '\n\n---\n' : '';
@@ -881,30 +885,15 @@ The "role" field should be one of: coder, reviewer, tester, devops, researcher, 
                     }
 
                     prompt += `\n\nUser's input: ${text}`;
-                    const proc = cp.spawn(spawnCfg.command, spawnCfg.args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...spawnCfg.env }, cwd: spawnCfg.cwd, shell: spawnCfg.shell });
-                    let stdout = '';
-                    let stderr = '';
-                    const timer = setTimeout(() => {
-                        proc.kill();
-                        console.warn(`[aiExpandTask] Timed out after 30s`);
-                        resolve('');
-                    }, 30000);
-                    proc.stdout!.on('data', (d: Buffer) => { stdout += d.toString(); });
-                    proc.stderr!.on('data', (d: Buffer) => { stderr += d.toString(); });
-                    proc.on('close', (code) => {
-                        clearTimeout(timer);
-                        if (code !== 0) {
-                            console.warn(`[aiExpandTask] Process exited with code ${code}. stderr: ${stderr.slice(0, 500)}`);
+                    const cmdStr2 = [spawnCfg.command, ...spawnCfg.args].join(' ');
+                    const proc = cp.exec(cmdStr2, { env: { ...process.env, ...spawnCfg.env }, cwd: safeCwd(spawnCfg.cwd), maxBuffer: 10 * 1024 * 1024, timeout: 30000 }, (error, stdout, stderr) => {
+                        if (error) {
+                            console.warn(`[aiExpandTask] Error: ${error.message}. stderr: ${(stderr || '').slice(0, 500)}`);
                         }
-                        resolve(code === 0 ? stdout.trim() : '');
+                        resolve(error ? '' : stdout.trim());
                     });
-                    proc.on('error', (err) => {
-                        clearTimeout(timer);
-                        console.error(`[aiExpandTask] Spawn error: ${err.message}`);
-                        resolve('');
-                    });
-                    proc.stdin!.write(prompt);
-                    proc.stdin!.end();
+                    proc.stdin!.on('error', () => {});
+                    process.nextTick(() => { if (proc.stdin && proc.stdin.writable && !proc.killed) { proc.stdin.write(prompt); proc.stdin.end(); } });
                 });
                 if (result) {
                     let json = result;
@@ -969,14 +958,12 @@ The "role" field should be one of: coder, reviewer, tester, devops, researcher, 
                                 summary = await new Promise<string>((resolve, reject) => {
                                     const prompt = `Summarize what is happening in this tmux session in 2-3 short lines. Focus on: what project/task, what tools/commands are running, current status.\n\n${combinedContent}`;
                                     const spawnCfg = ctx.aiManager.getSpawnConfig(ctx.aiManager.getDefaultProvider());
-                                    const proc = cp.spawn(spawnCfg.command, spawnCfg.args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...spawnCfg.env }, cwd: spawnCfg.cwd, shell: spawnCfg.shell });
-                                    let stdout = '';
-                                    const timer = setTimeout(() => { proc.kill(); resolve(''); }, 15000);
-                                    proc.stdout!.on('data', (d: Buffer) => { stdout += d.toString(); });
-                                    proc.on('close', (code) => { clearTimeout(timer); resolve(code === 0 ? stdout.trim() : ''); });
-                                    proc.on('error', () => { clearTimeout(timer); resolve(''); });
-                                    proc.stdin!.write(prompt);
-                                    proc.stdin!.end();
+                                    const cmdStr3 = [spawnCfg.command, ...spawnCfg.args].join(' ');
+                                    const proc = cp.exec(cmdStr3, { env: { ...process.env, ...spawnCfg.env }, cwd: safeCwd(spawnCfg.cwd), maxBuffer: 10 * 1024 * 1024, timeout: 15000 }, (error, stdout) => {
+                                        resolve(error ? '' : stdout.trim());
+                                    });
+                                    proc.stdin!.on('error', () => {});
+                                    process.nextTick(() => { if (proc.stdin && proc.stdin.writable && !proc.killed) { proc.stdin.write(prompt); proc.stdin.end(); } });
                                 });
                             } catch { /* summarization failed, not critical */ }
                         }

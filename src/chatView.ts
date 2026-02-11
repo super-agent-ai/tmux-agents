@@ -14,30 +14,24 @@ const readFile = util.promisify(fs.readFile);
 const fsStat = util.promisify(fs.stat);
 const readdir = util.promisify(fs.readdir);
 
-/** Run a command with stdin piped in (avoids shell escaping issues) */
-function spawnWithStdin(command: string, args: string[], input: string, timeoutMs: number = 60000, onSpawn?: (proc: cp.ChildProcess) => void, cwd?: string, shell: boolean = false): Promise<string> {
+/** Validate cwd exists; return undefined (process default) if not */
+function safeCwd(dir?: string): string | undefined {
+    if (!dir) { return undefined; }
+    try { return fs.existsSync(dir) ? dir : undefined; } catch { return undefined; }
+}
+
+/** Run a command with stdin piped in using cp.exec */
+function spawnWithStdin(command: string, args: string[], input: string, timeoutMs: number = 60000, onSpawn?: (proc: cp.ChildProcess) => void, cwd?: string): Promise<string> {
     return new Promise((resolve, reject) => {
-        const proc = cp.spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'], cwd, shell });
-        if (onSpawn) { onSpawn(proc); }
-        let stdout = '';
-        let stderr = '';
-        let timedOut = false;
-        const timer = setTimeout(() => {
-            timedOut = true;
-            proc.kill();
-            reject(new Error('Command timed out'));
-        }, timeoutMs);
-        proc.stdout!.on('data', (d: Buffer) => { stdout += d.toString(); });
-        proc.stderr!.on('data', (d: Buffer) => { stderr += d.toString(); });
-        proc.on('close', (code: number | null) => {
-            clearTimeout(timer);
-            if (timedOut) { return; }
-            if (code === 0) { resolve(stdout); }
-            else { reject(new Error(stderr || stdout || `Process exited with code ${code}`)); }
+        const cmdStr = [command, ...args].join(' ');
+        const proc = cp.exec(cmdStr, { cwd: safeCwd(cwd), maxBuffer: 10 * 1024 * 1024, timeout: timeoutMs }, (error, stdout, stderr) => {
+            if (error && error.killed) { reject(new Error('Command timed out')); return; }
+            if (error) { reject(new Error(stderr || stdout || error.message)); return; }
+            resolve(stdout);
         });
-        proc.on('error', (err: Error) => { clearTimeout(timer); reject(err); });
-        proc.stdin!.write(input);
-        proc.stdin!.end();
+        if (onSpawn) { onSpawn(proc); }
+        proc.stdin!.on('error', () => {});
+        if (proc.stdin!.writable) { proc.stdin!.write(input); proc.stdin!.end(); }
     });
 }
 
@@ -114,10 +108,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private attachedItems: AttachedItem[] = [];
     private selectedModel: string = 'opus';
     private conversationHistory: ConversationEntry[] = [];
-    private currentProc: cp.ChildProcess | null = null;
     private abortRequested: boolean = false;
     private voiceProc: cp.ChildProcess | null = null;
     private voiceTmpFile: string = '';
+
+    // ── Streaming CLI State ────────────────────────────────────────────
+    private selectedProvider: AIProvider = AIProvider.CLAUDE;
+    private currentProc: cp.ChildProcess | null = null;
 
     constructor(
         private readonly serviceManager: TmuxServiceManager,
@@ -125,7 +122,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         private readonly apiCatalog: ApiCatalog,
         private readonly contextDeps: ContextGatheringDeps,
         private readonly aiManager?: AIAssistantManager
-    ) {}
+    ) {
+        if (this.aiManager) {
+            this.selectedProvider = this.aiManager.getDefaultProvider();
+        }
+    }
 
     public setRefreshCallback(cb: () => void): void {
         this.refreshCallback = cb;
@@ -150,6 +151,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 this.postMessage({ type: 'clearMessages' });
             } else if (msg.type === 'setModel') {
                 this.selectedModel = msg.model;
+            } else if (msg.type === 'setProvider') {
+                this.selectedProvider = msg.provider as AIProvider;
+                const models = this.getProviderModels();
+                this.selectedModel = models[0].value;
+                this.postMessage({ type: 'updateModels', models, selected: this.selectedModel });
             } else if (msg.type === 'stop') {
                 this.abortRequested = true;
                 if (this.currentProc) {
@@ -614,6 +620,132 @@ except sr.RequestError as e:
             ? text.slice(0, MAX_FILE_CHARS) + `\n\n[... truncated]` : text;
     }
 
+    // ── Provider Models ────────────────────────────────────────────────────
+
+    private static readonly PROVIDER_MODELS: Record<string, { value: string; label: string }[]> = {
+        claude: [
+            { value: 'opus', label: 'Opus' },
+            { value: 'sonnet', label: 'Sonnet' },
+            { value: 'haiku', label: 'Haiku' },
+        ],
+        gemini: [
+            { value: '2.5-pro', label: '2.5 Pro' },
+            { value: '2.5-flash', label: '2.5 Flash' },
+        ],
+        codex: [
+            { value: 'o3', label: 'O3' },
+            { value: 'gpt-4o', label: 'GPT-4o' },
+            { value: 'o4-mini', label: 'O4 Mini' },
+        ],
+    };
+
+    private getProviderModels(): { value: string; label: string }[] {
+        return ChatViewProvider.PROVIDER_MODELS[this.selectedProvider]
+            || ChatViewProvider.PROVIDER_MODELS.claude;
+    }
+
+    // ── System Prompt ───────────────────────────────────────────────────────
+
+    private async buildSystemPrompt(): Promise<string> {
+        const context = await gatherFullExtensionContext(this.serviceManager, this.contextDeps);
+        const stateText = formatFullContextForPrompt(context);
+
+        return `You are an AI assistant for a tmux and agent orchestration system in VS Code (Tmux Agents extension). You can manage tmux sessions/windows/panes, spawn AI agents, create teams, run pipelines, and more.
+
+## Current System State
+${stateText}
+
+## Available Actions
+${this.apiCatalog.getCatalogText()}
+
+## Rules
+1. Briefly explain what you will do.
+2. To execute actions, output a JSON object inside a \`\`\`json code block:
+   { "actions": [{ "action": "<name>", "params": { ... } }], "next": "<executor>" }
+3. **"next" field is critical — get it right:**
+   - Use \`"next": "tool"\` (DEFAULT) — the system will execute your actions and return results so you can verify success, react to output, or continue with follow-up steps. **Always use "tool" when:**
+     - The action creates, modifies, or deletes something (tasks, sessions, windows, panes, agents, pipelines)
+     - The action has \`autoStart\`, \`autoPilot\`, or \`autoClose\` flags
+     - The action returns data you should report to the user
+     - You need to chain multiple actions or verify the result
+     - You are unsure — **when in doubt, always use "tool"**
+   - Use \`"next": "user"\` (RARE) — only when you are 100% finished with the user's entire request AND there is nothing to verify or follow up on. Typical case: a simple informational answer with no actions at all.
+4. For server-scoped actions, include a "server" param.
+5. NEVER output raw shell commands. Only use structured actions.
+6. Actions marked [returns data] will report output in tool results — use \`"next": "tool"\` to receive and relay this data to the user.`;
+    }
+
+    // ── Streaming CLI Spawn ─────────────────────────────────────────────────
+
+    private spawnStreaming(
+        prompt: string,
+        onChunk: (text: string) => void,
+        timeoutMs: number = 120_000,
+    ): Promise<string> {
+        return new Promise((resolve, reject) => {
+            const spawnCfg = this.aiManager
+                ? this.aiManager.getSpawnConfig(this.selectedProvider)
+                : { command: 'claude', args: ['--print', '-'], env: {}, cwd: undefined, shell: true };
+
+            const args = ['--model', this.selectedModel, ...spawnCfg.args];
+            const cmdStr = [spawnCfg.command, ...args].join(' ');
+            const execCwd = safeCwd(spawnCfg.cwd) || safeCwd(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath);
+
+            let fullOutput = '';
+            let timedOut = false;
+
+            const proc = cp.exec(cmdStr, {
+                env: { ...process.env, ...spawnCfg.env },
+                cwd: execCwd,
+                maxBuffer: 50 * 1024 * 1024,
+                timeout: timeoutMs,
+            });
+
+            this.currentProc = proc;
+
+            const timer = setTimeout(() => {
+                timedOut = true;
+                proc.kill();
+                reject(new Error('Command timed out'));
+            }, timeoutMs);
+
+            proc.stdout!.on('data', (chunk: Buffer | string) => {
+                const text = typeof chunk === 'string' ? chunk : chunk.toString();
+                fullOutput += text;
+                onChunk(text);
+            });
+
+            proc.on('close', (code: number | null) => {
+                clearTimeout(timer);
+                this.currentProc = null;
+                if (timedOut) { return; }
+                if (this.abortRequested) {
+                    reject(new Error('Stopped by user'));
+                } else if (code === 0) {
+                    resolve(fullOutput);
+                } else {
+                    reject(new Error(fullOutput || `Process exited with code ${code}`));
+                }
+            });
+
+            proc.on('error', (err: Error) => {
+                clearTimeout(timer);
+                this.currentProc = null;
+                reject(err);
+            });
+
+            // Defer stdin write — if the process fails to spawn (bad cwd, missing binary),
+            // writing immediately causes SIGPIPE which crashes VS Code's extension host.
+            proc.stdin!.on('error', () => {});
+            process.nextTick(() => {
+                if (proc.stdin && proc.stdin.writable && !proc.killed) {
+                    proc.stdin.write(prompt);
+                    proc.stdin.end();
+                }
+            });
+        });
+    }
+
     // ── Chat Message Handling ────────────────────────────────────────────────
 
     private async handleUserMessage(userText: string): Promise<void> {
@@ -626,94 +758,99 @@ except sr.RequestError as e:
         this.postMessage({ type: 'setLoading', loading: true });
         this.conversationHistory.push({ role: 'user', content: userText });
         this.abortRequested = false;
-        this.currentProc = null;
 
         try {
-            const fileContext = this.buildFileContext();
-            let step = 0;
-            let totalExecuted = 0;
-
-            while (step < MAX_AGENT_STEPS) {
-                if (this.abortRequested) { break; }
-                step++;
-
-                // Re-gather fresh state each iteration (state changes after tool execution)
-                const context = await gatherFullExtensionContext(this.serviceManager, this.contextDeps);
-                const stateText = formatFullContextForPrompt(context);
-
-                const isFirstStep = step === 1;
-                const currentTurn = isFirstStep
-                    ? userText
-                    : 'Continue: process the tool results above and proceed with the next step.';
-                const prompt = this.buildPrompt(stateText, currentTurn, isFirstStep ? fileContext : '');
-
-                this.postMessage({ type: 'setLoading', loading: true, step: step > 1 ? step : undefined });
-                const defaultProvider = this.aiManager?.getDefaultProvider() || AIProvider.CLAUDE;
-                const spawnCfg = this.aiManager?.getSpawnConfig(defaultProvider) || { command: 'claude', args: ['--print', '-'], env: {}, cwd: undefined, shell: false };
-                const chatArgs = [...spawnCfg.args.filter(a => a !== '-'), '--model', this.selectedModel, '-'];
-                const stdout = await spawnWithStdin(spawnCfg.command, chatArgs, prompt, 120000, (proc) => { this.currentProc = proc; }, spawnCfg.cwd, spawnCfg.shell);
-                this.currentProc = null;
-                if (this.abortRequested) { break; }
-                const response = stdout.trim();
-
-                // Strip the JSON block from displayed text
-                const displayResponse = response.replace(/```json\s*\n?[\s\S]*?```/g, '').trim();
-
-                // Parse structured response with next-executor control
-                const parsed: ParsedAIResponse = this.apiCatalog.parseResponse(response);
-                const { actions, next } = parsed;
-
-                // Display AI message with step label
-                const label = step > 1 ? `step-${step}` : undefined;
-                this.postMessage({ type: 'addMessage', role: 'assistant', text: displayResponse, label });
-                this.conversationHistory.push({ role: 'assistant', content: response });
-
-                // Execute actions if any
-                if (actions.length > 0) {
-                    const results = await this.apiCatalog.executeActions(actions);
-                    const resultLines: string[] = [];
-                    let executedCount = 0;
-                    for (let i = 0; i < results.length; i++) {
-                        const r = results[i];
-                        const actionName = actions[i]?.action || 'unknown';
-                        resultLines.push(`${r.success ? 'OK' : 'ERR'}: [${actionName}] ${r.message}`);
-                        if (r.success) { executedCount++; }
-                    }
-                    totalExecuted += executedCount;
-
-                    const toolText = resultLines.join('\n');
-                    this.postMessage({ type: 'addMessage', role: 'tool', text: toolText });
-                    this.conversationHistory.push({ role: 'tool', content: toolText });
-
-                    if (executedCount > 0 && this.refreshCallback) { this.refreshCallback(); }
-                }
-
-                // Decide whether to continue the loop
-                if (next === 'user' || (!actions.length && next !== 'assistant')) {
-                    break; // Done — wait for user
-                }
-                // next == "tool" or "assistant" → continue loop
-            }
-
-            if (this.abortRequested) {
-                this.postMessage({ type: 'addMessage', role: 'error', text: 'Stopped by user.' });
-            } else if (step >= MAX_AGENT_STEPS) {
-                this.postMessage({ type: 'addMessage', role: 'error', text: `Reached max steps (${MAX_AGENT_STEPS}). Stopping.` });
-            }
+            await this.runAgentLoop();
         } catch (e: any) {
             if (this.abortRequested) {
                 this.postMessage({ type: 'addMessage', role: 'error', text: 'Stopped by user.' });
             } else {
                 const errMsg = e.message?.includes('command not found')
-                    ? 'Claude CLI not found. Install with: npm install -g @anthropic-ai/claude-code'
+                    ? 'AI CLI not found. Install the appropriate CLI tool.'
                     : `Error: ${e.message?.split('\n')[0] || 'unknown error'}`;
                 this.postMessage({ type: 'addMessage', role: 'error', text: errMsg });
             }
         } finally {
-            this.currentProc = null;
             this.abortRequested = false;
+            this.currentProc = null;
             this.postMessage({ type: 'setLoading', loading: false });
         }
+    }
+
+    private async runAgentLoop(): Promise<void> {
+        for (let step = 0; step < MAX_AGENT_STEPS; step++) {
+            if (this.abortRequested) { break; }
+
+            const prompt = await this.buildPrompt();
+
+            this.postMessage({ type: 'streamStart' });
+            if (step > 0) {
+                this.postMessage({ type: 'setLoading', loading: true, step: step + 1 });
+            }
+
+            let output: string;
+            try {
+                output = await this.spawnStreaming(prompt, (chunk) => {
+                    this.postMessage({ type: 'streamChunk', text: chunk });
+                });
+            } catch (e) {
+                this.postMessage({ type: 'streamEnd' });
+                throw e;
+            }
+
+            this.postMessage({ type: 'streamEnd' });
+
+            if (!output.trim()) { break; }
+            this.conversationHistory.push({ role: 'assistant', content: output });
+
+            // Check for tool calls
+            const parsed = this.apiCatalog.parseResponse(output);
+            if (parsed.actions.length === 0 || parsed.next === 'user') {
+                break;
+            }
+
+            // Execute tool calls
+            this.postMessage({ type: 'addMessage', role: 'tool', text: `Executing ${parsed.actions.length} action(s)...` });
+            const results = await this.apiCatalog.executeActions(parsed.actions);
+
+            const resultLines: string[] = [];
+            let executedCount = 0;
+            for (let i = 0; i < results.length; i++) {
+                const r = results[i];
+                const actionName = parsed.actions[i]?.action || 'unknown';
+                resultLines.push(`${r.success ? 'OK' : 'ERR'}: [${actionName}] ${r.message}`);
+                if (r.success) { executedCount++; }
+            }
+
+            const toolText = resultLines.join('\n');
+            this.postMessage({ type: 'addMessage', role: 'tool', text: toolText });
+            this.conversationHistory.push({ role: 'tool', content: toolText });
+
+            if (executedCount > 0 && this.refreshCallback) { this.refreshCallback(); }
+        }
+    }
+
+    private async buildPrompt(): Promise<string> {
+        const systemPrompt = await this.buildSystemPrompt();
+        const parts = [systemPrompt];
+
+        const history = this.conversationHistory.slice(-30);
+        if (history.length > 0) {
+            parts.push('\n## Conversation');
+            for (const entry of history) {
+                const label = entry.role === 'user' ? 'User'
+                    : entry.role === 'assistant' ? 'Assistant'
+                    : 'Tool Results';
+                parts.push(`\n### ${label}\n${entry.content}`);
+            }
+        }
+
+        const fileContext = this.buildFileContext();
+        if (fileContext) {
+            parts.push(`\n## Attached Files/Folders\n${fileContext}`);
+        }
+
+        return parts.join('\n');
     }
 
     private buildFileContext(): string {
@@ -726,60 +863,7 @@ except sr.RequestError as e:
         return parts.join('\n\n');
     }
 
-    private buildPrompt(stateText: string, currentTurn: string, fileContext: string): string {
-        let prompt = `You are an AI assistant for a tmux and agent orchestration system in VS Code. You can manage tmux sessions/windows/panes, spawn AI agents, create teams, run pipelines, and more.
-You operate in a multi-step agentic loop. Each response you give controls what happens next.
-
-## Current System State
-${stateText}
-
-## Available Actions
-${this.apiCatalog.getCatalogText()}`;
-
-        if (fileContext) {
-            prompt += `
-## Attached Files/Folders
-${fileContext}`;
-        }
-
-        prompt += `
-
-## Rules
-1. Briefly explain what you will do in this step.
-2. Then output a JSON object inside a \`\`\`json code block with this shape:
-   { "actions": [{ "action": "<name>", "params": { ... } }], "next": "<executor>" }
-3. The "next" field controls who runs next:
-   - "tool" — execute the actions, then YOU (assistant) automatically continue to process results and decide next steps. USE THIS when you have more work to do after the current actions complete.
-   - "assistant" — no actions needed yet, but you want to continue reasoning in another turn.
-   - "user" — you are COMPLETELY done with the entire request. ONLY use this when ALL parts of the user's request are fulfilled.
-4. For server-scoped actions, include a "server" param matching a serverId from the state above.
-5. CRITICAL: NEVER output raw shell commands. Only use the structured actions listed above.
-6. IMPORTANT: For multi-step tasks, you MUST use "next": "tool" to continue. For example, if the user asks to "create a session with 2 windows", first create the session with "next": "tool", then in the next turn create the windows. NEVER set "next": "user" if there is still work remaining.
-7. If no actions are needed and the task is done, respond with text only and set "next": "user" (or omit the JSON block entirely).
-8. Actions marked [returns data] will report their output in the tool results you see next turn.
-9. Use the attached files/folders as context to understand what the user wants.
-10. When continuing after tool results, check the results for errors. If all succeeded, proceed with the next step. If some failed, explain what went wrong.`;
-
-        // Include conversation history for multi-turn context
-        if (this.conversationHistory.length > 0) {
-            prompt += '\n\n## Conversation History\n';
-            for (const entry of this.conversationHistory) {
-                if (entry.role === 'user') {
-                    prompt += `\nUser: ${entry.content}`;
-                } else if (entry.role === 'assistant') {
-                    prompt += `\nAssistant: ${entry.content}`;
-                } else if (entry.role === 'tool') {
-                    prompt += `\nTool Results:\n${entry.content}`;
-                }
-            }
-        }
-
-        prompt += `
-
-## Current Turn
-${currentTurn}`;
-        return prompt;
-    }
+    // ── Utilities ───────────────────────────────────────────────────────────
 
     private postMessage(msg: any): void {
         this.webviewView?.webview.postMessage(msg);
@@ -857,6 +941,33 @@ body {
 .tool-line.ok { color: var(--vscode-terminal-ansiGreen); }
 .tool-line.err { color: var(--vscode-errorForeground); }
 .tool-line .action-name { opacity: 0.7; }
+
+/* ── Markdown Rendering ─────────────────────────────────────────────── */
+.md-body { white-space: normal; }
+.md-body code.md-inline-code {
+    background: var(--vscode-textCodeBlock-background, rgba(255,255,255,0.06));
+    padding: 1px 4px; border-radius: 3px;
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 0.9em;
+}
+.md-body pre.md-codeblock {
+    background: var(--vscode-textCodeBlock-background, rgba(0,0,0,0.25));
+    padding: 8px 10px; border-radius: 4px; margin: 6px 0;
+    overflow-x: auto; white-space: pre;
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 11px; line-height: 1.4;
+}
+.md-body pre.md-codeblock code { background: none; padding: 0; }
+.md-body .md-h1 { font-size: 1.3em; font-weight: 700; margin: 8px 0 4px; }
+.md-body .md-h2 { font-size: 1.15em; font-weight: 700; margin: 6px 0 3px; }
+.md-body .md-h3 { font-size: 1.05em; font-weight: 600; margin: 4px 0 2px; }
+.md-body .md-li { padding-left: 14px; position: relative; margin: 1px 0; }
+.md-body .md-li::before { content: '\\2022'; position: absolute; left: 2px; opacity: 0.5; }
+.md-body .md-li:has(.md-li-num)::before { content: none; }
+.md-body .md-li-num { opacity: 0.6; font-size: 0.9em; }
+.md-body strong { font-weight: 700; }
+.md-body em { font-style: italic; }
+.md-body hr.md-hr { border: none; border-top: 1px solid var(--vscode-panel-border); margin: 6px 0; }
 
 /* ── Suggestion Dropdown ─────────────────────────────────────────────── */
 #suggestions {
@@ -953,11 +1064,33 @@ body {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.5; }
 }
+
+/* ── Provider & Session Status ───────────────────────────────────────── */
+#provider-select {
+    padding: 2px 4px; border: 1px solid var(--vscode-input-border);
+    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+    border-radius: 3px; font-size: 11px; outline: none; cursor: pointer;
+}
+#provider-select:focus { border-color: var(--vscode-focusBorder); }
+/* ── Streaming Message ───────────────────────────────────────────────── */
+.msg.streaming { border-left-color: var(--vscode-terminal-ansiCyan); }
+.msg.streaming .stream-body::after {
+    content: '\\25AE'; display: inline; animation: blink-cursor 0.7s steps(1) infinite;
+    color: var(--vscode-terminal-ansiCyan);
+}
+@keyframes blink-cursor {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0; }
+}
 </style>
 </head>
 <body>
 <div id="toolbar">
-    <span id="toolbar-label">Model:</span>
+    <select id="provider-select" title="Select AI provider">
+        <option value="claude" selected>Claude</option>
+        <option value="gemini">Gemini</option>
+        <option value="codex">Codex</option>
+    </select>
     <select id="model-select" title="Select AI model for chat responses">
         <option value="sonnet">Sonnet</option>
         <option value="opus" selected>Opus</option>
@@ -1017,7 +1150,9 @@ var importFolderBtn = document.getElementById('import-folder-btn');
 var loadingEl = document.getElementById('loading');
 var filesBar = document.getElementById('files-bar');
 var modelSelect = document.getElementById('model-select');
+var providerSelect = document.getElementById('provider-select');
 var clearBtn = document.getElementById('clear-btn');
+var streamingDiv = null;
 var suggestionsEl = document.getElementById('suggestions');
 var quickActionsEl = document.getElementById('quick-actions');
 var selectedSuggestion = -1;
@@ -1109,6 +1244,47 @@ function escapeHtml(s) {
     return d.innerHTML;
 }
 
+/** Lightweight markdown to HTML renderer */
+function renderMarkdown(text) {
+    var html = escapeHtml(text);
+
+    /* Code blocks: \`\`\`lang\\n...\\n\`\`\` */
+    html = html.replace(/\`\`\`(\\w*)\\n([\\s\\S]*?)\`\`\`/g, function(_, lang, code) {
+        return '<pre class="md-codeblock"><code class="lang-' + lang + '">' + code.replace(/\\n$/, '') + '</code></pre>';
+    });
+
+    /* Inline code */
+    html = html.replace(/\`([^\`\\n]+)\`/g, '<code class="md-inline-code">$1</code>');
+
+    /* Bold */
+    html = html.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>');
+
+    /* Italic */
+    html = html.replace(/(?<![*])\\*([^*\\n]+)\\*(?![*])/g, '<em>$1</em>');
+
+    /* Headers (h1–h3) — must be at start of line */
+    html = html.replace(/^### (.+)$/gm, '<div class="md-h3">$1</div>');
+    html = html.replace(/^## (.+)$/gm, '<div class="md-h2">$1</div>');
+    html = html.replace(/^# (.+)$/gm, '<div class="md-h1">$1</div>');
+
+    /* Unordered lists */
+    html = html.replace(/^[\\-\\*] (.+)$/gm, '<div class="md-li">$1</div>');
+
+    /* Ordered lists */
+    html = html.replace(/^(\\d+)\\. (.+)$/gm, '<div class="md-li"><span class="md-li-num">$1.</span> $2</div>');
+
+    /* Horizontal rule */
+    html = html.replace(/^---$/gm, '<hr class="md-hr">');
+
+    /* Line breaks: preserve newlines outside of pre blocks */
+    html = html.replace(/\\n/g, '<br>');
+    /* Clean up extra <br> around block elements */
+    html = html.replace(/<br>(<pre|<div class="md-h|<hr)/g, '$1');
+    html = html.replace(/(<\\/pre>|<\\/div>)<br>/g, '$1');
+
+    return html;
+}
+
 filesBar.addEventListener('click', function(e) {
     var remove = e.target.closest('.remove');
     if (remove) {
@@ -1158,6 +1334,11 @@ function addMessage(role, text, label) {
             body.appendChild(lineEl);
         });
         div.appendChild(body);
+    } else if (role === 'assistant') {
+        var body = document.createElement('div');
+        body.className = 'md-body';
+        body.innerHTML = renderMarkdown(text);
+        div.appendChild(body);
     } else {
         var body = document.createElement('div');
         body.textContent = text;
@@ -1197,6 +1378,9 @@ importFolderBtn.addEventListener('click', function() {
 });
 modelSelect.addEventListener('change', function() {
     vscode.postMessage({ type: 'setModel', model: modelSelect.value });
+});
+providerSelect.addEventListener('change', function() {
+    vscode.postMessage({ type: 'setProvider', provider: providerSelect.value });
 });
 clearBtn.addEventListener('click', function() {
     vscode.postMessage({ type: 'clearHistory' });
@@ -1309,6 +1493,48 @@ window.addEventListener('message', function(e) {
         voiceBtn.title = 'Voice input (click to record)';
         inputEl.placeholder = 'Ask anything or type / for commands...';
         addMessage('error', msg.text);
+    } else if (msg.type === 'streamStart') {
+        /* Create a streaming message div */
+        streamingDiv = document.createElement('div');
+        streamingDiv.className = 'msg assistant streaming';
+        var lbl = document.createElement('div');
+        lbl.className = 'msg-label';
+        lbl.textContent = 'AI';
+        streamingDiv.appendChild(lbl);
+        var body = document.createElement('div');
+        body.className = 'stream-body';
+        streamingDiv.appendChild(body);
+        messagesEl.appendChild(streamingDiv);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+    } else if (msg.type === 'streamChunk') {
+        if (streamingDiv) {
+            var body = streamingDiv.querySelector('.stream-body');
+            if (body) {
+                body.textContent += msg.text;
+                messagesEl.scrollTop = messagesEl.scrollHeight;
+            }
+        }
+    } else if (msg.type === 'streamEnd') {
+        if (streamingDiv) {
+            streamingDiv.classList.remove('streaming');
+            /* Re-render the accumulated text as formatted markdown */
+            var body = streamingDiv.querySelector('.stream-body');
+            if (body) {
+                var rawText = body.textContent || '';
+                body.innerHTML = renderMarkdown(rawText);
+                body.classList.add('md-body');
+            }
+            streamingDiv = null;
+        }
+    } else if (msg.type === 'updateModels') {
+        modelSelect.innerHTML = '';
+        msg.models.forEach(function(m) {
+            var opt = document.createElement('option');
+            opt.value = m.value;
+            opt.textContent = m.label;
+            if (msg.selected && m.value === msg.selected) { opt.selected = true; }
+            modelSelect.appendChild(opt);
+        });
     }
 });
 </script>
