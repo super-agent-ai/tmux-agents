@@ -942,6 +942,33 @@ body {
 .tool-line.err { color: var(--vscode-errorForeground); }
 .tool-line .action-name { opacity: 0.7; }
 
+/* ── Markdown Rendering ─────────────────────────────────────────────── */
+.md-body { white-space: normal; }
+.md-body code.md-inline-code {
+    background: var(--vscode-textCodeBlock-background, rgba(255,255,255,0.06));
+    padding: 1px 4px; border-radius: 3px;
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 0.9em;
+}
+.md-body pre.md-codeblock {
+    background: var(--vscode-textCodeBlock-background, rgba(0,0,0,0.25));
+    padding: 8px 10px; border-radius: 4px; margin: 6px 0;
+    overflow-x: auto; white-space: pre;
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 11px; line-height: 1.4;
+}
+.md-body pre.md-codeblock code { background: none; padding: 0; }
+.md-body .md-h1 { font-size: 1.3em; font-weight: 700; margin: 8px 0 4px; }
+.md-body .md-h2 { font-size: 1.15em; font-weight: 700; margin: 6px 0 3px; }
+.md-body .md-h3 { font-size: 1.05em; font-weight: 600; margin: 4px 0 2px; }
+.md-body .md-li { padding-left: 14px; position: relative; margin: 1px 0; }
+.md-body .md-li::before { content: '\\2022'; position: absolute; left: 2px; opacity: 0.5; }
+.md-body .md-li:has(.md-li-num)::before { content: none; }
+.md-body .md-li-num { opacity: 0.6; font-size: 0.9em; }
+.md-body strong { font-weight: 700; }
+.md-body em { font-style: italic; }
+.md-body hr.md-hr { border: none; border-top: 1px solid var(--vscode-panel-border); margin: 6px 0; }
+
 /* ── Suggestion Dropdown ─────────────────────────────────────────────── */
 #suggestions {
     display: none; position: absolute; bottom: 100%; left: 0; right: 0;
@@ -1217,6 +1244,47 @@ function escapeHtml(s) {
     return d.innerHTML;
 }
 
+/** Lightweight markdown to HTML renderer */
+function renderMarkdown(text) {
+    var html = escapeHtml(text);
+
+    /* Code blocks: \`\`\`lang\\n...\\n\`\`\` */
+    html = html.replace(/\`\`\`(\\w*)\\n([\\s\\S]*?)\`\`\`/g, function(_, lang, code) {
+        return '<pre class="md-codeblock"><code class="lang-' + lang + '">' + code.replace(/\\n$/, '') + '</code></pre>';
+    });
+
+    /* Inline code */
+    html = html.replace(/\`([^\`\\n]+)\`/g, '<code class="md-inline-code">$1</code>');
+
+    /* Bold */
+    html = html.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>');
+
+    /* Italic */
+    html = html.replace(/(?<![*])\\*([^*\\n]+)\\*(?![*])/g, '<em>$1</em>');
+
+    /* Headers (h1–h3) — must be at start of line */
+    html = html.replace(/^### (.+)$/gm, '<div class="md-h3">$1</div>');
+    html = html.replace(/^## (.+)$/gm, '<div class="md-h2">$1</div>');
+    html = html.replace(/^# (.+)$/gm, '<div class="md-h1">$1</div>');
+
+    /* Unordered lists */
+    html = html.replace(/^[\\-\\*] (.+)$/gm, '<div class="md-li">$1</div>');
+
+    /* Ordered lists */
+    html = html.replace(/^(\\d+)\\. (.+)$/gm, '<div class="md-li"><span class="md-li-num">$1.</span> $2</div>');
+
+    /* Horizontal rule */
+    html = html.replace(/^---$/gm, '<hr class="md-hr">');
+
+    /* Line breaks: preserve newlines outside of pre blocks */
+    html = html.replace(/\\n/g, '<br>');
+    /* Clean up extra <br> around block elements */
+    html = html.replace(/<br>(<pre|<div class="md-h|<hr)/g, '$1');
+    html = html.replace(/(<\\/pre>|<\\/div>)<br>/g, '$1');
+
+    return html;
+}
+
 filesBar.addEventListener('click', function(e) {
     var remove = e.target.closest('.remove');
     if (remove) {
@@ -1265,6 +1333,11 @@ function addMessage(role, text, label) {
             }
             body.appendChild(lineEl);
         });
+        div.appendChild(body);
+    } else if (role === 'assistant') {
+        var body = document.createElement('div');
+        body.className = 'md-body';
+        body.innerHTML = renderMarkdown(text);
         div.appendChild(body);
     } else {
         var body = document.createElement('div');
@@ -1444,6 +1517,13 @@ window.addEventListener('message', function(e) {
     } else if (msg.type === 'streamEnd') {
         if (streamingDiv) {
             streamingDiv.classList.remove('streaming');
+            /* Re-render the accumulated text as formatted markdown */
+            var body = streamingDiv.querySelector('.stream-body');
+            if (body) {
+                var rawText = body.textContent || '';
+                body.innerHTML = renderMarkdown(rawText);
+                body.classList.add('md-body');
+            }
             streamingDiv = null;
         }
     } else if (msg.type === 'updateModels') {
