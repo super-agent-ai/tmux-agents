@@ -58,7 +58,8 @@ function buildTaskWindowName(task: OrchestratorTask): string {
         .toLowerCase().replace(/[^a-z0-9\-]/g, '').slice(0, 20);
     const shortId = task.id.slice(0, 15);
     const uuid = Math.random().toString(36).slice(2, 8);
-    const name = `${words}-${shortId}-${uuid}-task`;
+    const parts = [words, shortId, uuid].filter(Boolean);
+    const name = parts.join('-') + '-task';
     return name.slice(0, 60);
 }
 

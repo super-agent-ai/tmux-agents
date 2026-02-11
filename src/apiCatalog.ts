@@ -1781,7 +1781,7 @@ export class ApiCatalog {
             returnsData: true,
             execute: async (p) => {
                 const laneId = 'lane-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
-                const sessionName = (p.name || 'lane').toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 30) + '-kanban';
+                const sessionName = (p.name || 'lane').toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 30) + '-lane';
                 const lane: KanbanSwimLane = {
                     id: laneId, name: p.name, serverId: p.server,
                     workingDirectory: p.workingDirectory || '~/',
