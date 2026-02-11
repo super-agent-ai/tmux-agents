@@ -10,7 +10,10 @@ const execAsync = util.promisify(cp.exec);
 
 function spawnWithStdin(command: string, args: string[], input: string, timeoutMs: number = 30000): Promise<string> {
     return new Promise((resolve, reject) => {
-        const proc = cp.spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+        const userShell = process.env.SHELL || '/bin/zsh';
+        const cmdParts = [command, ...args];
+        const fullCmd = cmdParts.map(a => `'${a.replace(/'/g, "'\\''")}'`).join(' ');
+        const proc = cp.spawn(userShell, ['-l', '-c', fullCmd], { stdio: ['pipe', 'pipe', 'pipe'] });
         let stdout = '';
         let stderr = '';
         let timedOut = false;
