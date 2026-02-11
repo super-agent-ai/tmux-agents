@@ -45,6 +45,14 @@ export class AIAssistantManager {
     }
 
     /**
+     * Resolve the effective model for a given context.
+     * Priority: task model > lane model > undefined (CLI default).
+     */
+    resolveModel(taskModel?: string, laneModel?: string): string | undefined {
+        return taskModel || laneModel || undefined;
+    }
+
+    /**
      * Read provider config from VS Code settings.
      */
     private normalizeArgs(raw: unknown): string[] {
@@ -99,6 +107,21 @@ export class AIAssistantManager {
         }
         if (base === 'cursor-agent' || base === 'cursor') {
             return AIProvider.CURSOR;
+        }
+        if (base === 'copilot' || base === 'github-copilot') {
+            return AIProvider.COPILOT;
+        }
+        if (base === 'aider') {
+            return AIProvider.AIDER;
+        }
+        if (base === 'amp' || base === 'ampcode') {
+            return AIProvider.AMP;
+        }
+        if (base === 'cline') {
+            return AIProvider.CLINE;
+        }
+        if (base === 'kiro-cli' || base === 'kiro') {
+            return AIProvider.KIRO;
         }
 
         return null;
@@ -205,8 +228,10 @@ export class AIAssistantManager {
         const envPrefix = this.buildEnvPrefix(config.env);
         const args = config.args.filter(a => a !== '--print' && a !== '-');
         if (model) {
-            if (provider === AIProvider.OPENCODE) {
+            if (provider === AIProvider.OPENCODE || provider === AIProvider.CLINE) {
                 args.push('-m', model);
+            } else if (provider === AIProvider.AMP || provider === AIProvider.KIRO) {
+                // amp uses agent modes, kiro uses settings-based model selection
             } else {
                 args.push('--model', model);
             }
@@ -248,6 +273,41 @@ export class AIAssistantManager {
         if (provider === AIProvider.CURSOR) {
             const args: string[] = ['--print', '--output-format', 'text'];
             if (model) { args.push('--model', model); }
+            return { command: config.pipeCommand, args, env: config.env, cwd, shell };
+        }
+
+        if (provider === AIProvider.COPILOT) {
+            const args: string[] = ['-p', '-s'];
+            if (model) { args.push('--model', model); }
+            return { command: config.pipeCommand, args, env: config.env, cwd, shell };
+        }
+
+        if (provider === AIProvider.AIDER) {
+            // aider uses --message "prompt" (not stdin), --model for model, --yes to auto-confirm
+            const args: string[] = ['--yes'];
+            if (model) { args.push('--model', model); }
+            // --message flag + prompt are added by spawnStreaming
+            return { command: config.pipeCommand, args, env: config.env, cwd, shell };
+        }
+
+        if (provider === AIProvider.AMP) {
+            // amp uses -x "prompt" for non-interactive execute mode
+            const args: string[] = [];
+            // amp uses agent modes (smart/rush/deep) not --model; no model flag
+            return { command: config.pipeCommand, args, env: config.env, cwd, shell };
+        }
+
+        if (provider === AIProvider.CLINE) {
+            // cline uses -y for auto-approve (headless), prompt as positional arg
+            const args: string[] = ['-y'];
+            if (model) { args.push('-m', model); }
+            return { command: config.pipeCommand, args, env: config.env, cwd, shell };
+        }
+
+        if (provider === AIProvider.KIRO) {
+            // kiro-cli uses chat subcommand, --no-interactive for single response, --trust-all-tools
+            const args: string[] = ['chat', '--no-interactive', '--trust-all-tools'];
+            // model is set via kiro-cli settings, no --model flag
             return { command: config.pipeCommand, args, env: config.env, cwd, shell };
         }
 

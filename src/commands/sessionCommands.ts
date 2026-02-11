@@ -573,7 +573,12 @@ export function registerSessionCommands(
                 { label: 'Gemini', provider: AIProvider.GEMINI },
                 { label: 'Codex', provider: AIProvider.CODEX },
                 { label: 'OpenCode', provider: AIProvider.OPENCODE },
-                { label: 'Cursor', provider: AIProvider.CURSOR }
+                { label: 'Cursor', provider: AIProvider.CURSOR },
+                { label: 'Copilot', provider: AIProvider.COPILOT },
+                { label: 'Aider', provider: AIProvider.AIDER },
+                { label: 'Amp', provider: AIProvider.AMP },
+                { label: 'Cline', provider: AIProvider.CLINE },
+                { label: 'Kiro', provider: AIProvider.KIRO }
             ],
             { placeHolder: 'Select AI provider' }
         );
@@ -619,7 +624,12 @@ export function registerSessionCommands(
                 { label: 'Gemini', provider: AIProvider.GEMINI },
                 { label: 'Codex', provider: AIProvider.CODEX },
                 { label: 'OpenCode', provider: AIProvider.OPENCODE },
-                { label: 'Cursor', provider: AIProvider.CURSOR }
+                { label: 'Cursor', provider: AIProvider.CURSOR },
+                { label: 'Copilot', provider: AIProvider.COPILOT },
+                { label: 'Aider', provider: AIProvider.AIDER },
+                { label: 'Amp', provider: AIProvider.AMP },
+                { label: 'Cline', provider: AIProvider.CLINE },
+                { label: 'Kiro', provider: AIProvider.KIRO }
             ],
             { placeHolder: 'Select AI provider' }
         );
@@ -674,7 +684,8 @@ export function registerSessionCommands(
                     { label: 'Gemini', provider: AIProvider.GEMINI },
                     { label: 'Codex', provider: AIProvider.CODEX },
                     { label: 'OpenCode', provider: AIProvider.OPENCODE },
-                    { label: 'Cursor', provider: AIProvider.CURSOR }
+                    { label: 'Cursor', provider: AIProvider.CURSOR },
+                    { label: 'Copilot', provider: AIProvider.COPILOT }
                 ],
                 { placeHolder: 'Select AI provider for fork' }
             );
@@ -867,6 +878,11 @@ async function createAISessionCommand(
         : provider === AIProvider.GEMINI ? 'gemini'
         : provider === AIProvider.OPENCODE ? 'opencode'
         : provider === AIProvider.CURSOR ? 'cursor'
+        : provider === AIProvider.COPILOT ? 'copilot'
+        : provider === AIProvider.AIDER ? 'aider'
+        : provider === AIProvider.AMP ? 'amp'
+        : provider === AIProvider.CLINE ? 'cline'
+        : provider === AIProvider.KIRO ? 'kiro'
         : 'codex';
 
     let nextId = 0;

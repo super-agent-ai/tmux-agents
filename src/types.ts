@@ -61,7 +61,12 @@ export enum AIProvider {
     GEMINI = 'gemini',
     CODEX = 'codex',
     OPENCODE = 'opencode',
-    CURSOR = 'cursor'
+    CURSOR = 'cursor',
+    COPILOT = 'copilot',
+    AIDER = 'aider',
+    AMP = 'amp',
+    CLINE = 'cline',
+    KIRO = 'kiro'
 }
 
 export enum AIStatus {
@@ -387,6 +392,10 @@ export interface OrchestratorTask {
     autoPilot?: boolean;
     /** Auto-close: when done, close tmux session and move to done */
     autoClose?: boolean;
+    /** AI provider override for this task (uses swim lane → global fallback when unset) */
+    aiProvider?: AIProvider;
+    /** AI model override for this task (uses swim lane → global fallback when unset) */
+    aiModel?: string;
 }
 
 // ─── Favourite Folders ──────────────────────────────────────────────────────
@@ -413,6 +422,8 @@ export interface KanbanSwimLane {
     contextInstructions?: string;
     /** AI provider override for this lane (uses default setting when unset) */
     aiProvider?: AIProvider;
+    /** AI model default for this lane (uses CLI default when unset) */
+    aiModel?: string;
 }
 
 // ─── Pipeline Engine ─────────────────────────────────────────────────────────

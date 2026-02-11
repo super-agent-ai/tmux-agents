@@ -1820,6 +1820,8 @@ export class ApiCatalog {
                 { name: 'autoStart', type: 'boolean', required: false, description: 'Auto-start: automatically launch implementation (default false)' },
                 { name: 'autoPilot', type: 'boolean', required: false, description: 'Auto-pilot: automatically answer questions (default false)' },
                 { name: 'autoClose', type: 'boolean', required: false, description: 'Auto-close: close tmux and move to done when finished (default false)' },
+                { name: 'aiProvider', type: 'string', required: false, description: 'AI provider override (default: use swim lane or global default)', enum: ['claude','gemini','codex','opencode','cursor','copilot','aider','amp','cline','kiro'] },
+                { name: 'aiModel', type: 'string', required: false, description: 'AI model override (default: use swim lane or global default)' },
             ],
             returnsData: true,
             execute: async (p) => {
@@ -1835,6 +1837,8 @@ export class ApiCatalog {
                     autoStart: !!p.autoStart,
                     autoPilot: !!p.autoPilot,
                     autoClose: !!p.autoClose,
+                    aiProvider: p.aiProvider || undefined,
+                    aiModel: p.aiModel || undefined,
                 };
                 d.orchestrator.submitTask(task);
                 d.saveTask?.(task);
