@@ -795,31 +795,35 @@ except sr.RequestError as e:
 
     private static readonly PROVIDER_MODELS: Record<string, { value: string; label: string }[]> = {
         claude: [
-            { value: 'opus', label: 'Opus' },
-            { value: 'sonnet', label: 'Sonnet' },
-            { value: 'haiku', label: 'Haiku' },
+            { value: 'opus', label: 'Opus 4.6' },
+            { value: 'sonnet', label: 'Sonnet 4.5' },
+            { value: 'haiku', label: 'Haiku 4.5' },
+            { value: 'opusplan', label: 'Opus Plan' },
         ],
         gemini: [
-            { value: '2.5-pro', label: '2.5 Pro' },
-            { value: '2.5-flash', label: '2.5 Flash' },
+            { value: 'gemini-3-pro-preview', label: '3 Pro' },
+            { value: 'gemini-3-flash-preview', label: '3 Flash' },
+            { value: 'gemini-2.5-pro', label: '2.5 Pro' },
+            { value: 'gemini-2.5-flash', label: '2.5 Flash' },
         ],
         codex: [
-            { value: 'o3', label: 'O3' },
-            { value: 'gpt-4o', label: 'GPT-4o' },
-            { value: 'o4-mini', label: 'O4 Mini' },
+            { value: 'gpt-5.3-codex', label: 'GPT-5.3 Codex' },
+            { value: 'gpt-5.2-codex', label: 'GPT-5.2 Codex' },
+            { value: 'gpt-5.1-codex-mini', label: 'GPT-5.1 Mini' },
+            { value: 'gpt-5.2', label: 'GPT-5.2' },
         ],
         opencode: [
-            { value: 'anthropic/claude-sonnet-4-5-20250929', label: 'Claude Sonnet' },
-            { value: 'anthropic/claude-opus-4-6', label: 'Claude Opus' },
-            { value: 'openai/gpt-4o', label: 'GPT-4o' },
+            { value: 'anthropic/claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5' },
+            { value: 'anthropic/claude-opus-4-6', label: 'Claude Opus 4.6' },
+            { value: 'openai/gpt-5.2', label: 'GPT-5.2' },
             { value: 'google/gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
         ],
         cursor: [
-            { value: 'sonnet-4', label: 'Sonnet 4' },
-            { value: 'opus-4.1', label: 'Opus 4.1' },
-            { value: 'gpt-5', label: 'GPT-5' },
-            { value: 'grok', label: 'Grok' },
             { value: 'auto', label: 'Auto' },
+            { value: 'sonnet-4', label: 'Claude Sonnet 4' },
+            { value: 'opus-4.1', label: 'Claude Opus 4.1' },
+            { value: 'gpt-5', label: 'GPT-5' },
+            { value: 'composer', label: 'Composer' },
         ],
     };
 
