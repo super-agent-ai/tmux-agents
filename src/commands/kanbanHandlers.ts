@@ -36,6 +36,23 @@ function safeCwd(dir?: string): string | undefined {
     try { return fs.existsSync(dir) ? dir : undefined; } catch { return undefined; }
 }
 
+export async function triggerDependents(ctx: KanbanHandlerContext, completedTaskId: string): Promise<void> {
+    const allTasks = ctx.orchestrator.getTaskQueue();
+    for (const task of allTasks) {
+        if (!task.dependsOn || !task.dependsOn.includes(completedTaskId)) { continue; }
+        const allMet = task.dependsOn.every(depId => {
+            const dep = ctx.orchestrator.getTask(depId);
+            return dep && dep.status === TaskStatus.COMPLETED;
+        });
+        if (allMet && task.autoStart && (task.kanbanColumn === 'todo' || task.kanbanColumn === 'backlog') && task.swimLaneId) {
+            task.kanbanColumn = 'todo';
+            ctx.database.saveTask(task);
+            await ctx.startTaskFlow(task);
+        }
+    }
+    ctx.updateKanban();
+}
+
 export async function handleKanbanMessage(
     action: string,
     payload: any,
@@ -307,9 +324,26 @@ export async function handleKanbanMessage(
             if (payload.autoStart) { task.autoStart = true; }
             if (payload.autoPilot) { task.autoPilot = true; }
             if (payload.autoClose) { task.autoClose = true; }
+            if (payload.dependsOn && payload.dependsOn.length > 0) { task.dependsOn = payload.dependsOn; }
             ctx.orchestrator.submitTask(task);
             ctx.database.saveTask(task);
-            if (task.autoStart && task.kanbanColumn === 'todo' && task.swimLaneId) {
+            // Auto-cascade: when autoStart + dependencies, force deps to auto-start/pilot/close
+            if (task.autoStart && task.dependsOn && task.dependsOn.length > 0) {
+                for (const depId of task.dependsOn) {
+                    const dep = ctx.orchestrator.getTask(depId);
+                    if (dep) {
+                        dep.autoStart = true;
+                        dep.autoPilot = true;
+                        dep.autoClose = true;
+                        ctx.database.saveTask(dep);
+                        // Start dependency if it's ready to go
+                        if ((dep.kanbanColumn === 'todo' || dep.kanbanColumn === 'backlog') && dep.swimLaneId) {
+                            await ctx.startTaskFlow(dep);
+                        }
+                    }
+                }
+                // Don't start the task itself — it waits for dependencies
+            } else if (task.autoStart && task.kanbanColumn === 'todo' && task.swimLaneId) {
                 await ctx.startTaskFlow(task);
             } else if (task.swimLaneId) {
                 // Auto-create session and window for the task even without autoStart
@@ -353,6 +387,8 @@ export async function handleKanbanMessage(
                 if (payload.kanbanColumn === 'done') {
                     t.status = TaskStatus.COMPLETED;
                     t.completedAt = Date.now();
+                    ctx.database.saveTask(t);
+                    await triggerDependents(ctx, t.id);
                 }
                 if (payload.kanbanColumn === 'in_progress' && t.swimLaneId) {
                     const lane = ctx.swimLanes.find(l => l.id === t.swimLaneId);
@@ -395,6 +431,7 @@ export async function handleKanbanMessage(
                 if (payload.updates.autoClose !== undefined) t.autoClose = !!payload.updates.autoClose;
                 if (payload.updates.aiProvider !== undefined) t.aiProvider = payload.updates.aiProvider || undefined;
                 if (payload.updates.aiModel !== undefined) t.aiModel = payload.updates.aiModel || undefined;
+                if (payload.updates.dependsOn !== undefined) t.dependsOn = payload.updates.dependsOn;
             }
             if (t) { ctx.database.saveTask(t); }
             ctx.updateKanban();

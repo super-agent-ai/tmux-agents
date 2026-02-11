@@ -379,6 +379,8 @@ export interface OrchestratorTask {
     parentTaskId?: string;
     /** Child subtask IDs */
     subtaskIds?: string[];
+    /** Task IDs this task depends on (must complete before this task starts) */
+    dependsOn?: string[];
     /** Whether verification is pending for this parent task */
     verificationStatus?: 'none' | 'pending' | 'passed' | 'failed';
     /** Tmux window info for attaching to running tasks */

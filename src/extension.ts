@@ -17,7 +17,7 @@ import { GraphViewProvider } from './graphView';
 import { KanbanViewProvider } from './kanbanView';
 import { Database } from './database';
 import { AIProvider, AgentRole, TaskStatus, OrchestratorTask, KanbanSwimLane, FavouriteFolder, StageType } from './types';
-import { handleKanbanMessage } from './commands/kanbanHandlers';
+import { handleKanbanMessage, triggerDependents } from './commands/kanbanHandlers';
 import { registerSessionCommands } from './commands/sessionCommands';
 import { registerAgentCommands } from './commands/agentCommands';
 import { checkAutoCompletions, checkAutoPilot } from './autoMonitor';
@@ -58,7 +58,7 @@ function buildTaskWindowName(task: OrchestratorTask): string {
         .toLowerCase().replace(/[^a-z0-9\-]/g, '').slice(0, 20);
     const shortId = task.id.slice(0, 15);
     const uuid = Math.random().toString(36).slice(2, 8);
-    const name = `${words}-${shortId}-${uuid}`;
+    const name = `${words}-${shortId}-${uuid}-task`;
     return name.slice(0, 60);
 }
 
@@ -298,6 +298,8 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
                 }
             }
         }
+        // Trigger dependents for the completed task
+        await triggerDependentsInline(task.id);
         if (task.pipelineStageId) {
             for (const run of pipelineEngine.getActiveRuns()) {
                 const pipeline = pipelineEngine.getPipeline(run.pipelineId);
@@ -601,6 +603,22 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
         kanbanView.updateState(orchestrator.getTaskQueue(), swimLanes, servers, favouriteFolders);
     }
 
+    async function triggerDependentsInline(completedTaskId: string): Promise<void> {
+        const allTasks = orchestrator.getTaskQueue();
+        for (const t of allTasks) {
+            if (!t.dependsOn || !t.dependsOn.includes(completedTaskId)) { continue; }
+            const allMet = t.dependsOn.every(depId => {
+                const dep = orchestrator.getTask(depId);
+                return dep && dep.status === TaskStatus.COMPLETED;
+            });
+            if (allMet && t.autoStart && (t.kanbanColumn === 'todo' || t.kanbanColumn === 'backlog') && t.swimLaneId) {
+                t.kanbanColumn = 'todo';
+                database.saveTask(t);
+                await startTaskFlow(t);
+            }
+        }
+    }
+
     // ── Auto-Close / Auto-Pilot Monitor ──────────────────────────────────────
     const autoMonitorCtx = {
         serviceManager,
@@ -609,6 +627,8 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
         database,
         updateKanban,
         updateDashboard,
+        startTaskFlow,
+        swimLanes,
     };
 
     const autoMonitorTimer = setInterval(async () => {

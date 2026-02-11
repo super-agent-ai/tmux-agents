@@ -1820,6 +1820,7 @@ export class ApiCatalog {
                 { name: 'autoStart', type: 'boolean', required: false, description: 'Auto-start: automatically launch implementation (default false)' },
                 { name: 'autoPilot', type: 'boolean', required: false, description: 'Auto-pilot: automatically answer questions (default false)' },
                 { name: 'autoClose', type: 'boolean', required: false, description: 'Auto-close: close tmux and move to done when finished (default false)' },
+                { name: 'dependsOn', type: 'string', required: false, description: 'Comma-separated task IDs this task depends on (must complete before this task starts)' },
                 { name: 'aiProvider', type: 'string', required: false, description: 'AI provider override (default: use swim lane or global default)', enum: ['claude','gemini','codex','opencode','cursor','copilot','aider','amp','cline','kiro'] },
                 { name: 'aiModel', type: 'string', required: false, description: 'AI model override (default: use swim lane or global default)' },
             ],
@@ -1837,16 +1838,31 @@ export class ApiCatalog {
                     autoStart: !!p.autoStart,
                     autoPilot: !!p.autoPilot,
                     autoClose: !!p.autoClose,
+                    dependsOn: p.dependsOn ? String(p.dependsOn).split(',').map((s: string) => s.trim()).filter((s: string) => s) : undefined,
                     aiProvider: p.aiProvider || undefined,
                     aiModel: p.aiModel || undefined,
                 };
                 d.orchestrator.submitTask(task);
                 d.saveTask?.(task);
-                d.updateKanban?.();
-                // Auto-start if enabled and task is in todo with a swim lane
-                if (task.autoStart && task.kanbanColumn === 'todo' && task.swimLaneId) {
-                    d.startTaskFlow?.(task);
+                // Auto-cascade: when autoStart + dependencies, force deps to auto-start/pilot/close
+                if (task.autoStart && task.dependsOn && task.dependsOn.length > 0) {
+                    for (const depId of task.dependsOn) {
+                        const dep = d.orchestrator.getTask(depId);
+                        if (dep) {
+                            dep.autoStart = true;
+                            dep.autoPilot = true;
+                            dep.autoClose = true;
+                            d.saveTask?.(dep);
+                            if ((dep.kanbanColumn === 'todo' || dep.kanbanColumn === 'backlog') && dep.swimLaneId) {
+                                await d.startTaskFlow?.(dep);
+                            }
+                        }
+                    }
+                } else if (task.autoStart && task.kanbanColumn === 'todo' && task.swimLaneId) {
+                    // Auto-start if enabled, no deps, in todo with a swim lane
+                    await d.startTaskFlow?.(task);
                 }
+                d.updateKanban?.();
                 const autoFlags = [task.autoStart && 'S', task.autoPilot && 'P', task.autoClose && 'C'].filter(Boolean);
                 return ok(`Created task "${p.description}" [${taskId}]${autoFlags.length ? ' (auto:' + autoFlags.join('') + ')' : ''}`, { taskId });
             }
@@ -1864,7 +1880,25 @@ export class ApiCatalog {
                 const task = d.orchestrator.getTask(p.taskId);
                 if (!task) { return err(`Task not found: ${p.taskId}`); }
                 task.kanbanColumn = p.column;
-                if (p.column === 'done') { task.status = TaskStatus.COMPLETED; task.completedAt = Date.now(); }
+                if (p.column === 'done') {
+                    task.status = TaskStatus.COMPLETED;
+                    task.completedAt = Date.now();
+                    d.saveTask?.(task);
+                    // Trigger dependents
+                    const allTasks = d.orchestrator.getTaskQueue();
+                    for (const t of allTasks) {
+                        if (!t.dependsOn || !t.dependsOn.includes(p.taskId)) { continue; }
+                        const allMet = t.dependsOn.every(depId => {
+                            const dep = d.orchestrator.getTask(depId);
+                            return dep && dep.status === TaskStatus.COMPLETED;
+                        });
+                        if (allMet && t.autoStart && (t.kanbanColumn === 'todo' || t.kanbanColumn === 'backlog') && t.swimLaneId) {
+                            t.kanbanColumn = 'todo';
+                            d.saveTask?.(t);
+                            await d.startTaskFlow?.(t);
+                        }
+                    }
+                }
                 if (p.column === 'in_progress') { task.status = TaskStatus.IN_PROGRESS; task.startedAt = task.startedAt || Date.now(); }
                 d.updateKanban?.();
                 return ok(`Moved task ${p.taskId} to ${p.column}`);
@@ -1974,6 +2008,7 @@ export class ApiCatalog {
                 { name: 'autoStart', type: 'boolean', required: false, description: 'Auto-start: automatically launch implementation' },
                 { name: 'autoPilot', type: 'boolean', required: false, description: 'Auto-pilot: automatically answer questions' },
                 { name: 'autoClose', type: 'boolean', required: false, description: 'Auto-close: close tmux and move to done when finished' },
+                { name: 'dependsOn', type: 'string', required: false, description: 'Comma-separated task IDs this task depends on (empty string to clear)' },
             ],
             returnsData: false,
             execute: async (p) => {
@@ -1987,6 +2022,10 @@ export class ApiCatalog {
                 if (p.autoStart !== undefined) { task.autoStart = !!p.autoStart; }
                 if (p.autoPilot !== undefined) { task.autoPilot = !!p.autoPilot; }
                 if (p.autoClose !== undefined) { task.autoClose = !!p.autoClose; }
+                if (p.dependsOn !== undefined) {
+                    const parsed = String(p.dependsOn).split(',').map((s: string) => s.trim()).filter((s: string) => s);
+                    task.dependsOn = parsed.length > 0 ? parsed : undefined;
+                }
                 d.saveTask?.(task);
                 d.updateKanban?.();
                 return ok(`Updated task ${p.taskId}`);
