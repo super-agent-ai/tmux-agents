@@ -15,12 +15,9 @@ const fsStat = util.promisify(fs.stat);
 const readdir = util.promisify(fs.readdir);
 
 /** Run a command with stdin piped in (avoids shell escaping issues) */
-function spawnWithStdin(command: string, args: string[], input: string, timeoutMs: number = 60000, onSpawn?: (proc: cp.ChildProcess) => void, cwd?: string, _shell: boolean = false): Promise<string> {
+function spawnWithStdin(command: string, args: string[], input: string, timeoutMs: number = 60000, onSpawn?: (proc: cp.ChildProcess) => void, cwd?: string): Promise<string> {
     return new Promise((resolve, reject) => {
-        const userShell = process.env.SHELL || '/bin/zsh';
-        const cmdParts = [command, ...args];
-        const fullCmd = cmdParts.map(a => `'${a.replace(/'/g, "'\\''")}'`).join(' ');
-        const proc = cp.spawn(userShell, ['-l', '-c', fullCmd], { stdio: ['pipe', 'pipe', 'pipe'], cwd });
+        const proc = cp.spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'], cwd, shell: true });
         if (onSpawn) { onSpawn(proc); }
         let stdout = '';
         let stderr = '';
@@ -692,15 +689,11 @@ ${this.apiCatalog.getCatalogText()}
 
             const args = ['--model', this.selectedModel, ...spawnCfg.args];
 
-            // Use login shell so CLI tools installed via npm/brew are in PATH
-            const userShell = process.env.SHELL || '/bin/zsh';
-            const cmdParts = [spawnCfg.command, ...args];
-            const fullCmd = cmdParts.map(a => `'${a.replace(/'/g, "'\\''")}'`).join(' ');
-
-            const proc = cp.spawn(userShell, ['-l', '-c', fullCmd], {
+            const proc = cp.spawn(spawnCfg.command, args, {
                 stdio: ['pipe', 'pipe', 'pipe'],
                 env: { ...process.env, ...spawnCfg.env },
                 cwd: spawnCfg.cwd || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+                shell: true,
             });
 
             this.currentProc = proc;

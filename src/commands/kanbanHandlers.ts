@@ -837,10 +837,7 @@ export async function handleKanbanMessage(
                 const summary = await new Promise<string>((resolve) => {
                     const prompt = `Summarize what was accomplished in this terminal session in 3-5 sentences. Focus on what was done, key changes made, and the outcome.\n\n${content.slice(-3000)}`;
                     const spawnCfg = ctx.aiManager.getSpawnConfig(ctx.aiManager.getDefaultProvider());
-                    const userShell = process.env.SHELL || '/bin/zsh';
-                    const cmdParts = [spawnCfg.command, ...spawnCfg.args];
-                    const fullCmd = cmdParts.map((a: string) => `'${a.replace(/'/g, "'\\''")}'`).join(' ');
-                    const proc = cp.spawn(userShell, ['-l', '-c', fullCmd], { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...spawnCfg.env }, cwd: spawnCfg.cwd });
+                    const proc = cp.spawn(spawnCfg.command, spawnCfg.args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...spawnCfg.env }, cwd: spawnCfg.cwd, shell: true });
                     let stdout = '';
                     const timer = setTimeout(() => { proc.kill(); resolve(''); }, 20000);
                     proc.stdout!.on('data', (d: Buffer) => { stdout += d.toString(); });
@@ -884,10 +881,7 @@ The "role" field should be one of: coder, reviewer, tester, devops, researcher, 
                     }
 
                     prompt += `\n\nUser's input: ${text}`;
-                    const userShell2 = process.env.SHELL || '/bin/zsh';
-                    const cmdParts2 = [spawnCfg.command, ...spawnCfg.args];
-                    const fullCmd2 = cmdParts2.map((a: string) => `'${a.replace(/'/g, "'\\''")}'`).join(' ');
-                    const proc = cp.spawn(userShell2, ['-l', '-c', fullCmd2], { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...spawnCfg.env }, cwd: spawnCfg.cwd });
+                    const proc = cp.spawn(spawnCfg.command, spawnCfg.args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...spawnCfg.env }, cwd: spawnCfg.cwd, shell: true });
                     let stdout = '';
                     let stderr = '';
                     const timer = setTimeout(() => {
@@ -975,10 +969,7 @@ The "role" field should be one of: coder, reviewer, tester, devops, researcher, 
                                 summary = await new Promise<string>((resolve, reject) => {
                                     const prompt = `Summarize what is happening in this tmux session in 2-3 short lines. Focus on: what project/task, what tools/commands are running, current status.\n\n${combinedContent}`;
                                     const spawnCfg = ctx.aiManager.getSpawnConfig(ctx.aiManager.getDefaultProvider());
-                                    const userShell3 = process.env.SHELL || '/bin/zsh';
-                                    const cmdParts3 = [spawnCfg.command, ...spawnCfg.args];
-                                    const fullCmd3 = cmdParts3.map((a: string) => `'${a.replace(/'/g, "'\\''")}'`).join(' ');
-                                    const proc = cp.spawn(userShell3, ['-l', '-c', fullCmd3], { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...spawnCfg.env }, cwd: spawnCfg.cwd });
+                                    const proc = cp.spawn(spawnCfg.command, spawnCfg.args, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...spawnCfg.env }, cwd: spawnCfg.cwd, shell: true });
                                     let stdout = '';
                                     const timer = setTimeout(() => { proc.kill(); resolve(''); }, 15000);
                                     proc.stdout!.on('data', (d: Buffer) => { stdout += d.toString(); });
