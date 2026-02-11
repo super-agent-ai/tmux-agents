@@ -540,6 +540,26 @@ export class TmuxService {
         await exec(cmd);
     }
 
+    /**
+     * Paste multi-line text into a pane using tmux load-buffer + paste-buffer.
+     * Avoids shell escaping issues by piping text through stdin.
+     */
+    public async pasteText(sessionName: string, windowIndex: string, paneIndex: string, text: string): Promise<void> {
+        const target = `${sessionName}:${windowIndex}.${paneIndex}`;
+        // Load text into tmux buffer via stdin — no shell escaping needed
+        const loadCmd = this.buildCommand('tmux load-buffer -');
+        await new Promise<void>((resolve, reject) => {
+            const child = cp.exec(loadCmd, (error) => {
+                if (error) { reject(error); } else { resolve(); }
+            });
+            child.stdin?.write(text);
+            child.stdin?.end();
+        });
+        // Paste the buffer into the target pane (respects bracketed paste mode)
+        const pasteCmd = this.buildCommand(`tmux paste-buffer -t "${target}"`);
+        await exec(pasteCmd);
+    }
+
     public async hasSession(sessionName: string): Promise<boolean> {
         const sessions = await this.getSessions();
         return sessions.includes(sessionName);
