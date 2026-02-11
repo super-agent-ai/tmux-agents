@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Board outline -->
+  <rect x="2" y="3" width="20" height="18" rx="2"/>
+  <!-- Column dividers -->
+  <line x1="9" y1="3" x2="9" y2="21"/>
+  <line x1="16" y1="3" x2="16" y2="21"/>
+  <!-- Cards in column 1 (backlog) -->
+  <rect x="4" y="6" width="3.5" height="2.5" rx="0.5" fill="white" stroke="none" opacity="0.9"/>
+  <rect x="4" y="10" width="3.5" height="2.5" rx="0.5" fill="white" stroke="none" opacity="0.6"/>
+  <rect x="4" y="14" width="3.5" height="2.5" rx="0.5" fill="white" stroke="none" opacity="0.4"/>
+  <!-- Cards in column 2 (in progress) -->
+  <rect x="11" y="6" width="3.5" height="2.5" rx="0.5" fill="white" stroke="none" opacity="0.9"/>
+  <rect x="11" y="10" width="3.5" height="2.5" rx="0.5" fill="white" stroke="none" opacity="0.6"/>
+  <!-- Cards in column 3 (done) -->
+  <rect x="18" y="6" width="3.5" height="2.5" rx="0.5" fill="white" stroke="none" opacity="0.9"/>
+</svg>

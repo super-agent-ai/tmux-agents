@@ -36,6 +36,11 @@ export class KanbanViewProvider implements vscode.Disposable {
             }
         );
 
+        this.panel.iconPath = {
+            light: vscode.Uri.joinPath(this.extensionUri, 'resources', 'light', 'kanban.svg'),
+            dark: vscode.Uri.joinPath(this.extensionUri, 'resources', 'dark', 'kanban.svg')
+        };
+
         this.panel.webview.html = this.getHtml();
 
         this.panel.webview.onDidReceiveMessage(msg => {
