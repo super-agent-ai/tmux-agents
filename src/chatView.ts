@@ -159,7 +159,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             } else if (msg.type === 'stop') {
                 this.abortRequested = true;
                 if (this.currentProc) {
-                    this.currentProc.kill();
+                    const proc = this.currentProc;
+                    proc.kill('SIGTERM');
+                    setTimeout(() => { try { proc.kill('SIGKILL'); } catch {} }, 2000);
                     this.currentProc = null;
                 }
             } else if (msg.type === 'startVoice') {
@@ -650,7 +652,7 @@ except sr.RequestError as e:
         const context = await gatherFullExtensionContext(this.serviceManager, this.contextDeps);
         const stateText = formatFullContextForPrompt(context);
 
-        return `You are an AI assistant for a tmux and agent orchestration system in VS Code (Tmux Agents extension). You can manage tmux sessions/windows/panes, spawn AI agents, create teams, run pipelines, and more.
+        return `You are an expert tmux orchestration assistant for the Tmux Agents VS Code extension. You specialize in managing tmux sessions, spawning and coordinating AI agents (Claude, Gemini, Codex), creating swim lane projects, running multi-stage pipelines, and organizing tasks on kanban boards.
 
 ## Current System State
 ${stateText}
@@ -659,7 +661,7 @@ ${stateText}
 ${this.apiCatalog.getCatalogText()}
 
 ## Rules
-1. Briefly explain what you will do.
+1. Briefly explain what you will do, then act.
 2. To execute actions, output a JSON object inside a \`\`\`json code block:
    { "actions": [{ "action": "<name>", "params": { ... } }], "next": "<executor>" }
 3. **"next" field is critical — get it right:**
@@ -670,9 +672,12 @@ ${this.apiCatalog.getCatalogText()}
      - You need to chain multiple actions or verify the result
      - You are unsure — **when in doubt, always use "tool"**
    - Use \`"next": "user"\` (RARE) — only when you are 100% finished with the user's entire request AND there is nothing to verify or follow up on. Typical case: a simple informational answer with no actions at all.
-4. For server-scoped actions, include a "server" param.
+4. **Server identification:** Use the system state above to identify the correct server before acting. For server-scoped actions, include a "server" param matching an existing server ID.
 5. NEVER output raw shell commands. Only use structured actions.
-6. Actions marked [returns data] will report output in tool results — use \`"next": "tool"\` to receive and relay this data to the user.`;
+6. Actions marked [returns data] will report output in tool results — use \`"next": "tool"\` to receive and relay this data to the user. Always report returned data clearly to the user.
+7. **Multi-step workflows:** For complex requests (e.g., "set up a project"), chain the steps: create a swim lane → add tasks → start agents. Use \`"next": "tool"\` between steps to verify each succeeds before proceeding.
+8. **Batch operations:** You can include multiple actions in a single actions array when they are independent of each other (e.g., creating several tasks at once).
+9. **Listing vs. creating:** When the user asks to "see" or "show" something, use list/get actions. When they ask to "create", "add", or "set up", use create actions. Do not create resources when the user just wants to view them.`;
     }
 
     // ── Streaming CLI Spawn ─────────────────────────────────────────────────
@@ -761,6 +766,10 @@ ${this.apiCatalog.getCatalogText()}
 
         try {
             await this.runAgentLoop();
+            if (this.abortRequested) {
+                this.postMessage({ type: 'streamEnd' });
+                this.postMessage({ type: 'addMessage', role: 'error', text: 'Stopped by user.' });
+            }
         } catch (e: any) {
             if (this.abortRequested) {
                 this.postMessage({ type: 'addMessage', role: 'error', text: 'Stopped by user.' });
@@ -808,6 +817,9 @@ ${this.apiCatalog.getCatalogText()}
             if (parsed.actions.length === 0 || parsed.next === 'user') {
                 break;
             }
+
+            // Abort check before executing tool calls
+            if (this.abortRequested) { break; }
 
             // Execute tool calls
             this.postMessage({ type: 'addMessage', role: 'tool', text: `Executing ${parsed.actions.length} action(s)...` });

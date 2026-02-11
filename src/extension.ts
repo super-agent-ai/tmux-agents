@@ -121,6 +121,7 @@ export function activate(context: vscode.ExtensionContext) {
             const idx = swimLanes.findIndex(l => l.id === id);
             if (idx !== -1) { swimLanes.splice(idx, 1); database.deleteSwimLane(id); }
         },
+        saveSwimLane: (lane) => database.saveSwimLane(lane),
         updateKanban: () => updateKanban(),
         getKanbanTasks: () => orchestrator.getTaskQueue(),
         saveTask: (task) => database.saveTask(task),
@@ -224,7 +225,7 @@ export function activate(context: vscode.ExtensionContext) {
                                     await service.sendKeys(lane.sessionName, winIndex, paneIndex, `cd ${lane.workingDirectory}`);
                                 }
 
-                                let verifyPrompt = `You are a code reviewer. Verify the following completed subtasks:\n\nParent task: ${parent.description}\n`;
+                                let verifyPrompt = `You are a verification reviewer. Check whether the following subtasks completed successfully.\n\nParent task: ${parent.description}\n`;
                                 for (const sid of parent.subtaskIds) {
                                     const sub = orchestrator.getTask(sid);
                                     if (sub) {
@@ -233,7 +234,19 @@ export function activate(context: vscode.ExtensionContext) {
                                         verifyPrompt += '\n';
                                     }
                                 }
-                                verifyPrompt += `\nReview all subtask outputs. Check for:\n1. Correctness and completeness\n2. Consistency between subtasks\n3. Any errors or issues\n\nProvide a verification summary.`;
+                                verifyPrompt += `\nReview all subtask outputs. Check for:
+1. **Correctness**: Does each subtask's output indicate it completed successfully? Are there errors, test failures, or stack traces?
+2. **Completeness**: Did each subtask produce meaningful output, or did any appear to stop prematurely or produce no output?
+3. **Integration**: Do the subtasks produce changes that conflict with each other (e.g., modifying the same file in incompatible ways)?
+
+Keep your review concise — this is a sanity check on outputs, not a full code re-review.
+
+End with a verdict on a new line, exactly in this format:
+VERDICT: PASS
+or
+VERDICT: FAIL — [brief reason]
+
+If any subtask output shows errors, test failures, or incomplete work, the verdict should be FAIL.`;
 
                                 const verifyProvider = aiManager.resolveProvider(undefined, lane.aiProvider);
                                 const launchCmd = aiManager.getLaunchCommand(verifyProvider);
