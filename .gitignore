@@ -2,3 +2,5 @@ node_modules/
 *.vsix
 CLAUDE.md
 out/
+.wdio-vscode-service/
+.vscode-test/

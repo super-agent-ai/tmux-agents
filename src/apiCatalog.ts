@@ -62,6 +62,7 @@ export interface ApiCatalogDeps {
     getSwimLanes?: () => KanbanSwimLane[];
     addSwimLane?: (lane: KanbanSwimLane) => void;
     deleteSwimLane?: (id: string) => void;
+    saveSwimLane?: (lane: KanbanSwimLane) => void;
     updateKanban?: () => void;
     getKanbanTasks?: () => OrchestratorTask[];
     saveTask?: (task: OrchestratorTask) => void;
@@ -2016,6 +2017,315 @@ export class ApiCatalog {
                 if (!task) { return err(`Task not found: ${p.taskId}`); }
                 if (!task.output) { return ok('No completion summary available for this task.', { taskId: p.taskId, output: null }); }
                 return ok(`Summary for task ${p.taskId}:\n${task.output}`, { taskId: p.taskId, output: task.output });
+            }
+        });
+
+        this.register({
+            name: 'kanban.getTask', category: cat,
+            description: 'Get full details of a single kanban task by ID',
+            params: [
+                { name: 'taskId', type: 'string', required: true, description: 'Task ID' },
+            ],
+            returnsData: true,
+            execute: async (p) => {
+                const task = d.orchestrator.getTask(p.taskId);
+                if (!task) { return err(`Task not found: ${p.taskId}`); }
+                return ok(`Task ${p.taskId}: "${task.description}"`, {
+                    id: task.id, description: task.description, status: task.status,
+                    priority: task.priority, column: task.kanbanColumn, swimLaneId: task.swimLaneId,
+                    targetRole: task.targetRole, input: task.input || null, output: task.output || null,
+                    autoStart: task.autoStart || false, autoPilot: task.autoPilot || false, autoClose: task.autoClose || false,
+                    parentTaskId: task.parentTaskId || null, subtaskIds: task.subtaskIds || [],
+                    tmuxSessionName: task.tmuxSessionName || null, tmuxWindowIndex: task.tmuxWindowIndex || null,
+                    tmuxServerId: task.tmuxServerId || null,
+                });
+            }
+        });
+
+        this.register({
+            name: 'kanban.editSwimLane', category: cat,
+            description: 'Edit a kanban swim lane (name, working directory, AI provider, context instructions, or server)',
+            params: [
+                { name: 'laneId', type: 'string', required: true, description: 'Swim lane ID' },
+                { name: 'name', type: 'string', required: false, description: 'New swim lane name' },
+                { name: 'workingDirectory', type: 'string', required: false, description: 'New working directory' },
+                { name: 'aiProvider', type: 'string', required: false, description: 'AI provider override' },
+                { name: 'contextInstructions', type: 'string', required: false, description: 'Context instructions for AI' },
+                { name: 'serverId', type: 'string', required: false, description: 'New server ID (migrates session)' },
+            ],
+            returnsData: false,
+            execute: async (p) => {
+                const lanes = d.getSwimLanes?.() || [];
+                const lane = lanes.find(l => l.id === p.laneId);
+                if (!lane) { return err(`Swim lane not found: ${p.laneId}`); }
+                if (p.name !== undefined) { lane.name = p.name; }
+                if (p.workingDirectory !== undefined) { lane.workingDirectory = p.workingDirectory; }
+                if (p.aiProvider !== undefined) { lane.aiProvider = p.aiProvider || undefined; }
+                if (p.contextInstructions !== undefined) { lane.contextInstructions = p.contextInstructions || undefined; }
+                if (p.serverId && p.serverId !== lane.serverId) {
+                    if (lane.sessionActive) {
+                        const oldSvc = d.serviceManager.getService(lane.serverId);
+                        if (oldSvc) { try { await oldSvc.deleteSession(lane.sessionName); } catch {} }
+                    }
+                    lane.serverId = p.serverId;
+                    lane.sessionActive = false;
+                    d.refreshTree();
+                }
+                d.saveSwimLane?.(lane);
+                d.updateKanban?.();
+                return ok(`Updated swim lane "${lane.name}" [${p.laneId}]`);
+            }
+        });
+
+        this.register({
+            name: 'kanban.killLaneSession', category: cat,
+            description: 'Kill the tmux session for a swim lane',
+            params: [
+                { name: 'laneId', type: 'string', required: true, description: 'Swim lane ID' },
+            ],
+            returnsData: false,
+            execute: async (p) => {
+                const lanes = d.getSwimLanes?.() || [];
+                const lane = lanes.find(l => l.id === p.laneId);
+                if (!lane) { return err(`Swim lane not found: ${p.laneId}`); }
+                if (!lane.sessionActive) { return ok('Session is already inactive'); }
+                const service = d.serviceManager.getService(lane.serverId);
+                if (service) {
+                    try { await service.deleteSession(lane.sessionName); } catch {}
+                }
+                lane.sessionActive = false;
+                d.saveSwimLane?.(lane);
+                d.refreshTree();
+                d.updateKanban?.();
+                return ok(`Killed session for swim lane "${lane.name}"`);
+            }
+        });
+
+        this.register({
+            name: 'kanban.stopTask', category: cat,
+            description: 'Stop a running task by killing its tmux window and resetting status to pending',
+            params: [
+                { name: 'taskId', type: 'string', required: true, description: 'Task ID' },
+            ],
+            returnsData: false,
+            execute: async (p) => {
+                const task = d.orchestrator.getTask(p.taskId);
+                if (!task) { return err(`Task not found: ${p.taskId}`); }
+                if (task.tmuxSessionName && task.tmuxWindowIndex && task.tmuxServerId) {
+                    const svc = d.serviceManager.getService(task.tmuxServerId);
+                    if (svc) {
+                        try { await svc.killWindow(task.tmuxSessionName, task.tmuxWindowIndex); } catch {}
+                    }
+                    task.tmuxSessionName = undefined;
+                    task.tmuxWindowIndex = undefined;
+                    task.tmuxPaneIndex = undefined;
+                    task.tmuxServerId = undefined;
+                }
+                task.kanbanColumn = 'todo';
+                task.status = TaskStatus.PENDING;
+                d.saveTask?.(task);
+                d.refreshTree();
+                d.updateKanban?.();
+                return ok(`Stopped task ${p.taskId} and reset to todo`);
+            }
+        });
+
+        this.register({
+            name: 'kanban.restartTask', category: cat,
+            description: 'Restart a task: kills old tmux window and relaunches via startTaskFlow',
+            params: [
+                { name: 'taskId', type: 'string', required: true, description: 'Task ID' },
+            ],
+            returnsData: false,
+            execute: async (p) => {
+                const task = d.orchestrator.getTask(p.taskId);
+                if (!task) { return err(`Task not found: ${p.taskId}`); }
+                if (!task.swimLaneId) { return err('Task has no swim lane — cannot restart'); }
+                if (task.tmuxSessionName && task.tmuxWindowIndex && task.tmuxServerId) {
+                    const oldSvc = d.serviceManager.getService(task.tmuxServerId);
+                    if (oldSvc) { try { await oldSvc.killWindow(task.tmuxSessionName, task.tmuxWindowIndex); } catch {} }
+                }
+                try {
+                    await d.startTaskFlow?.(task);
+                    d.updateKanban?.();
+                    return ok(`Restarted task ${p.taskId}`);
+                } catch (e: any) {
+                    return err(`Failed to restart task: ${e.message}`);
+                }
+            }
+        });
+
+        this.register({
+            name: 'kanban.attachTask', category: cat,
+            description: 'Attach to a running task\'s tmux window in the VS Code terminal',
+            params: [
+                { name: 'taskId', type: 'string', required: true, description: 'Task ID' },
+            ],
+            returnsData: false,
+            execute: async (p) => {
+                const task = d.orchestrator.getTask(p.taskId);
+                if (!task) { return err(`Task not found: ${p.taskId}`); }
+                if (!task.tmuxSessionName || !task.tmuxServerId) {
+                    return err('Task has no active tmux session to attach to');
+                }
+                await vscode.commands.executeCommand('tmux-agents.openKanban');
+                return ok(`Task ${p.taskId} is running in tmux session "${task.tmuxSessionName}" window ${task.tmuxWindowIndex || '0'} — use the Kanban board to attach`);
+            }
+        });
+
+        this.register({
+            name: 'kanban.summarizeTask', category: cat,
+            description: 'Capture the terminal output of a running task for summarization',
+            params: [
+                { name: 'taskId', type: 'string', required: true, description: 'Task ID' },
+            ],
+            returnsData: true,
+            execute: async (p) => {
+                const task = d.orchestrator.getTask(p.taskId);
+                if (!task) { return err(`Task not found: ${p.taskId}`); }
+                if (!task.tmuxSessionName || !task.tmuxWindowIndex || !task.tmuxPaneIndex || !task.tmuxServerId) {
+                    return err('Task has no active tmux session');
+                }
+                const svc = d.serviceManager.getService(task.tmuxServerId);
+                if (!svc) { return err(`Server "${task.tmuxServerId}" not found`); }
+                try {
+                    const content = await svc.capturePaneContent(task.tmuxSessionName, task.tmuxWindowIndex, task.tmuxPaneIndex, 50);
+                    return ok(`Captured terminal output for task ${p.taskId}`, {
+                        taskId: p.taskId, description: task.description, terminalContent: content.slice(-3000)
+                    });
+                } catch (e: any) {
+                    return err(`Failed to capture output: ${e.message}`);
+                }
+            }
+        });
+
+        this.register({
+            name: 'kanban.mergeTasks', category: cat,
+            description: 'Merge multiple tasks into a single task box with subtasks',
+            params: [
+                { name: 'taskIds', type: 'string', required: true, description: 'Comma-separated task IDs to merge' },
+            ],
+            returnsData: true,
+            execute: async (p) => {
+                const ids: string[] = (p.taskIds as string).split(',').map((s: string) => s.trim()).filter(Boolean);
+                const tasks = ids.map(id => d.orchestrator.getTask(id)).filter((t): t is OrchestratorTask => !!t);
+                if (tasks.length < 2) { return err('Need at least 2 valid tasks to merge'); }
+
+                const descriptions = tasks.map(t => t.description).join(' + ');
+                const maxPri = Math.max(...tasks.map(t => t.priority));
+                const parentTask: OrchestratorTask = {
+                    id: 'task-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+                    description: descriptions.length > 80 ? descriptions.slice(0, 77) + '...' : descriptions,
+                    targetRole: tasks[0].targetRole,
+                    status: TaskStatus.PENDING,
+                    priority: maxPri,
+                    kanbanColumn: tasks[0].kanbanColumn || 'todo',
+                    swimLaneId: tasks[0].swimLaneId,
+                    subtaskIds: tasks.map(t => t.id),
+                    createdAt: Date.now()
+                };
+
+                for (const t of tasks) {
+                    t.parentTaskId = parentTask.id;
+                    d.saveTask?.(t);
+                }
+                d.orchestrator.submitTask(parentTask);
+                d.saveTask?.(parentTask);
+                d.updateKanban?.();
+                return ok(`Merged ${tasks.length} tasks into task box [${parentTask.id}]`, { parentTaskId: parentTask.id });
+            }
+        });
+
+        this.register({
+            name: 'kanban.splitTaskBox', category: cat,
+            description: 'Split a task box into individual independent tasks',
+            params: [
+                { name: 'taskId', type: 'string', required: true, description: 'Task box ID to split' },
+            ],
+            returnsData: false,
+            execute: async (p) => {
+                const parentTask = d.orchestrator.getTask(p.taskId);
+                if (!parentTask) { return err(`Task not found: ${p.taskId}`); }
+                if (!parentTask.subtaskIds || parentTask.subtaskIds.length === 0) {
+                    return err('Task has no subtasks to split');
+                }
+
+                const col = parentTask.kanbanColumn || 'todo';
+                const laneId = parentTask.swimLaneId;
+                let created = 0;
+                for (const subId of parentTask.subtaskIds) {
+                    const sub = d.orchestrator.getTask(subId);
+                    if (!sub) { continue; }
+                    const newTask: OrchestratorTask = {
+                        id: `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                        description: sub.description,
+                        status: TaskStatus.PENDING,
+                        priority: sub.priority,
+                        createdAt: Date.now(),
+                        targetRole: sub.targetRole,
+                        input: sub.input,
+                        kanbanColumn: col === 'in_progress' ? 'todo' : col,
+                        swimLaneId: laneId,
+                    };
+                    d.orchestrator.submitTask(newTask);
+                    d.saveTask?.(newTask);
+                    d.orchestrator.cancelTask(subId);
+                    d.deleteTask?.(subId);
+                    created++;
+                }
+
+                d.orchestrator.cancelTask(parentTask.id);
+                d.deleteTask?.(parentTask.id);
+                d.updateKanban?.();
+                return ok(`Split task box into ${created} individual tasks`);
+            }
+        });
+
+        this.register({
+            name: 'kanban.addSubtask', category: cat,
+            description: 'Add a task as a subtask of another task (creating a task box)',
+            params: [
+                { name: 'parentTaskId', type: 'string', required: true, description: 'Parent task ID' },
+                { name: 'childTaskId', type: 'string', required: true, description: 'Child task ID to add as subtask' },
+            ],
+            returnsData: false,
+            execute: async (p) => {
+                const parentTask = d.orchestrator.getTask(p.parentTaskId);
+                const childTask = d.orchestrator.getTask(p.childTaskId);
+                if (!parentTask) { return err(`Parent task not found: ${p.parentTaskId}`); }
+                if (!childTask) { return err(`Child task not found: ${p.childTaskId}`); }
+                if (!parentTask.subtaskIds) { parentTask.subtaskIds = []; }
+
+                if (childTask.subtaskIds && childTask.subtaskIds.length > 0) {
+                    for (const subId of childTask.subtaskIds) {
+                        const sub = d.orchestrator.getTask(subId);
+                        if (sub) {
+                            sub.parentTaskId = parentTask.id;
+                            if (!parentTask.subtaskIds.includes(subId)) {
+                                parentTask.subtaskIds.push(subId);
+                            }
+                            d.saveTask?.(sub);
+                        }
+                    }
+                    d.orchestrator.cancelTask(childTask.id);
+                } else {
+                    childTask.parentTaskId = parentTask.id;
+                    if (!parentTask.subtaskIds.includes(childTask.id)) {
+                        parentTask.subtaskIds.push(childTask.id);
+                    }
+                }
+
+                let maxPri = parentTask.priority;
+                for (const sid of parentTask.subtaskIds) {
+                    const s = d.orchestrator.getTask(sid);
+                    if (s && s.priority > maxPri) { maxPri = s.priority; }
+                }
+                parentTask.priority = maxPri;
+
+                d.saveTask?.(parentTask);
+                d.saveTask?.(childTask);
+                d.updateKanban?.();
+                return ok(`Added subtask — task box now has ${parentTask.subtaskIds.length} subtask(s)`);
             }
         });
 
