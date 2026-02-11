@@ -89,17 +89,24 @@ tmux-agents turns VS Code into a control plane for concurrent AI coding agents. 
 ## Quick start
 
 ### Prerequisites
-- tmux installed (`brew install tmux` / `apt install tmux`)
-- For AI agents: `claude`, `gemini`, or `codex` CLI tools installed
+- **tmux** (`brew install tmux` on macOS, `apt install tmux` on Linux)
+- **Node.js 18+** and **npm** (for building from source)
+- **VS Code 1.85+**
+- For AI agents: one or more CLI tools — `claude`, `gemini`, or `codex`
 
-### Install
-1. Open VS Code Extensions (`Cmd+Shift+X`)
-2. Search for `tmux-agents`
-3. Click **Install**
-
-Or install from `.vsix`:
+### Install from source
 ```sh
-code --install-extension tmux-agents-0.1.0.vsix
+git clone https://github.com/super-agent-ai/tmux-agents.git
+cd tmux-agents
+npm install
+make install    # compiles, packages .vsix, installs into VS Code
+```
+Then reload VS Code (`Cmd+Shift+P` > "Developer: Reload Window").
+
+### Install from .vsix
+If you have a pre-built `.vsix` file:
+```sh
+code --install-extension tmux-agents-*.vsix
 ```
 
 ### First steps
@@ -267,31 +274,31 @@ commands/
   kanbanHandlers.ts   Kanban board message handlers
 ```
 
-## Building from source
+## Development
 
 ```sh
 git clone https://github.com/super-agent-ai/tmux-agents.git
 cd tmux-agents
 npm install
-make install
 ```
 
-Or manually:
+**Debug in VS Code:** Open the project, press `F5` to launch the Extension Development Host.
 
-```sh
-npm run compile
-npx @vscode/vsce package --no-dependencies
-code --install-extension tmux-agents-*.vsix
-```
+**Watch mode:** `make watch` recompiles on file changes.
+
+**Run tests:** `make test` (133+ Vitest tests).
 
 ### Makefile targets
 
 | Target | Description |
 |---|---|
-| `make compile` | Compile TypeScript |
-| `make test` | Run tests |
-| `make install` | Compile, package, and install the extension |
-| `make clean` | Remove build artifacts |
+| `make compile` | Compile TypeScript to `out/` |
+| `make test` | Run all Vitest tests |
+| `make watch` | Watch mode — recompile on changes |
+| `make package` | Compile and create `.vsix` file |
+| `make install` | Compile, package, and install into VS Code |
+| `make uninstall` | Remove the extension from VS Code |
+| `make clean` | Delete `out/` and `.vsix` files |
 
 ## Logging
 
