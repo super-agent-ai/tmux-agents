@@ -843,8 +843,8 @@ export async function handleKanbanMessage(
                     proc.stdout!.on('data', (d: Buffer) => { stdout += d.toString(); });
                     proc.on('close', (code) => { clearTimeout(timer); resolve(code === 0 ? stdout.trim() : ''); });
                     proc.on('error', () => { clearTimeout(timer); resolve(''); });
-                    proc.stdin!.write(prompt);
-                    proc.stdin!.end();
+                    proc.stdin!.on('error', () => {});
+                    proc.on('spawn', () => { if (proc.stdin!.writable) { proc.stdin!.write(prompt); proc.stdin!.end(); } });
                 });
                 if (summary) {
                     const separator = t.input ? '\n\n---\n' : '';
@@ -903,8 +903,8 @@ The "role" field should be one of: coder, reviewer, tester, devops, researcher, 
                         console.error(`[aiExpandTask] Spawn error: ${err.message}`);
                         resolve('');
                     });
-                    proc.stdin!.write(prompt);
-                    proc.stdin!.end();
+                    proc.stdin!.on('error', () => {});
+                    proc.on('spawn', () => { if (proc.stdin!.writable) { proc.stdin!.write(prompt); proc.stdin!.end(); } });
                 });
                 if (result) {
                     let json = result;

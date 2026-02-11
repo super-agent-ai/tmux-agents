@@ -36,8 +36,8 @@ function spawnWithStdin(command: string, args: string[], input: string, timeoutM
             else { reject(new Error(stderr || stdout || `Process exited with code ${code}`)); }
         });
         proc.on('error', (err: Error) => { clearTimeout(timer); reject(err); });
-        proc.stdin!.write(input);
-        proc.stdin!.end();
+        proc.stdin!.on('error', () => {});
+        proc.on('spawn', () => { if (proc.stdin!.writable) { proc.stdin!.write(input); proc.stdin!.end(); } });
     });
 }
 
@@ -736,9 +736,16 @@ ${this.apiCatalog.getCatalogText()}
                 reject(err);
             });
 
-            proc.stdin!.on('error', () => { /* ignore SIGPIPE / EPIPE */ });
-            proc.stdin!.write(prompt);
-            proc.stdin!.end();
+            // Absorb EPIPE errors on stdin (process may exit before write completes)
+            proc.stdin!.on('error', () => {});
+
+            // Defer writing until the process has actually spawned to prevent SIGPIPE
+            proc.on('spawn', () => {
+                if (proc.stdin!.writable) {
+                    proc.stdin!.write(prompt);
+                    proc.stdin!.end();
+                }
+            });
         });
     }
 

@@ -23,8 +23,8 @@ function spawnWithStdin(command: string, args: string[], input: string, timeoutM
             if (code === 0) { resolve(stdout); } else { reject(new Error(stderr || stdout || `Exit code ${code}`)); }
         });
         proc.on('error', (err: Error) => { clearTimeout(timer); reject(err); });
-        proc.stdin!.write(input);
-        proc.stdin!.end();
+        proc.stdin!.on('error', () => {});
+        proc.on('spawn', () => { if (proc.stdin!.writable) { proc.stdin!.write(input); proc.stdin!.end(); } });
     });
 }
 
