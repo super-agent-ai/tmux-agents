@@ -331,6 +331,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 await this.stopVoiceRecording();
             }
         });
+
+        // Restore saved conversations on panel open
+        if (this.conversations.size > 0) {
+            this.syncConversationBanners();
+            if (this.activeConversationId) {
+                this.syncConversationMessages();
+            }
+        }
     }
 
     // ── Voice Input ──────────────────────────────────────────────────────────
@@ -1128,10 +1136,22 @@ body {
 #model-select:focus { border-color: var(--vscode-focusBorder); }
 #toolbar-label { font-size: 11px; opacity: 0.7; }
 #toolbar-spacer { flex: 1; }
+#new-chat-btn {
+    display: flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; border: none; border-radius: 4px; cursor: pointer;
+    background: var(--vscode-button-background); color: var(--vscode-button-foreground);
+    font-size: 16px; font-weight: 300; line-height: 1;
+    transition: background 0.15s, transform 0.1s;
+    flex-shrink: 0;
+}
+#new-chat-btn:hover { background: var(--vscode-button-hoverBackground); transform: scale(1.08); }
+#new-chat-btn:active { transform: scale(0.95); }
 #clear-btn {
-    padding: 2px 8px; border: none; border-radius: 3px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; border: none; border-radius: 4px; cursor: pointer;
     background: transparent; color: var(--vscode-foreground);
     font-size: 11px; opacity: 0.7;
+    transition: opacity 0.15s, background 0.15s;
 }
 #clear-btn:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground); }
 
@@ -1362,7 +1382,11 @@ body {
         <option value="haiku">Haiku</option>
     </select>
     <span id="toolbar-spacer"></span>
-    <button id="new-chat-btn" title="Start new conversation" style="padding:2px 6px;border:none;border-radius:3px;cursor:pointer;background:var(--vscode-button-background);color:var(--vscode-button-foreground);font-size:14px;line-height:1;">+</button>
+    <button id="new-chat-btn" title="New conversation">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M8 3a.5.5 0 0 1 .5.5v4h4a.5.5 0 0 1 0 1h-4v4a.5.5 0 0 1-1 0v-4h-4a.5.5 0 0 1 0-1h4v-4A.5.5 0 0 1 8 3z"/>
+        </svg>
+    </button>
     <button id="clear-btn" title="Clear chat history">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
             <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 13A6 6 0 1 1 8 2a6 6 0 0 1 0 12zm3.15-8.85l-1.3-1.3L8 5.71 6.15 3.85l-1.3 1.3L6.71 7 4.85 8.85l1.3 1.3L8 8.29l1.85 1.86 1.3-1.3L9.29 7l1.86-1.85z"/>
