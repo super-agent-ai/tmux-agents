@@ -10,21 +10,15 @@ const execAsync = util.promisify(cp.exec);
 
 function spawnWithStdin(command: string, args: string[], input: string, timeoutMs: number = 30000): Promise<string> {
     return new Promise((resolve, reject) => {
-        const proc = cp.spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'], shell: true });
-        let stdout = '';
-        let stderr = '';
-        let timedOut = false;
-        const timer = setTimeout(() => { timedOut = true; proc.kill(); reject(new Error('Command timed out')); }, timeoutMs);
-        proc.stdout!.on('data', (d: Buffer) => { stdout += d.toString(); });
-        proc.stderr!.on('data', (d: Buffer) => { stderr += d.toString(); });
-        proc.on('close', (code: number | null) => {
-            clearTimeout(timer);
-            if (timedOut) { return; }
-            if (code === 0) { resolve(stdout); } else { reject(new Error(stderr || stdout || `Exit code ${code}`)); }
+        const cmdStr = [command, ...args].join(' ');
+        const proc = cp.exec(cmdStr, { maxBuffer: 10 * 1024 * 1024, timeout: timeoutMs }, (error, stdout, stderr) => {
+            if (error && error.killed) { reject(new Error('Command timed out')); return; }
+            if (error) { reject(new Error(stderr || stdout || error.message)); return; }
+            resolve(stdout);
         });
-        proc.on('error', (err: Error) => { clearTimeout(timer); reject(err); });
         proc.stdin!.on('error', () => {});
-        proc.on('spawn', () => { if (proc.stdin!.writable) { proc.stdin!.write(input); proc.stdin!.end(); } });
+        proc.stdin!.write(input);
+        proc.stdin!.end();
     });
 }
 

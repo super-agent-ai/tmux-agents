@@ -14,30 +14,19 @@ const readFile = util.promisify(fs.readFile);
 const fsStat = util.promisify(fs.stat);
 const readdir = util.promisify(fs.readdir);
 
-/** Run a command with stdin piped in (avoids shell escaping issues) */
+/** Run a command with stdin piped in using cp.exec (reliable shell resolution) */
 function spawnWithStdin(command: string, args: string[], input: string, timeoutMs: number = 60000, onSpawn?: (proc: cp.ChildProcess) => void, cwd?: string): Promise<string> {
     return new Promise((resolve, reject) => {
-        const proc = cp.spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'], cwd, shell: true });
-        if (onSpawn) { onSpawn(proc); }
-        let stdout = '';
-        let stderr = '';
-        let timedOut = false;
-        const timer = setTimeout(() => {
-            timedOut = true;
-            proc.kill();
-            reject(new Error('Command timed out'));
-        }, timeoutMs);
-        proc.stdout!.on('data', (d: Buffer) => { stdout += d.toString(); });
-        proc.stderr!.on('data', (d: Buffer) => { stderr += d.toString(); });
-        proc.on('close', (code: number | null) => {
-            clearTimeout(timer);
-            if (timedOut) { return; }
-            if (code === 0) { resolve(stdout); }
-            else { reject(new Error(stderr || stdout || `Process exited with code ${code}`)); }
+        const cmdStr = [command, ...args].join(' ');
+        const proc = cp.exec(cmdStr, { cwd, maxBuffer: 10 * 1024 * 1024, timeout: timeoutMs }, (error, stdout, stderr) => {
+            if (error && error.killed) { reject(new Error('Command timed out')); return; }
+            if (error) { reject(new Error(stderr || stdout || error.message)); return; }
+            resolve(stdout);
         });
-        proc.on('error', (err: Error) => { clearTimeout(timer); reject(err); });
+        if (onSpawn) { onSpawn(proc); }
         proc.stdin!.on('error', () => {});
-        proc.on('spawn', () => { if (proc.stdin!.writable) { proc.stdin!.write(input); proc.stdin!.end(); } });
+        proc.stdin!.write(input);
+        proc.stdin!.end();
     });
 }
 
@@ -688,18 +677,20 @@ ${this.apiCatalog.getCatalogText()}
                 : { command: 'claude', args: ['--print', '-'], env: {}, cwd: undefined, shell: true };
 
             const args = ['--model', this.selectedModel, ...spawnCfg.args];
+            const cmdStr = [spawnCfg.command, ...args].join(' ');
+            const execCwd = spawnCfg.cwd || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 
-            const proc = cp.spawn(spawnCfg.command, args, {
-                stdio: ['pipe', 'pipe', 'pipe'],
+            let fullOutput = '';
+            let timedOut = false;
+
+            const proc = cp.exec(cmdStr, {
                 env: { ...process.env, ...spawnCfg.env },
-                cwd: spawnCfg.cwd || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
-                shell: true,
+                cwd: execCwd,
+                maxBuffer: 50 * 1024 * 1024,
+                timeout: timeoutMs,
             });
 
             this.currentProc = proc;
-            let fullOutput = '';
-            let stderr = '';
-            let timedOut = false;
 
             const timer = setTimeout(() => {
                 timedOut = true;
@@ -707,14 +698,10 @@ ${this.apiCatalog.getCatalogText()}
                 reject(new Error('Command timed out'));
             }, timeoutMs);
 
-            proc.stdout!.on('data', (chunk: Buffer) => {
-                const text = chunk.toString();
+            proc.stdout!.on('data', (chunk: Buffer | string) => {
+                const text = typeof chunk === 'string' ? chunk : chunk.toString();
                 fullOutput += text;
                 onChunk(text);
-            });
-
-            proc.stderr!.on('data', (chunk: Buffer) => {
-                stderr += chunk.toString();
             });
 
             proc.on('close', (code: number | null) => {
@@ -726,7 +713,7 @@ ${this.apiCatalog.getCatalogText()}
                 } else if (code === 0) {
                     resolve(fullOutput);
                 } else {
-                    reject(new Error(stderr || fullOutput || `Process exited with code ${code}`));
+                    reject(new Error(fullOutput || `Process exited with code ${code}`));
                 }
             });
 
@@ -736,16 +723,9 @@ ${this.apiCatalog.getCatalogText()}
                 reject(err);
             });
 
-            // Absorb EPIPE errors on stdin (process may exit before write completes)
             proc.stdin!.on('error', () => {});
-
-            // Defer writing until the process has actually spawned to prevent SIGPIPE
-            proc.on('spawn', () => {
-                if (proc.stdin!.writable) {
-                    proc.stdin!.write(prompt);
-                    proc.stdin!.end();
-                }
-            });
+            proc.stdin!.write(prompt);
+            proc.stdin!.end();
         });
     }
 
