@@ -1381,9 +1381,10 @@ body {
         <option value="cursor">Cursor</option>
     </select>
     <select id="model-select" title="Select AI model for chat responses">
-        <option value="sonnet">Sonnet</option>
-        <option value="opus" selected>Opus</option>
-        <option value="haiku">Haiku</option>
+        <option value="opus" selected>Opus 4.6</option>
+        <option value="sonnet">Sonnet 4.5</option>
+        <option value="haiku">Haiku 4.5</option>
+        <option value="opusplan">Opus Plan</option>
     </select>
     <span id="toolbar-spacer"></span>
     <button id="new-chat-btn" title="New conversation">
