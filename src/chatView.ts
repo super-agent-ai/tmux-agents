@@ -791,6 +791,7 @@ ${this.apiCatalog.getCatalogText()}
             if (this.abortRequested) { break; }
 
             const prompt = await this.buildPrompt();
+            if (this.abortRequested) { break; }
 
             this.postMessage({ type: 'streamStart' });
             if (step > 0) {
@@ -1470,7 +1471,7 @@ window.addEventListener('message', function(e) {
         loadingEl.textContent = stepText;
         loadingEl.style.display = msg.loading ? 'block' : 'none';
         sendBtn.style.display = msg.loading ? 'none' : '';
-        stopBtn.style.display = msg.loading ? '' : 'none';
+        stopBtn.style.display = msg.loading ? 'inline-block' : 'none';
         inputEl.disabled = msg.loading;
         importFileBtn.disabled = msg.loading;
         importFolderBtn.disabled = msg.loading;
