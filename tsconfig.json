@@ -16,6 +16,8 @@
     "node_modules",
     ".vscode-test",
     "vitest.config.ts",
-    "tests"
+    "wdio.conf.ts",
+    "tests",
+    "e2e"
   ]
 }
