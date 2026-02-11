@@ -3,11 +3,12 @@ import * as cp from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as util from 'util';
+import * as crypto from 'crypto';
 import { TmuxServiceManager } from './serviceManager';
 import { gatherFullExtensionContext, formatFullContextForPrompt, ContextGatheringDeps } from './tmuxContextProvider';
 import { ApiCatalog, ParsedAIResponse } from './apiCatalog';
 import { AIAssistantManager } from './aiAssistant';
-import { AIProvider } from './types';
+import { AIProvider, ChatConversation, ConversationEntry, ConversationStatus } from './types';
 
 const execAsync = util.promisify(cp.exec);
 const readFile = util.promisify(fs.readFile);
@@ -82,11 +83,6 @@ const TEXT_FILENAMES = new Set([
 /** Max agentic loop iterations before forcing stop */
 const MAX_AGENT_STEPS = 10;
 
-interface ConversationEntry {
-    role: 'user' | 'assistant' | 'tool';
-    content: string;
-}
-
 interface AttachedItem {
     name: string;       // display name
     filePath: string;   // absolute path
@@ -108,9 +104,22 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private attachedItems: AttachedItem[] = [];
     private selectedModel: string = 'opus';
     private conversationHistory: ConversationEntry[] = [];
+    private conversations: Map<string, ChatConversation> = new Map();
+    private activeConversationId: string = '';
+    private conversationProcs: Map<string, cp.ChildProcess> = new Map();
     private abortRequested: boolean = false;
     private voiceProc: cp.ChildProcess | null = null;
     private voiceTmpFile: string = '';
+
+    // ── Conversation Persistence Events ─────────────────────────────────
+    private readonly _onConversationChanged = new vscode.EventEmitter<ChatConversation>();
+    public readonly onConversationChanged: vscode.Event<ChatConversation> = this._onConversationChanged.event;
+
+    private readonly _onConversationMessageAdded = new vscode.EventEmitter<{ conversationId: string; entry: ConversationEntry }>();
+    public readonly onConversationMessageAdded: vscode.Event<{ conversationId: string; entry: ConversationEntry }> = this._onConversationMessageAdded.event;
+
+    private readonly _onConversationDeleted = new vscode.EventEmitter<string>();
+    public readonly onConversationDeleted: vscode.Event<string> = this._onConversationDeleted.event;
 
     // ── Streaming CLI State ────────────────────────────────────────────
     private selectedProvider: AIProvider = AIProvider.CLAUDE;
@@ -132,6 +141,142 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         this.refreshCallback = cb;
     }
 
+    // ─── Multi-Conversation Management ──────────────────────────────────────
+
+    private generateId(): string {
+        return crypto.randomUUID?.() || 'id-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+    }
+
+    private createConversation(title?: string): ChatConversation {
+        const id = this.generateId();
+        const conv: ChatConversation = {
+            id,
+            title: title || 'New Chat',
+            createdAt: Date.now(),
+            lastMessageAt: Date.now(),
+            messages: [],
+            aiProvider: this.selectedProvider,
+            model: this.selectedModel,
+            status: 'idle',
+            isCollapsed: false,
+            lastPreview: '',
+        };
+        // Collapse current active conversation
+        if (this.activeConversationId) {
+            const current = this.conversations.get(this.activeConversationId);
+            if (current) { current.isCollapsed = true; }
+        }
+        this.conversations.set(id, conv);
+        this.activeConversationId = id;
+        this._onConversationChanged.fire(conv);
+        this.syncConversationBanners();
+        return conv;
+    }
+
+    private getActiveConversation(): ChatConversation | undefined {
+        return this.conversations.get(this.activeConversationId);
+    }
+
+    private switchConversation(convId: string): void {
+        // Collapse current
+        if (this.activeConversationId) {
+            const current = this.conversations.get(this.activeConversationId);
+            if (current) { current.isCollapsed = true; }
+        }
+        // Expand target
+        const target = this.conversations.get(convId);
+        if (target) {
+            target.isCollapsed = false;
+            this.activeConversationId = convId;
+            // Restore provider/model from conversation
+            this.selectedProvider = target.aiProvider as AIProvider;
+            this.selectedModel = target.model;
+        }
+        this.syncConversationBanners();
+        this.syncConversationMessages();
+    }
+
+    private deleteConversation(convId: string): void {
+        // Kill any running process
+        const proc = this.conversationProcs.get(convId);
+        if (proc) {
+            proc.kill('SIGTERM');
+            setTimeout(() => { try { proc.kill('SIGKILL'); } catch {} }, 2000);
+            this.conversationProcs.delete(convId);
+        }
+        this.conversations.delete(convId);
+        this._onConversationDeleted.fire(convId);
+        // If we deleted the active conversation, switch to another
+        if (this.activeConversationId === convId) {
+            const remaining = Array.from(this.conversations.values());
+            if (remaining.length > 0) {
+                this.switchConversation(remaining[0].id);
+            } else {
+                this.activeConversationId = '';
+                this.postMessage({ type: 'clearMessages' });
+            }
+        }
+        this.syncConversationBanners();
+    }
+
+    private renameConversation(convId: string, newTitle: string): void {
+        const conv = this.conversations.get(convId);
+        if (conv) {
+            conv.title = newTitle;
+            this._onConversationChanged.fire(conv);
+            this.syncConversationBanners();
+        }
+    }
+
+    private autoTitleFromMessage(text: string): string {
+        // Generate title from first user message
+        const cleaned = text.replace(/[\n\r]+/g, ' ').trim();
+        return cleaned.length > 40 ? cleaned.slice(0, 37) + '...' : cleaned;
+    }
+
+    private syncConversationBanners(): void {
+        const banners = Array.from(this.conversations.values()).map(c => ({
+            id: c.id,
+            title: c.title,
+            messageCount: c.messages.length,
+            status: c.status,
+            isActive: c.id === this.activeConversationId,
+            lastPreview: c.lastPreview,
+        }));
+        this.postMessage({ type: 'updateBanners', banners });
+    }
+
+    private syncConversationMessages(): void {
+        const conv = this.getActiveConversation();
+        if (!conv) { return; }
+        // Send all messages for the active conversation
+        this.postMessage({ type: 'clearMessages' });
+        for (const msg of conv.messages) {
+            this.postMessage({ type: 'addMessage', role: msg.role, text: msg.content });
+        }
+        // Update provider/model dropdowns
+        const models = this.getProviderModels();
+        this.postMessage({ type: 'updateModels', models, selected: this.selectedModel });
+    }
+
+    /** Load conversations from database */
+    public loadConversations(convs: ChatConversation[]): void {
+        for (const conv of convs) {
+            conv.status = 'idle';
+            conv.isCollapsed = true;
+            this.conversations.set(conv.id, conv);
+        }
+        if (convs.length > 0) {
+            this.activeConversationId = convs[0].id;
+            const active = this.conversations.get(this.activeConversationId);
+            if (active) { active.isCollapsed = false; }
+        }
+    }
+
+    public getAllConversations(): ChatConversation[] {
+        return Array.from(this.conversations.values());
+    }
+
     resolveWebviewView(webviewView: vscode.WebviewView): void {
         this.webviewView = webviewView;
         webviewView.webview.options = { enableScripts: true };
@@ -148,6 +293,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 this.removeItem(msg.index);
             } else if (msg.type === 'clearHistory') {
                 this.conversationHistory = [];
+                const activeConv = this.getActiveConversation();
+                if (activeConv) { activeConv.messages = []; }
                 this.postMessage({ type: 'clearMessages' });
             } else if (msg.type === 'setModel') {
                 this.selectedModel = msg.model;
@@ -164,6 +311,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     setTimeout(() => { try { proc.kill('SIGKILL'); } catch {} }, 2000);
                     this.currentProc = null;
                 }
+            } else if (msg.type === 'newConversation') {
+                this.createConversation();
+                this.postMessage({ type: 'clearMessages' });
+                // Reset the conversation history for prompt building
+                this.conversationHistory = [];
+            } else if (msg.type === 'switchConversation') {
+                this.switchConversation(msg.conversationId);
+                // Rebuild conversationHistory from active conversation for prompt building
+                const conv = this.getActiveConversation();
+                this.conversationHistory = conv ? conv.messages.map(m => ({ role: m.role, content: m.content, timestamp: m.timestamp })) : [];
+            } else if (msg.type === 'deleteConversation') {
+                this.deleteConversation(msg.conversationId);
+            } else if (msg.type === 'renameConversation') {
+                this.renameConversation(msg.conversationId, msg.title);
             } else if (msg.type === 'startVoice') {
                 await this.startVoiceRecording();
             } else if (msg.type === 'stopVoice') {
@@ -639,6 +800,19 @@ except sr.RequestError as e:
             { value: 'gpt-4o', label: 'GPT-4o' },
             { value: 'o4-mini', label: 'O4 Mini' },
         ],
+        opencode: [
+            { value: 'anthropic/claude-sonnet-4-5-20250929', label: 'Claude Sonnet' },
+            { value: 'anthropic/claude-opus-4-6', label: 'Claude Opus' },
+            { value: 'openai/gpt-4o', label: 'GPT-4o' },
+            { value: 'google/gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+        ],
+        cursor: [
+            { value: 'sonnet-4', label: 'Sonnet 4' },
+            { value: 'opus-4.1', label: 'Opus 4.1' },
+            { value: 'gpt-5', label: 'GPT-5' },
+            { value: 'grok', label: 'Grok' },
+            { value: 'auto', label: 'Auto' },
+        ],
     };
 
     private getProviderModels(): { value: string; label: string }[] {
@@ -689,10 +863,17 @@ ${this.apiCatalog.getCatalogText()}
     ): Promise<string> {
         return new Promise((resolve, reject) => {
             const spawnCfg = this.aiManager
-                ? this.aiManager.getSpawnConfig(this.selectedProvider)
-                : { command: 'claude', args: ['--print', '-'], env: {}, cwd: undefined, shell: true };
+                ? this.aiManager.getSpawnConfig(this.selectedProvider, this.selectedModel)
+                : { command: 'claude', args: ['--model', this.selectedModel, '--print', '-'], env: {}, cwd: undefined, shell: true };
 
-            const args = ['--model', this.selectedModel, ...spawnCfg.args];
+            const args = [...spawnCfg.args];
+            // Cursor takes prompt as positional arg; others pipe to stdin
+            const useStdin = this.selectedProvider !== AIProvider.CURSOR;
+            if (!useStdin) {
+                // Shell-escape the prompt and append as argument
+                const escaped = prompt.replace(/'/g, "'\\''");
+                args.push(`'${escaped}'`);
+            }
             const cmdStr = [spawnCfg.command, ...args].join(' ');
             const execCwd = safeCwd(spawnCfg.cwd) || safeCwd(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath);
 
@@ -742,18 +923,32 @@ ${this.apiCatalog.getCatalogText()}
             // Defer stdin write — if the process fails to spawn (bad cwd, missing binary),
             // writing immediately causes SIGPIPE which crashes VS Code's extension host.
             proc.stdin!.on('error', () => {});
-            process.nextTick(() => {
-                if (proc.stdin && proc.stdin.writable && !proc.killed) {
-                    proc.stdin.write(prompt);
-                    proc.stdin.end();
-                }
-            });
+            if (useStdin) {
+                process.nextTick(() => {
+                    if (proc.stdin && proc.stdin.writable && !proc.killed) {
+                        proc.stdin.write(prompt);
+                        proc.stdin.end();
+                    }
+                });
+            }
         });
     }
 
     // ── Chat Message Handling ────────────────────────────────────────────────
 
     private async handleUserMessage(userText: string): Promise<void> {
+        // Ensure we have an active conversation
+        let conv = this.getActiveConversation();
+        if (!conv) {
+            conv = this.createConversation(this.autoTitleFromMessage(userText));
+        }
+
+        // Auto-title on first message
+        if (conv.messages.length === 0 && conv.title === 'New Chat') {
+            conv.title = this.autoTitleFromMessage(userText);
+            this.syncConversationBanners();
+        }
+
         const itemNames = this.attachedItems.filter(f => f.content).map(f => f.name);
         const displayText = itemNames.length > 0
             ? `${userText}\n[Attached: ${itemNames.join(', ')}]`
@@ -761,16 +956,26 @@ ${this.apiCatalog.getCatalogText()}
 
         this.postMessage({ type: 'addMessage', role: 'user', text: displayText });
         this.postMessage({ type: 'setLoading', loading: true });
-        this.conversationHistory.push({ role: 'user', content: userText });
+
+        const userEntry: ConversationEntry = { role: 'user', content: userText, timestamp: Date.now() };
+        conv.messages.push(userEntry);
+        conv.lastMessageAt = Date.now();
+        conv.lastPreview = userText.slice(0, 50);
+        conv.status = 'streaming';
+        this._onConversationMessageAdded.fire({ conversationId: conv.id, entry: userEntry });
+        this.syncConversationBanners();
+        this.conversationHistory.push({ role: 'user', content: userText, timestamp: Date.now() });
         this.abortRequested = false;
 
         try {
             await this.runAgentLoop();
+            conv.status = 'idle';
             if (this.abortRequested) {
                 this.postMessage({ type: 'streamEnd' });
                 this.postMessage({ type: 'addMessage', role: 'error', text: 'Stopped by user.' });
             }
         } catch (e: any) {
+            conv.status = 'error';
             if (this.abortRequested) {
                 this.postMessage({ type: 'addMessage', role: 'error', text: 'Stopped by user.' });
             } else {
@@ -783,6 +988,7 @@ ${this.apiCatalog.getCatalogText()}
             this.abortRequested = false;
             this.currentProc = null;
             this.postMessage({ type: 'setLoading', loading: false });
+            this.syncConversationBanners();
         }
     }
 
@@ -811,7 +1017,14 @@ ${this.apiCatalog.getCatalogText()}
             this.postMessage({ type: 'streamEnd' });
 
             if (!output.trim()) { break; }
-            this.conversationHistory.push({ role: 'assistant', content: output });
+            this.conversationHistory.push({ role: 'assistant', content: output, timestamp: Date.now() });
+            const activeConv = this.getActiveConversation();
+            if (activeConv) {
+                const assistantEntry: ConversationEntry = { role: 'assistant', content: output, timestamp: Date.now() };
+                activeConv.messages.push(assistantEntry);
+                activeConv.lastPreview = output.slice(0, 50);
+                this._onConversationMessageAdded.fire({ conversationId: activeConv.id, entry: assistantEntry });
+            }
 
             // Check for tool calls
             const parsed = this.apiCatalog.parseResponse(output);
@@ -837,7 +1050,12 @@ ${this.apiCatalog.getCatalogText()}
 
             const toolText = resultLines.join('\n');
             this.postMessage({ type: 'addMessage', role: 'tool', text: toolText });
-            this.conversationHistory.push({ role: 'tool', content: toolText });
+            this.conversationHistory.push({ role: 'tool', content: toolText, timestamp: Date.now() });
+            if (activeConv) {
+                const toolEntry: ConversationEntry = { role: 'tool', content: toolText, timestamp: Date.now() };
+                activeConv.messages.push(toolEntry);
+                this._onConversationMessageAdded.fire({ conversationId: activeConv.id, entry: toolEntry });
+            }
 
             if (executedCount > 0 && this.refreshCallback) { this.refreshCallback(); }
         }
@@ -1093,6 +1311,40 @@ body {
     0%, 50% { opacity: 1; }
     51%, 100% { opacity: 0; }
 }
+
+/* ── Conversation Banners ────────────────────────────────────────────── */
+#conv-banners {
+    display: none; padding: 4px 8px; gap: 4px; flex-wrap: wrap;
+    border-bottom: 1px solid var(--vscode-panel-border);
+}
+#conv-banners.has-banners { display: flex; }
+.conv-banner {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 8px; border-radius: 4px; cursor: pointer;
+    font-size: 11px; max-width: 200px; transition: background 0.15s;
+    background: var(--vscode-badge-background); color: var(--vscode-badge-foreground);
+    border: 1px solid transparent;
+}
+.conv-banner:hover { border-color: var(--vscode-focusBorder); }
+.conv-banner.active {
+    background: var(--vscode-button-background); color: var(--vscode-button-foreground);
+    font-weight: 600;
+}
+.conv-banner .banner-title {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;
+}
+.conv-banner .banner-count { opacity: 0.6; font-size: 10px; flex-shrink: 0; }
+.conv-banner .banner-status {
+    width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+}
+.conv-banner .banner-status.idle { background: #808080; }
+.conv-banner .banner-status.streaming { background: #4ec9b0; animation: pulse-green 1.5s ease-in-out infinite; }
+.conv-banner .banner-status.error { background: #f44747; }
+.conv-banner .banner-close {
+    opacity: 0.5; cursor: pointer; font-size: 12px; flex-shrink: 0;
+    padding: 0 2px; line-height: 1;
+}
+.conv-banner .banner-close:hover { opacity: 1; }
 </style>
 </head>
 <body>
@@ -1101,6 +1353,8 @@ body {
         <option value="claude" selected>Claude</option>
         <option value="gemini">Gemini</option>
         <option value="codex">Codex</option>
+        <option value="opencode">OpenCode</option>
+        <option value="cursor">Cursor</option>
     </select>
     <select id="model-select" title="Select AI model for chat responses">
         <option value="sonnet">Sonnet</option>
@@ -1108,6 +1362,7 @@ body {
         <option value="haiku">Haiku</option>
     </select>
     <span id="toolbar-spacer"></span>
+    <button id="new-chat-btn" title="Start new conversation" style="padding:2px 6px;border:none;border-radius:3px;cursor:pointer;background:var(--vscode-button-background);color:var(--vscode-button-foreground);font-size:14px;line-height:1;">+</button>
     <button id="clear-btn" title="Clear chat history">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
             <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 13A6 6 0 1 1 8 2a6 6 0 0 1 0 12zm3.15-8.85l-1.3-1.3L8 5.71 6.15 3.85l-1.3 1.3L6.71 7 4.85 8.85l1.3 1.3L8 8.29l1.85 1.86 1.3-1.3L9.29 7l1.86-1.85z"/>
@@ -1125,6 +1380,7 @@ body {
     <button class="quick-btn" data-prompt="Open the Kanban board" title="Open the Kanban board">Kanban</button>
     <button class="quick-btn" data-prompt="List all kanban swim lanes" title="List all kanban swim lanes">Swim Lanes</button>
 </div>
+<div id="conv-banners"></div>
 <div id="messages"></div>
 <div id="loading">Thinking...</div>
 <div id="files-bar"></div>
@@ -1166,6 +1422,47 @@ var streamingDiv = null;
 var suggestionsEl = document.getElementById('suggestions');
 var quickActionsEl = document.getElementById('quick-actions');
 var selectedSuggestion = -1;
+var convBannersEl = document.getElementById('conv-banners');
+var newChatBtn = document.getElementById('new-chat-btn');
+
+function renderBanners(banners) {
+    if (!banners || banners.length <= 1) {
+        convBannersEl.classList.remove('has-banners');
+        convBannersEl.innerHTML = '';
+        return;
+    }
+    convBannersEl.classList.add('has-banners');
+    var html = '';
+    for (var i = 0; i < banners.length; i++) {
+        var b = banners[i];
+        var activeClass = b.isActive ? ' active' : '';
+        html += '<div class="conv-banner' + activeClass + '" data-conv-id="' + escapeHtml(b.id) + '">';
+        html += '<span class="banner-status ' + escapeHtml(b.status || 'idle') + '"></span>';
+        html += '<span class="banner-title">' + escapeHtml(b.title) + '</span>';
+        html += '<span class="banner-count">' + b.messageCount + '</span>';
+        html += '<span class="banner-close" data-close-conv="' + escapeHtml(b.id) + '">&times;</span>';
+        html += '</div>';
+    }
+    convBannersEl.innerHTML = html;
+}
+
+convBannersEl.addEventListener('click', function(e) {
+    var closeBtn = e.target.closest('[data-close-conv]');
+    if (closeBtn) {
+        e.stopPropagation();
+        var convId = closeBtn.dataset.closeConv;
+        vscode.postMessage({ type: 'deleteConversation', conversationId: convId });
+        return;
+    }
+    var banner = e.target.closest('.conv-banner');
+    if (banner) {
+        vscode.postMessage({ type: 'switchConversation', conversationId: banner.dataset.convId });
+    }
+});
+
+newChatBtn.addEventListener('click', function() {
+    vscode.postMessage({ type: 'newConversation' });
+});
 
 /* ── Slash command suggestions ──────────────────────────────────────── */
 var slashCommands = [
@@ -1557,6 +1854,8 @@ window.addEventListener('message', function(e) {
             if (msg.selected && m.value === msg.selected) { opt.selected = true; }
             modelSelect.appendChild(opt);
         });
+    } else if (msg.type === 'updateBanners') {
+        renderBanners(msg.banners);
     }
 });
 </script>

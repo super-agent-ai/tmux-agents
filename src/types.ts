@@ -59,7 +59,9 @@ export const PROCESS_CATEGORY_ICONS: Record<ProcessCategory, string> = {
 export enum AIProvider {
     CLAUDE = 'claude',
     GEMINI = 'gemini',
-    CODEX = 'codex'
+    CODEX = 'codex',
+    OPENCODE = 'opencode',
+    CURSOR = 'cursor'
 }
 
 export enum AIStatus {
@@ -304,6 +306,7 @@ export interface AgentTemplate {
     preferredServer?: string;
     environmentVars?: Record<string, string>;
     autoStart?: boolean;
+    persona?: AgentPersona;
 }
 
 export interface AgentInstance {
@@ -322,6 +325,9 @@ export interface AgentInstance {
     createdAt: number;
     lastActivityAt: number;
     errorMessage?: string;
+    persona?: AgentPersona;
+    orgUnitId?: string;
+    guildIds?: string[];
 }
 
 // ─── Team Management ─────────────────────────────────────────────────────────
@@ -465,6 +471,120 @@ export interface PipelineRun {
     completedAt?: number;
 }
 
+// ─── Agent Personas ──────────────────────────────────────────────────────────
+
+export type PersonalityType = 'methodical' | 'creative' | 'pragmatic' | 'analytical';
+export type CommunicationStyle = 'concise' | 'detailed' | 'socratic';
+export type SkillLevel = 'junior' | 'mid' | 'senior' | 'principal';
+export type RiskTolerance = 'conservative' | 'moderate' | 'experimental';
+
+export interface AgentPersona {
+    personality: PersonalityType;
+    communicationStyle: CommunicationStyle;
+    expertiseAreas: string[];
+    skillLevel: SkillLevel;
+    background?: string;
+    avatar?: string;
+    riskTolerance: RiskTolerance;
+}
+
+// ─── Organization (Org Chart) ───────────────────────────────────────────────
+
+export type OrgUnitType = 'department' | 'squad' | 'team';
+
+export interface OrganizationUnit {
+    id: string;
+    name: string;
+    type: OrgUnitType;
+    parentId?: string;
+    leadAgentId?: string;
+    memberIds: string[];
+    mission?: string;
+    contextInstructions?: string;
+}
+
+// ─── Agent Guilds ───────────────────────────────────────────────────────────
+
+export interface GuildKnowledge {
+    id: string;
+    summary: string;
+    sourceTaskId: string;
+    createdAt: number;
+}
+
+export interface Guild {
+    id: string;
+    name: string;
+    expertiseArea: string;
+    memberIds: string[];
+    knowledgeBase: GuildKnowledge[];
+    contextInstructions: string;
+}
+
+// ─── Agent-to-Agent Chat ────────────────────────────────────────────────────
+
+export interface AgentMessage {
+    id: string;
+    fromAgentId: string;
+    toAgentId: string;
+    content: string;
+    timestamp: number;
+    read: boolean;
+}
+
+// ─── Team Templates ─────────────────────────────────────────────────────────
+
+export interface TeamTemplateSlot {
+    role: AgentRole;
+    templateId?: string;
+    label: string;
+}
+
+export interface TeamTemplate {
+    id: string;
+    name: string;
+    description: string;
+    slots: TeamTemplateSlot[];
+}
+
+// ─── Agent Profiles & Leaderboard ───────────────────────────────────────────
+
+export interface AgentProfileStats {
+    agentId: string;
+    agentName: string;
+    role: AgentRole;
+    aiProvider: AIProvider;
+    totalTasks: number;
+    completedTasks: number;
+    failedTasks: number;
+    successRate: number;
+    avgCompletionMs: number;
+    badges: string[];
+}
+
+// ─── Multi-Conversation Chat ────────────────────────────────────────────────
+
+export interface ConversationEntry {
+    role: 'user' | 'assistant' | 'tool';
+    content: string;
+    timestamp: number;
+}
+
+export type ConversationStatus = 'idle' | 'streaming' | 'error';
+
+export interface ChatConversation {
+    id: string;
+    title: string;
+    createdAt: number;
+    lastMessageAt: number;
+    messages: ConversationEntry[];
+    aiProvider: string;
+    model: string;
+    status: ConversationStatus;
+    isCollapsed: boolean;
+    lastPreview: string;
+}
+
 // ─── Dashboard ───────────────────────────────────────────────────────────────
 
 export interface DashboardAgentView {
@@ -477,5 +597,10 @@ export interface DashboardState {
     activePipelines: PipelineRun[];
     taskQueue: OrchestratorTask[];
     teams: AgentTeam[];
+    orgUnits: OrganizationUnit[];
+    guilds: Guild[];
+    agentMessages: AgentMessage[];
+    agentProfiles: AgentProfileStats[];
+    teamTemplates: TeamTemplate[];
     lastUpdated: number;
 }
