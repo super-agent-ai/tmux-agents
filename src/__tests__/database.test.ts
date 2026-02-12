@@ -223,6 +223,45 @@ describe('Database', () => {
             db.deleteSwimLane('sl2');
             expect(db.getSwimLane('sl2')).toBeUndefined();
         });
+
+        it('saves and retrieves defaultToggles', () => {
+            const lane: KanbanSwimLane = {
+                id: 'sl-dt', name: 'WithDefaults', serverId: 'local',
+                workingDirectory: '/project', sessionName: 'defaults',
+                createdAt: Date.now(),
+                defaultToggles: { autoStart: true, autoPilot: false, autoClose: true, useWorktree: false },
+            };
+            db.saveSwimLane(lane);
+            const loaded = db.getSwimLane('sl-dt');
+            expect(loaded).toBeDefined();
+            expect(loaded!.defaultToggles).toEqual({ autoStart: true, autoPilot: false, autoClose: true, useWorktree: false });
+        });
+
+        it('returns undefined defaultToggles for lanes without them', () => {
+            const lane: KanbanSwimLane = {
+                id: 'sl-nodt', name: 'NoDefaults', serverId: 'local',
+                workingDirectory: '/project', sessionName: 'nodefaults',
+                createdAt: Date.now(),
+            };
+            db.saveSwimLane(lane);
+            const loaded = db.getSwimLane('sl-nodt');
+            expect(loaded).toBeDefined();
+            expect(loaded!.defaultToggles).toBeUndefined();
+        });
+
+        it('updates defaultToggles when lane is re-saved', () => {
+            const lane: KanbanSwimLane = {
+                id: 'sl-updt', name: 'Update', serverId: 'local',
+                workingDirectory: '/project', sessionName: 'update',
+                createdAt: Date.now(),
+                defaultToggles: { autoStart: true, autoPilot: true, autoClose: false, useWorktree: false },
+            };
+            db.saveSwimLane(lane);
+            lane.defaultToggles = { autoStart: false, autoPilot: false, autoClose: true, useWorktree: true };
+            db.saveSwimLane(lane);
+            const loaded = db.getSwimLane('sl-updt');
+            expect(loaded!.defaultToggles).toEqual({ autoStart: false, autoPilot: false, autoClose: true, useWorktree: true });
+        });
     });
 
     // ─── Agents ──────────────────────────────────────────────────────────

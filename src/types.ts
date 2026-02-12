@@ -442,6 +442,13 @@ export interface FavouriteFolder {
 
 // ─── Kanban Swim Lane ────────────────────────────────────────────────────────
 
+export interface SwimLaneDefaultToggles {
+    autoStart?: boolean;
+    autoPilot?: boolean;
+    autoClose?: boolean;
+    useWorktree?: boolean;
+}
+
 export interface KanbanSwimLane {
     id: string;
     name: string;
@@ -457,6 +464,8 @@ export interface KanbanSwimLane {
     aiProvider?: AIProvider;
     /** AI model default for this lane (uses CLI default when unset) */
     aiModel?: string;
+    /** Default toggle statuses applied to newly created tasks in this lane */
+    defaultToggles?: SwimLaneDefaultToggles;
 }
 
 // ─── Pipeline Engine ─────────────────────────────────────────────────────────
