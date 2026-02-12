@@ -326,12 +326,26 @@ html, body {
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
     overflow: hidden; line-height: 1.35;
 }
+.card-desc strong, .card-summary strong { font-weight: 700; opacity: 0.85; }
+.card-desc em, .card-summary em { font-style: italic; }
+.inline-code {
+    font-family: var(--vscode-editor-font-family, 'Menlo', 'Consolas', monospace);
+    font-size: inherit; background: rgba(255,255,255,0.08);
+    padding: 0 3px; border-radius: 2px;
+}
 .card-summary {
     font-size: 10px; margin: 4px 0 2px; padding: 4px 6px;
     background: rgba(78,201,176,0.08); border-left: 2px solid #4ec9b0;
     border-radius: 2px; line-height: 1.4; color: rgba(255,255,255,0.7);
     display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
     overflow: hidden;
+}
+.modal-output strong { font-weight: 700; }
+.modal-output em { font-style: italic; }
+.modal-output .inline-code {
+    font-family: var(--vscode-editor-font-family, 'Menlo', 'Consolas', monospace);
+    font-size: inherit; background: rgba(255,255,255,0.08);
+    padding: 0 3px; border-radius: 2px;
 }
 .modal-output {
     font-size: 12px; padding: 8px 10px;
@@ -1471,6 +1485,14 @@ html, body {
         return d.innerHTML;
     }
 
+    function renderMd(s) {
+        var h = esc(s);
+        h = h.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+        h = h.replace(/\*(.+?)\*/g, '<em>$1</em>');
+        h = h.replace(/\x60(.+?)\x60/g, '<code class="inline-code">$1</code>');
+        return h;
+    }
+
     function shortId(id) {
         if (!id) return '';
         // Use last 6 chars (the random suffix) to avoid all IDs showing the same timestamp prefix
@@ -1615,9 +1637,9 @@ html, body {
         html += '</div>';
         html += '</div>';
         html += '<div class="card-title">' + esc(title) + '</div>';
-        if (desc) html += '<div class="card-desc">' + esc(desc) + '</div>';
+        if (desc) html += '<div class="card-desc">' + renderMd(desc) + '</div>';
         if (task.output && (colId === 'done' || colId === 'in_review')) {
-            html += '<div class="card-summary">' + esc(task.output) + '</div>';
+            html += '<div class="card-summary">' + renderMd(task.output) + '</div>';
         }
         html += '<div class="card-meta">';
         html += '<span class="priority-badge ' + pc + '">' + (task.priority || 1) + '</span>';
@@ -2604,10 +2626,10 @@ html, body {
         }
         tmDeps.innerHTML = depsHtml;
         if (task && task.output) {
-            tmOutput.textContent = task.output;
+            tmOutput.innerHTML = renderMd(task.output);
             tmOutputField.style.display = '';
         } else {
-            tmOutput.textContent = '';
+            tmOutput.innerHTML = '';
             tmOutputField.style.display = 'none';
         }
 
