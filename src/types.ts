@@ -449,6 +449,64 @@ export interface SwimLaneDefaultToggles {
     useWorktree?: boolean;
 }
 
+/** Toggle key names shared between tasks and swim lane defaults */
+export type ToggleKey = keyof SwimLaneDefaultToggles;
+
+/** All toggle keys for iteration */
+export const TOGGLE_KEYS: readonly ToggleKey[] = ['autoStart', 'autoPilot', 'autoClose', 'useWorktree'] as const;
+
+/**
+ * Resolve a single toggle value following the priority chain:
+ *   explicit task value → swim lane default → false
+ *
+ * A task value of `undefined` means "not explicitly set" and falls through
+ * to the swim lane default. A task value of `true` or `false` is treated
+ * as an explicit override and returned as-is.
+ */
+export function resolveToggle(
+    task: Pick<OrchestratorTask, ToggleKey>,
+    key: ToggleKey,
+    lane?: Pick<KanbanSwimLane, 'defaultToggles'>,
+): boolean {
+    const taskValue = task[key];
+    if (taskValue !== undefined) { return taskValue; }
+    if (lane?.defaultToggles?.[key] !== undefined) { return !!lane.defaultToggles[key]; }
+    return false;
+}
+
+/**
+ * Resolve all four toggles at once.
+ * Returns an object with definite boolean values for each toggle.
+ */
+export function resolveAllToggles(
+    task: Pick<OrchestratorTask, ToggleKey>,
+    lane?: Pick<KanbanSwimLane, 'defaultToggles'>,
+): Required<SwimLaneDefaultToggles> {
+    return {
+        autoStart: resolveToggle(task, 'autoStart', lane),
+        autoPilot: resolveToggle(task, 'autoPilot', lane),
+        autoClose: resolveToggle(task, 'autoClose', lane),
+        useWorktree: resolveToggle(task, 'useWorktree', lane),
+    };
+}
+
+/**
+ * Apply swim lane default toggles to a task, only setting values that the
+ * task does not already have explicitly defined. This stamps inherited
+ * defaults onto the task object so they persist in the database.
+ */
+export function applySwimLaneDefaults(
+    task: OrchestratorTask,
+    lane?: Pick<KanbanSwimLane, 'defaultToggles'>,
+): void {
+    if (!lane?.defaultToggles) { return; }
+    for (const key of TOGGLE_KEYS) {
+        if (task[key] === undefined && lane.defaultToggles[key]) {
+            (task as any)[key] = true;
+        }
+    }
+}
+
 export interface KanbanSwimLane {
     id: string;
     name: string;

@@ -1671,6 +1671,25 @@ html, body {
         return null;
     }
 
+    function findSwimLane(laneId) {
+        for (var i = 0; i < swimLanes.length; i++) {
+            if (swimLanes[i].id === laneId) return swimLanes[i];
+        }
+        return null;
+    }
+
+    /** Resolve a toggle value: task explicit > swim lane default > false */
+    function resolveTaskToggle(task, key) {
+        if (task[key] !== undefined && task[key] !== null) return !!task[key];
+        if (task.swimLaneId) {
+            var lane = findSwimLane(task.swimLaneId);
+            if (lane && lane.defaultToggles && lane.defaultToggles[key] !== undefined) {
+                return !!lane.defaultToggles[key];
+            }
+        }
+        return false;
+    }
+
     function getServerLabel(serverId) {
         for (var i = 0; i < servers.length; i++) {
             if (servers[i].id === serverId) return servers[i].label;
@@ -1727,14 +1746,18 @@ html, body {
         html += '<span class="priority-badge ' + pc + '">' + (task.priority || 1) + '</span>';
         if (role) html += '<span class="role-badge ' + esc(role) + '">' + esc(role) + '</span>';
         if (agent) html += '<span class="agent-name" title="' + esc(agent) + '">' + esc(agent) + '</span>';
+        var rAutoStart = resolveTaskToggle(task, 'autoStart');
+        var rAutoPilot = resolveTaskToggle(task, 'autoPilot');
+        var rAutoClose = resolveTaskToggle(task, 'autoClose');
+        var rUseWorktree = resolveTaskToggle(task, 'useWorktree');
         var autoFlags = [];
-        if (task.autoStart) autoFlags.push('S');
-        if (task.autoPilot) autoFlags.push('P');
-        if (task.autoClose) autoFlags.push('C');
+        if (rAutoStart) autoFlags.push('S');
+        if (rAutoPilot) autoFlags.push('P');
+        if (rAutoClose) autoFlags.push('C');
         if (autoFlags.length > 0) {
-            html += '<span class="auto-badge" title="Auto: ' + (task.autoStart ? 'Start ' : '') + (task.autoPilot ? 'Pilot ' : '') + (task.autoClose ? 'Close' : '') + '">&#x26A1; ' + autoFlags.join('') + '</span>';
+            html += '<span class="auto-badge" title="Auto: ' + (rAutoStart ? 'Start ' : '') + (rAutoPilot ? 'Pilot ' : '') + (rAutoClose ? 'Close' : '') + '">&#x26A1; ' + autoFlags.join('') + '</span>';
         }
-        if (task.useWorktree) {
+        if (rUseWorktree) {
             var wtClass = task.worktreePath ? 'worktree-badge active' : 'worktree-badge';
             var wtTip = task.worktreePath ? 'Worktree: ' + task.worktreePath : 'Worktree (pending)';
             html += '<span class="' + wtClass + '" title="' + esc(wtTip) + '">&#x1F333; WT</span>';
@@ -2833,10 +2856,10 @@ html, body {
         populateLaneDropdown(task ? (task.swimLaneId || '') : (laneId || ''));
         tmProvider.value = task ? (task.aiProvider || '') : '';
         populateModelDropdown(tmModel, task ? (task.aiProvider || '') : '', task ? (task.aiModel || '') : '');
-        task && task.autoStart ? tmAutoStart.classList.add('active') : tmAutoStart.classList.remove('active');
-        task && task.autoPilot ? tmAutoPilot.classList.add('active') : tmAutoPilot.classList.remove('active');
-        task && task.autoClose ? tmAutoClose.classList.add('active') : tmAutoClose.classList.remove('active');
-        task && task.useWorktree ? tmWorktree.classList.add('active') : tmWorktree.classList.remove('active');
+        (task && resolveTaskToggle(task, 'autoStart')) ? tmAutoStart.classList.add('active') : tmAutoStart.classList.remove('active');
+        (task && resolveTaskToggle(task, 'autoPilot')) ? tmAutoPilot.classList.add('active') : tmAutoPilot.classList.remove('active');
+        (task && resolveTaskToggle(task, 'autoClose')) ? tmAutoClose.classList.add('active') : tmAutoClose.classList.remove('active');
+        (task && resolveTaskToggle(task, 'useWorktree')) ? tmWorktree.classList.add('active') : tmWorktree.classList.remove('active');
         // Populate dependencies multi-select
         var depsHtml = '';
         var currentDeps = (task && task.dependsOn) ? task.dependsOn : [];

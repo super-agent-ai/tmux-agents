@@ -197,4 +197,47 @@ describe('Swimlane Default Toggles', () => {
             expect(buildFn).toContain('&#x2699;');
         });
     });
+
+    // ─── Toggle Inheritance in Webview JS ────────────────────────────────
+
+    describe('webview toggle inheritance JavaScript', () => {
+        it('defines resolveTaskToggle helper function', () => {
+            expect(html).toContain('function resolveTaskToggle(task, key)');
+        });
+
+        it('resolveTaskToggle checks task value first', () => {
+            const fn = html.substring(
+                html.indexOf('function resolveTaskToggle'),
+                html.indexOf('function getServerLabel')
+            );
+            expect(fn).toContain('task[key]');
+        });
+
+        it('resolveTaskToggle falls back to swim lane defaultToggles', () => {
+            const fn = html.substring(
+                html.indexOf('function resolveTaskToggle'),
+                html.indexOf('function getServerLabel')
+            );
+            expect(fn).toContain('lane.defaultToggles');
+        });
+
+        it('defines findSwimLane helper function', () => {
+            expect(html).toContain('function findSwimLane(laneId)');
+        });
+
+        it('card builder uses resolveTaskToggle for auto badges', () => {
+            expect(html).toContain("resolveTaskToggle(task, 'autoStart')");
+            expect(html).toContain("resolveTaskToggle(task, 'autoPilot')");
+            expect(html).toContain("resolveTaskToggle(task, 'autoClose')");
+            expect(html).toContain("resolveTaskToggle(task, 'useWorktree')");
+        });
+
+        it('task modal uses resolveTaskToggle for toggle chip states', () => {
+            const modalSection = html.substring(
+                html.indexOf('function openTaskModal'),
+                html.indexOf('function closeTaskModal') !== -1 ? html.indexOf('function closeTaskModal') : html.indexOf('function submitTask')
+            );
+            expect(modalSection).toContain('resolveTaskToggle(task');
+        });
+    });
 });

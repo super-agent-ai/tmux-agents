@@ -3,7 +3,7 @@ import { TmuxServiceManager } from './serviceManager';
 import { TmuxSessionProvider } from './treeProvider';
 import { AgentOrchestrator } from './orchestrator';
 import { Database } from './database';
-import { TaskStatus, OrchestratorTask, KanbanSwimLane } from './types';
+import { TaskStatus, OrchestratorTask, KanbanSwimLane, resolveToggle } from './types';
 import { markDoneTimestamp } from './autoCloseMonitor';
 
 export interface AutoMonitorContext {
@@ -19,10 +19,11 @@ export interface AutoMonitorContext {
 
 export async function checkAutoCompletions(ctx: AutoMonitorContext): Promise<void> {
     const allTasks = ctx.orchestrator.getTaskQueue();
-    const autoTasks = allTasks.filter(t =>
-        t.autoClose && t.kanbanColumn === 'in_progress' &&
-        t.tmuxSessionName && t.tmuxWindowIndex && t.tmuxPaneIndex && t.tmuxServerId
-    );
+    const autoTasks = allTasks.filter(t => {
+        const lane = t.swimLaneId ? ctx.swimLanes.find(l => l.id === t.swimLaneId) : undefined;
+        return resolveToggle(t, 'autoClose', lane) && t.kanbanColumn === 'in_progress' &&
+            t.tmuxSessionName && t.tmuxWindowIndex && t.tmuxPaneIndex && t.tmuxServerId;
+    });
     if (autoTasks.length === 0) { return; }
 
     for (const task of autoTasks) {
@@ -137,7 +138,9 @@ async function triggerAutoMonitorDependents(ctx: AutoMonitorContext, completedTa
             const dep = ctx.orchestrator.getTask(depId);
             return dep && dep.status === TaskStatus.COMPLETED;
         });
-        if (allMet && task.autoStart && (task.kanbanColumn === 'todo' || task.kanbanColumn === 'backlog') && task.swimLaneId) {
+        const lane = task.swimLaneId ? ctx.swimLanes.find(l => l.id === task.swimLaneId) : undefined;
+        const effectiveAutoStart = resolveToggle(task, 'autoStart', lane);
+        if (allMet && effectiveAutoStart && (task.kanbanColumn === 'todo' || task.kanbanColumn === 'backlog') && task.swimLaneId) {
             task.kanbanColumn = 'todo';
             ctx.database.saveTask(task);
             await ctx.startTaskFlow(task);

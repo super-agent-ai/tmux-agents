@@ -49,8 +49,8 @@ describe('Kanban Worktree Indicator', () => {
     // ─── Rendering Logic ─────────────────────────────────────────────────
 
     describe('worktree badge rendering logic in buildCard', () => {
-        it('conditionally renders badge based on task.useWorktree', () => {
-            expect(html).toContain('if (task.useWorktree)');
+        it('conditionally renders badge based on resolved useWorktree toggle', () => {
+            expect(html).toContain('rUseWorktree');
         });
 
         it('renders tree icon and WT label', () => {
