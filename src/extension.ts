@@ -510,7 +510,10 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
                         // Resolve ~ on the target server (local or remote) via shell
                         const resolvedDir = (await service.execCommand(`cd ${lane.workingDirectory} && pwd`)).trim();
                         const parentDir = resolvedDir.substring(0, resolvedDir.lastIndexOf('/'));
-                        const worktreePath = `${parentDir}/.worktrees/${branchName}`;
+                        const worktreeDir = `${parentDir}/.worktrees`;
+                        const worktreePath = `${worktreeDir}/${branchName}`;
+                        // Ensure .worktrees parent directory exists
+                        await service.execCommand(`mkdir -p ${JSON.stringify(worktreeDir)}`);
                         // Clean up previous worktree if it exists (e.g. on restart)
                         if (t.worktreePath) {
                             try {
@@ -524,7 +527,7 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
                         } catch { /* branch may not exist */ }
                         await service.execCommand(`git -C ${JSON.stringify(resolvedDir)} worktree add ${JSON.stringify(worktreePath)} -b ${branchName}`);
                         t.worktreePath = worktreePath;
-                        await service.sendKeys(lane.sessionName, winIndex, paneIndex, `cd ${JSON.stringify(worktreePath)}`);
+                        await service.sendKeys(lane.sessionName, winIndex, paneIndex, `cd ${worktreePath}`);
                     } catch (err) {
                         vscode.window.showWarningMessage(`[Worktree] Failed to create worktree: ${err}`);
                         await service.sendKeys(lane.sessionName, winIndex, paneIndex, `cd ${lane.workingDirectory}`);
