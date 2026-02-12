@@ -3,6 +3,7 @@ import * as cp from 'child_process';
 import * as util from 'util';
 import { AIProvider, AIStatus, AISessionInfo, TmuxPane } from './types';
 import { TmuxService } from './tmuxService';
+import { resolveModelAlias } from './aiModels';
 
 const exec = util.promisify(cp.exec);
 
@@ -12,6 +13,8 @@ interface ProviderConfig {
     args: string[];
     forkArgs: string[];
     env: Record<string, string>;
+    defaultWorkingDirectory?: string;
+    shell: boolean;
 }
 
 export class AIAssistantManager {
@@ -47,9 +50,11 @@ export class AIAssistantManager {
     /**
      * Resolve the effective model for a given context.
      * Priority: task model > lane model > undefined (CLI default).
+     * Deprecated model aliases are automatically resolved to current identifiers.
      */
     resolveModel(taskModel?: string, laneModel?: string): string | undefined {
-        return taskModel || laneModel || undefined;
+        const raw = taskModel || laneModel || undefined;
+        return raw ? resolveModelAlias(raw) : undefined;
     }
 
     /**
@@ -72,6 +77,8 @@ export class AIAssistantManager {
             args: this.normalizeArgs(p.args),
             forkArgs: this.normalizeArgs(p.forkArgs),
             env: (p.env as Record<string, string>) || {},
+            defaultWorkingDirectory: p.defaultWorkingDirectory || undefined,
+            shell: p.shell ?? true,
         };
     }
 
@@ -227,13 +234,14 @@ export class AIAssistantManager {
         const config = this.getProviderConfig(provider);
         const envPrefix = this.buildEnvPrefix(config.env);
         const args = config.args.filter(a => a !== '--print' && a !== '-');
-        if (model) {
+        const resolvedModel = model ? resolveModelAlias(model) : undefined;
+        if (resolvedModel) {
             if (provider === AIProvider.OPENCODE || provider === AIProvider.CLINE) {
-                args.push('-m', model);
+                args.push('-m', resolvedModel);
             } else if (provider === AIProvider.AMP || provider === AIProvider.KIRO) {
                 // amp uses agent modes, kiro uses settings-based model selection
             } else {
-                args.push('--model', model);
+                args.push('--model', resolvedModel);
             }
         }
         const parts = [envPrefix + config.command, ...args];
@@ -254,38 +262,36 @@ export class AIAssistantManager {
      * Get spawn-friendly config for cp.spawn: { command, args, env }.
      */
     getSpawnConfig(provider: AIProvider, model?: string): { command: string; args: string[]; env: Record<string, string>; cwd?: string; shell: boolean } {
-        const cfg = vscode.workspace.getConfiguration('tmuxAgents');
-        const allProviders = cfg.get<Record<string, any>>('aiProviders') || {};
-        const key = provider as string;
-        const p = allProviders[key] || {};
         const config = this.getProviderConfig(provider);
-        const cwd = p.defaultWorkingDirectory
+        const cwd = config.defaultWorkingDirectory
             || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
             || undefined;
-        const shell = p.shell ?? true;
+        const shell = config.shell;
+        // Resolve deprecated model aliases to current identifiers
+        const resolvedModel = model ? resolveModelAlias(model) : undefined;
 
         if (provider === AIProvider.OPENCODE) {
             const args = ['run'];
-            if (model) { args.push('-m', model); }
+            if (resolvedModel) { args.push('-m', resolvedModel); }
             return { command: config.pipeCommand, args, env: config.env, cwd, shell };
         }
 
         if (provider === AIProvider.CURSOR) {
             const args: string[] = ['--print', '--output-format', 'text'];
-            if (model) { args.push('--model', model); }
+            if (resolvedModel) { args.push('--model', resolvedModel); }
             return { command: config.pipeCommand, args, env: config.env, cwd, shell };
         }
 
         if (provider === AIProvider.COPILOT) {
             const args: string[] = ['-p', '-s'];
-            if (model) { args.push('--model', model); }
+            if (resolvedModel) { args.push('--model', resolvedModel); }
             return { command: config.pipeCommand, args, env: config.env, cwd, shell };
         }
 
         if (provider === AIProvider.AIDER) {
             // aider uses --message "prompt" (not stdin), --model for model, --yes to auto-confirm
             const args: string[] = ['--yes'];
-            if (model) { args.push('--model', model); }
+            if (resolvedModel) { args.push('--model', resolvedModel); }
             // --message flag + prompt are added by spawnStreaming
             return { command: config.pipeCommand, args, env: config.env, cwd, shell };
         }
@@ -293,14 +299,14 @@ export class AIAssistantManager {
         if (provider === AIProvider.AMP) {
             // amp uses -x "prompt" for non-interactive execute mode
             const args: string[] = [];
-            // amp uses agent modes (smart/rush/deep) not --model; no model flag
+            // amp uses agent modes (smart/rush/auto) not --model; no model flag
             return { command: config.pipeCommand, args, env: config.env, cwd, shell };
         }
 
         if (provider === AIProvider.CLINE) {
             // cline uses -y for auto-approve (headless), prompt as positional arg
             const args: string[] = ['-y'];
-            if (model) { args.push('-m', model); }
+            if (resolvedModel) { args.push('-m', resolvedModel); }
             return { command: config.pipeCommand, args, env: config.env, cwd, shell };
         }
 
@@ -313,7 +319,7 @@ export class AIAssistantManager {
 
         // Default: claude, gemini, codex
         const args: string[] = [];
-        if (model) { args.push('--model', model); }
+        if (resolvedModel) { args.push('--model', resolvedModel); }
         args.push('--print', '-');
         return { command: config.pipeCommand, args, env: config.env, cwd, shell };
     }

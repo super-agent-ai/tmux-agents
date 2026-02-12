@@ -9,6 +9,7 @@ import { gatherFullExtensionContext, formatFullContextForPrompt, ContextGatherin
 import { ApiCatalog, ParsedAIResponse } from './apiCatalog';
 import { AIAssistantManager } from './aiAssistant';
 import { AIProvider, ChatConversation, ConversationEntry, ConversationStatus } from './types';
+import { PROVIDER_MODELS, getModelsForProvider, getDefaultModel, resolveModelAlias, ModelOption } from './aiModels';
 
 const execAsync = util.promisify(cp.exec);
 const readFile = util.promisify(fs.readFile);
@@ -25,7 +26,7 @@ function safeCwd(dir?: string): string | undefined {
 function spawnWithStdin(command: string, args: string[], input: string, timeoutMs: number = 60000, onSpawn?: (proc: cp.ChildProcess) => void, cwd?: string): Promise<string> {
     return new Promise((resolve, reject) => {
         const cmdStr = [command, ...args].join(' ');
-        const proc = cp.exec(cmdStr, { cwd: safeCwd(cwd), maxBuffer: 10 * 1024 * 1024, timeout: timeoutMs }, (error, stdout, stderr) => {
+        const proc = cp.exec(cmdStr, { cwd: safeCwd(cwd), maxBuffer: 50 * 1024 * 1024, timeout: timeoutMs }, (error, stdout, stderr) => {
             if (error && error.killed) { reject(new Error('Command timed out')); return; }
             if (error) { reject(new Error(stderr || stdout || error.message)); return; }
             resolve(stdout);
@@ -188,9 +189,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         if (target) {
             target.isCollapsed = false;
             this.activeConversationId = convId;
-            // Restore provider/model from conversation
+            // Restore provider/model from conversation (resolve deprecated aliases)
             this.selectedProvider = target.aiProvider as AIProvider;
-            this.selectedModel = target.model;
+            this.selectedModel = resolveModelAlias(target.model);
         }
         this.syncConversationBanners();
         this.syncConversationMessages();
@@ -297,7 +298,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 if (activeConv) { activeConv.messages = []; }
                 this.postMessage({ type: 'clearMessages' });
             } else if (msg.type === 'setModel') {
-                this.selectedModel = msg.model;
+                this.selectedModel = resolveModelAlias(msg.model);
             } else if (msg.type === 'setProvider') {
                 this.selectedProvider = msg.provider as AIProvider;
                 const models = this.getProviderModels();
@@ -331,6 +332,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 await this.stopVoiceRecording();
             }
         });
+
+        // Send initial model list for the selected provider
+        const initialModels = this.getProviderModels();
+        this.postMessage({ type: 'updateModels', models: initialModels, selected: this.selectedModel });
 
         // Restore saved conversations on panel open
         if (this.conversations.size > 0) {
@@ -793,77 +798,8 @@ except sr.RequestError as e:
 
     // ── Provider Models ────────────────────────────────────────────────────
 
-    private static readonly PROVIDER_MODELS: Record<string, { value: string; label: string }[]> = {
-        claude: [
-            { value: 'opus', label: 'Opus 4.6' },
-            { value: 'sonnet', label: 'Sonnet 4.5' },
-            { value: 'haiku', label: 'Haiku 4.5' },
-            { value: 'opusplan', label: 'Opus Plan' },
-        ],
-        gemini: [
-            { value: 'gemini-3-pro-preview', label: '3 Pro' },
-            { value: 'gemini-3-flash-preview', label: '3 Flash' },
-            { value: 'gemini-2.5-pro', label: '2.5 Pro' },
-            { value: 'gemini-2.5-flash', label: '2.5 Flash' },
-        ],
-        codex: [
-            { value: 'gpt-5.3-codex', label: 'GPT-5.3 Codex' },
-            { value: 'gpt-5.2-codex', label: 'GPT-5.2 Codex' },
-            { value: 'gpt-5.1-codex-mini', label: 'GPT-5.1 Mini' },
-            { value: 'gpt-5.2', label: 'GPT-5.2' },
-        ],
-        opencode: [
-            { value: 'anthropic/claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5' },
-            { value: 'anthropic/claude-opus-4-6', label: 'Claude Opus 4.6' },
-            { value: 'openai/gpt-5.2', label: 'GPT-5.2' },
-            { value: 'google/gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
-        ],
-        cursor: [
-            { value: 'auto', label: 'Auto' },
-            { value: 'sonnet-4', label: 'Claude Sonnet 4' },
-            { value: 'opus-4.1', label: 'Claude Opus 4.1' },
-            { value: 'gpt-5', label: 'GPT-5' },
-            { value: 'composer', label: 'Composer' },
-        ],
-        copilot: [
-            { value: 'claude-sonnet-4.5', label: 'Claude Sonnet 4.5' },
-            { value: 'claude-sonnet-4', label: 'Claude Sonnet 4' },
-            { value: 'claude-haiku-4.5', label: 'Claude Haiku 4.5' },
-            { value: 'gpt-5', label: 'GPT-5' },
-        ],
-        aider: [
-            { value: 'sonnet', label: 'Claude Sonnet' },
-            { value: 'opus', label: 'Claude Opus' },
-            { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
-            { value: 'gpt-5.2', label: 'GPT-5.2' },
-            { value: 'o3-pro', label: 'o3-Pro' },
-            { value: 'deepseek', label: 'DeepSeek' },
-        ],
-        amp: [
-            { value: 'smart', label: 'Smart (Opus 4.6)' },
-            { value: 'rush', label: 'Rush (Haiku 4.5)' },
-            { value: 'deep', label: 'Deep (GPT-5.2 Codex)' },
-        ],
-        cline: [
-            { value: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5' },
-            { value: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
-            { value: 'gpt-4o', label: 'GPT-4o' },
-            { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
-            { value: 'kimi-k2.5', label: 'Kimi K2.5' },
-        ],
-        kiro: [
-            { value: 'auto', label: 'Auto' },
-            { value: 'claude-opus-4.6', label: 'Claude Opus 4.6' },
-            { value: 'claude-opus-4.5', label: 'Claude Opus 4.5' },
-            { value: 'claude-sonnet-4.5', label: 'Claude Sonnet 4.5' },
-            { value: 'claude-sonnet-4', label: 'Claude Sonnet 4' },
-            { value: 'claude-haiku-4.5', label: 'Claude Haiku 4.5' },
-        ],
-    };
-
-    private getProviderModels(): { value: string; label: string }[] {
-        return ChatViewProvider.PROVIDER_MODELS[this.selectedProvider]
-            || ChatViewProvider.PROVIDER_MODELS.claude;
+    private getProviderModels(): ModelOption[] {
+        return getModelsForProvider(this.selectedProvider);
     }
 
     // ── System Prompt ───────────────────────────────────────────────────────
@@ -1433,10 +1369,7 @@ body {
         <option value="kiro">Kiro</option>
     </select>
     <select id="model-select" title="Select AI model for chat responses">
-        <option value="opus" selected>Opus 4.6</option>
-        <option value="sonnet">Sonnet 4.5</option>
-        <option value="haiku">Haiku 4.5</option>
-        <option value="opusplan">Opus Plan</option>
+        <!-- Models populated dynamically from PROVIDER_MODELS via updateModels message -->
     </select>
     <span id="toolbar-spacer"></span>
     <button id="new-chat-btn" title="New conversation">
