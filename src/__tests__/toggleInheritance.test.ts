@@ -377,4 +377,48 @@ describe('task creation with swim lane inheritance', () => {
         expect(task.autoPilot).toBeUndefined();
         expect(task.autoClose).toBe(true);
     });
+
+    it('explicit false toggle prevents swim lane default from overriding', () => {
+        const lane = makeLane('l', 'Lane', {
+            defaultToggles: { autoStart: true, autoPilot: true, autoClose: true, useWorktree: true },
+        });
+
+        // Simulate: user explicitly sets useWorktree=false and autoClose=false
+        // The fixed createTask handler now stores false (not undefined)
+        const task = makeTask({
+            swimLaneId: 'l',
+            useWorktree: false,
+            autoClose: false,
+        });
+
+        applySwimLaneDefaults(task, lane);
+
+        // Explicit false must NOT be overridden by lane defaults
+        expect(task.useWorktree).toBe(false);
+        expect(task.autoClose).toBe(false);
+        // Undefined toggles inherit lane defaults
+        expect(task.autoStart).toBe(true);
+        expect(task.autoPilot).toBe(true);
+    });
+
+    it('explicit false on all toggles prevents all lane defaults', () => {
+        const lane = makeLane('l', 'Lane', {
+            defaultToggles: { autoStart: true, autoPilot: true, autoClose: true, useWorktree: true },
+        });
+
+        const task = makeTask({
+            swimLaneId: 'l',
+            autoStart: false,
+            autoPilot: false,
+            autoClose: false,
+            useWorktree: false,
+        });
+
+        applySwimLaneDefaults(task, lane);
+
+        expect(task.autoStart).toBe(false);
+        expect(task.autoPilot).toBe(false);
+        expect(task.autoClose).toBe(false);
+        expect(task.useWorktree).toBe(false);
+    });
 });
