@@ -996,11 +996,11 @@ html, body {
 /* ── Swim Lane Auto Add (Red +) ────────────────────────────────────── */
 .swim-lane-auto-add {
     width: 24px; height: 24px; padding: 0; border: none; border-radius: 4px;
-    background: transparent; color: var(--vscode-foreground); cursor: pointer;
+    background: rgba(244,71,71,0.15); color: #f44747; cursor: pointer;
     font-size: 16px; display: inline-flex; align-items: center; justify-content: center;
-    opacity: 0.6; transition: opacity 0.15s, background 0.15s, color 0.15s;
+    opacity: 0.8; transition: opacity 0.15s, background 0.15s, color 0.15s;
 }
-.swim-lane-auto-add:hover { opacity: 1; background: rgba(244,71,71,0.15); color: #f44747; }
+.swim-lane-auto-add:hover { opacity: 1; background: rgba(244,71,71,0.25); color: #f44747; }
 .swim-lane-auto-add:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 1px; }
 .swim-lane-auto-add.creating { opacity: 0.4; pointer-events: none; }
 
