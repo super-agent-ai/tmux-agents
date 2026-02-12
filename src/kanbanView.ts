@@ -992,6 +992,12 @@ html, body {
                     </label>
                     <span class="modal-toggle-label">Close</span>
                 </div>
+                <div class="auto-toggle-item">
+                    <label class="modal-toggle" id="tm-worktree" tabindex="0">
+                        <span class="modal-toggle-track"><span class="modal-toggle-thumb"></span></span>
+                    </label>
+                    <span class="modal-toggle-label">Worktree</span>
+                </div>
             </div>
         </div>
         <div class="field" id="tm-deps-field">
@@ -1199,6 +1205,7 @@ html, body {
     var tmAutoStart = document.getElementById('tm-auto-start');
     var tmAutoPilot = document.getElementById('tm-auto-pilot');
     var tmAutoClose = document.getElementById('tm-auto-close');
+    var tmWorktree = document.getElementById('tm-worktree');
     function setupToggle(el) {
         el.addEventListener('click', function() { el.classList.toggle('active'); });
         el.addEventListener('keydown', function(e) { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); el.classList.toggle('active'); } });
@@ -1206,6 +1213,7 @@ html, body {
     setupToggle(tmAutoStart);
     setupToggle(tmAutoPilot);
     setupToggle(tmAutoClose);
+    setupToggle(tmWorktree);
     var tmOutputField = document.getElementById('tm-output-field');
     var tmOutput = document.getElementById('tm-output');
     var tmSubmit = document.getElementById('tm-submit');
@@ -2213,6 +2221,7 @@ html, body {
         task && task.autoStart ? tmAutoStart.classList.add('active') : tmAutoStart.classList.remove('active');
         task && task.autoPilot ? tmAutoPilot.classList.add('active') : tmAutoPilot.classList.remove('active');
         task && task.autoClose ? tmAutoClose.classList.add('active') : tmAutoClose.classList.remove('active');
+        task && task.useWorktree ? tmWorktree.classList.add('active') : tmWorktree.classList.remove('active');
         // Populate dependencies multi-select
         var depsHtml = '';
         var currentDeps = (task && task.dependsOn) ? task.dependsOn : [];
@@ -2320,6 +2329,7 @@ html, body {
         var autoStart = tmAutoStart.classList.contains('active');
         var autoPilot = tmAutoPilot.classList.contains('active');
         var autoClose = tmAutoClose.classList.contains('active');
+        var useWorktree = tmWorktree.classList.contains('active');
         var taskProvider = tmProvider.value || undefined;
         var taskModel = tmModel.value || undefined;
         var selectedDeps = [];
@@ -2341,6 +2351,7 @@ html, body {
                     autoStart: autoStart,
                     autoPilot: autoPilot,
                     autoClose: autoClose,
+                    useWorktree: useWorktree,
                     aiProvider: taskProvider,
                     aiModel: taskModel,
                     dependsOn: dependsOn || []
@@ -2356,6 +2367,7 @@ html, body {
                 t.autoStart = autoStart;
                 t.autoPilot = autoPilot;
                 t.autoClose = autoClose;
+                t.useWorktree = useWorktree;
                 t.aiProvider = taskProvider;
                 t.aiModel = taskModel;
                 t.dependsOn = dependsOn;
@@ -2372,6 +2384,7 @@ html, body {
                 autoStart: autoStart,
                 autoPilot: autoPilot,
                 autoClose: autoClose,
+                useWorktree: useWorktree,
                 aiProvider: taskProvider,
                 aiModel: taskModel,
                 dependsOn: dependsOn,

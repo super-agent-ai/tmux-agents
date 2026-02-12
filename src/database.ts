@@ -156,7 +156,7 @@ export class Database {
     private migrate(): void {
         if (!this.db) { return; }
         // Add tmux columns to tasks table if missing
-        const cols = ['tmuxSessionName', 'tmuxWindowIndex', 'tmuxPaneIndex', 'tmuxServerId', 'autoMode', 'autoStart', 'autoPilot', 'autoClose', 'aiProvider', 'aiModel'];
+        const cols = ['tmuxSessionName', 'tmuxWindowIndex', 'tmuxPaneIndex', 'tmuxServerId', 'autoMode', 'autoStart', 'autoPilot', 'autoClose', 'aiProvider', 'aiModel', 'useWorktree', 'worktreePath'];
         for (const col of cols) {
             try {
                 this.db.run(`ALTER TABLE tasks ADD COLUMN ${col} TEXT`);
@@ -286,8 +286,8 @@ export class Database {
                   pipelineStageId,createdAt,startedAt,completedAt,errorMessage,kanbanColumn,
                   swimLaneId,parentTaskId,verificationStatus,
                   tmuxSessionName,tmuxWindowIndex,tmuxPaneIndex,tmuxServerId,autoStart,autoPilot,autoClose,
-                  aiProvider,aiModel)
-                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+                  aiProvider,aiModel,useWorktree,worktreePath)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
                 [task.id, task.description, task.targetRole ?? null,
                  task.assignedAgentId ?? null, task.status, task.priority,
                  task.input ?? null, task.output ?? null,
@@ -299,7 +299,8 @@ export class Database {
                  task.tmuxSessionName ?? null, task.tmuxWindowIndex ?? null,
                  task.tmuxPaneIndex ?? null, task.tmuxServerId ?? null,
                  task.autoStart ? 1 : 0, task.autoPilot ? 1 : 0, task.autoClose ? 1 : 0,
-                 task.aiProvider ?? null, task.aiModel ?? null]
+                 task.aiProvider ?? null, task.aiModel ?? null,
+                 task.useWorktree ? 1 : 0, task.worktreePath ?? null]
             );
             // Rebuild subtask relations
             this.run('DELETE FROM subtask_relations WHERE parentId=?', [task.id]);
@@ -400,6 +401,8 @@ export class Database {
         if (r.autoClose != null) { t.autoClose = r.autoClose === 1 || r.autoClose === '1'; }
         if (r.aiProvider != null) { t.aiProvider = r.aiProvider as AIProvider; }
         if (r.aiModel != null) { t.aiModel = r.aiModel; }
+        if (r.useWorktree != null) { t.useWorktree = r.useWorktree === 1 || r.useWorktree === '1'; }
+        if (r.worktreePath != null) { t.worktreePath = r.worktreePath; }
         const subs = this.getSubtaskIds(t.id);
         if (subs.length > 0) { t.subtaskIds = subs; }
         const deps = this.getDependsOnIds(t.id);

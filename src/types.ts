@@ -394,6 +394,10 @@ export interface OrchestratorTask {
     autoPilot?: boolean;
     /** Auto-close: when done, close tmux session and move to done */
     autoClose?: boolean;
+    /** Launch in a dedicated git worktree for isolation */
+    useWorktree?: boolean;
+    /** Path to the created git worktree (for cleanup) */
+    worktreePath?: string;
     /** AI provider override for this task (uses swim lane → global fallback when unset) */
     aiProvider?: AIProvider;
     /** AI model override for this task (uses swim lane → global fallback when unset) */
