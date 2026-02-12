@@ -476,7 +476,19 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
                 const winIndex = win?.index || '0';
                 const paneIndex = win?.panes[0]?.index || '0';
 
-                if (lane.workingDirectory) {
+                if (t.useWorktree && lane.workingDirectory) {
+                    const shortId = t.id.slice(-8);
+                    const branchName = `task-${shortId}`;
+                    const worktreePath = `${lane.workingDirectory}/../.worktrees/${branchName}`;
+                    try {
+                        await service.execCommand(`git -C ${JSON.stringify(lane.workingDirectory)} worktree add ${JSON.stringify(worktreePath)} -b ${branchName}`);
+                        t.worktreePath = worktreePath;
+                        await service.sendKeys(lane.sessionName, winIndex, paneIndex, `cd ${worktreePath}`);
+                    } catch (err) {
+                        console.warn('[Worktree] Failed to create worktree, falling back to lane directory:', err);
+                        await service.sendKeys(lane.sessionName, winIndex, paneIndex, `cd ${lane.workingDirectory}`);
+                    }
+                } else if (lane.workingDirectory) {
                     await service.sendKeys(lane.sessionName, winIndex, paneIndex, `cd ${lane.workingDirectory}`);
                 }
 

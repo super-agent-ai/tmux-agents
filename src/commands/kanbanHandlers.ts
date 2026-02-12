@@ -355,6 +355,7 @@ export async function handleKanbanMessage(
             if (payload.autoStart) { task.autoStart = true; }
             if (payload.autoPilot) { task.autoPilot = true; }
             if (payload.autoClose) { task.autoClose = true; }
+            if (payload.useWorktree) { task.useWorktree = true; }
             if (payload.dependsOn && payload.dependsOn.length > 0) { task.dependsOn = payload.dependsOn; }
             ctx.orchestrator.submitTask(task);
             ctx.database.saveTask(task);
@@ -423,6 +424,16 @@ export async function handleKanbanMessage(
                 if (payload.kanbanColumn === 'done') {
                     t.status = TaskStatus.COMPLETED;
                     t.completedAt = Date.now();
+                    // Clean up worktree if one was created
+                    if (t.worktreePath && t.tmuxServerId) {
+                        const svc = ctx.serviceManager.getService(t.tmuxServerId);
+                        if (svc) {
+                            try {
+                                await svc.execCommand(`git worktree remove ${JSON.stringify(t.worktreePath)} --force`);
+                            } catch (err) { console.warn('[Kanban] Failed to remove worktree:', err); }
+                        }
+                        t.worktreePath = undefined;
+                    }
                     ctx.database.saveTask(t);
                     await triggerDependents(ctx, t.id);
                 }
@@ -476,6 +487,7 @@ export async function handleKanbanMessage(
                 if (payload.updates.autoStart !== undefined) t.autoStart = !!payload.updates.autoStart;
                 if (payload.updates.autoPilot !== undefined) t.autoPilot = !!payload.updates.autoPilot;
                 if (payload.updates.autoClose !== undefined) t.autoClose = !!payload.updates.autoClose;
+                if (payload.updates.useWorktree !== undefined) t.useWorktree = !!payload.updates.useWorktree;
                 if (payload.updates.aiProvider !== undefined) t.aiProvider = payload.updates.aiProvider || undefined;
                 if (payload.updates.aiModel !== undefined) t.aiModel = payload.updates.aiModel || undefined;
                 if (payload.updates.dependsOn !== undefined) t.dependsOn = payload.updates.dependsOn;

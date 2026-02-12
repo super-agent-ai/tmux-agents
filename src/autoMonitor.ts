@@ -45,6 +45,13 @@ export async function checkAutoCompletions(ctx: AutoMonitorContext): Promise<voi
                     task.input = (task.input || '') + separator + '**Completion Summary:**\n' + task.output;
                 }
                 try { await service.killWindow(task.tmuxSessionName!, task.tmuxWindowIndex!); } catch {}
+                // Clean up worktree if one was created
+                if (task.worktreePath) {
+                    try {
+                        await service.execCommand(`git worktree remove ${JSON.stringify(task.worktreePath)} --force`);
+                    } catch (err) { console.warn('[AutoMonitor] Failed to remove worktree:', err); }
+                    task.worktreePath = undefined;
+                }
                 task.kanbanColumn = 'done';
                 task.status = TaskStatus.COMPLETED;
                 task.completedAt = Date.now();

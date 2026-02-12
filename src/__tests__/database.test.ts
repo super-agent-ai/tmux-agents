@@ -146,6 +146,25 @@ describe('Database', () => {
             expect(loaded.autoClose).toBe(false);
         });
 
+        it('saves and retrieves useWorktree and worktreePath fields', () => {
+            const task = makeTask('t-wt', {
+                useWorktree: true,
+                worktreePath: '/tmp/.worktrees/task-abc123',
+            });
+            db.saveTask(task);
+            const loaded = db.getTask('t-wt')!;
+            expect(loaded.useWorktree).toBe(true);
+            expect(loaded.worktreePath).toBe('/tmp/.worktrees/task-abc123');
+        });
+
+        it('saves useWorktree as false when not set', () => {
+            const task = makeTask('t-wt2');
+            db.saveTask(task);
+            const loaded = db.getTask('t-wt2')!;
+            expect(loaded.useWorktree).toBeFalsy();
+            expect(loaded.worktreePath).toBeUndefined();
+        });
+
         it('saves and retrieves subtask relations', () => {
             // Save parent first (without subtaskIds) so FK on parentTaskId works
             const parent = makeTask('parent');
