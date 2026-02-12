@@ -919,6 +919,44 @@ html, body {
     flex: 0 0 240px; max-width: 320px;
 }
 
+/* ── Swim Lane Quick Add ─────────────────────────────────────────────── */
+.swim-lane-quick-add {
+    width: 24px; height: 24px; padding: 0; border: none; border-radius: 4px;
+    background: transparent; color: var(--vscode-foreground); cursor: pointer;
+    font-size: 16px; display: inline-flex; align-items: center; justify-content: center;
+    opacity: 0.6; transition: opacity 0.15s, background 0.15s;
+}
+.swim-lane-quick-add:hover { opacity: 1; background: rgba(78,201,176,0.15); color: #4ec9b0; }
+.quick-add-form {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 16px;
+    background: var(--vscode-editor-background);
+    border-bottom: 1px solid var(--vscode-panel-border);
+}
+.quick-add-form input {
+    flex: 1; padding: 5px 8px; border-radius: 3px;
+    border: 1px solid var(--vscode-focusBorder);
+    background: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    font-family: inherit; font-size: 12px; outline: none;
+    min-width: 0;
+}
+.quick-add-form input::placeholder { opacity: 0.5; }
+.quick-add-form .quick-add-submit {
+    padding: 5px 12px; border: none; border-radius: 4px;
+    background: var(--vscode-button-background); color: var(--vscode-button-foreground);
+    font-size: 12px; font-family: inherit; cursor: pointer;
+    white-space: nowrap; transition: background 0.15s;
+}
+.quick-add-form .quick-add-submit:hover { background: var(--vscode-button-hoverBackground); }
+.quick-add-form .quick-add-cancel {
+    padding: 5px 8px; border: 1px solid var(--vscode-panel-border); border-radius: 4px;
+    background: transparent; color: var(--vscode-foreground);
+    font-size: 12px; font-family: inherit; cursor: pointer;
+    opacity: 0.7; transition: opacity 0.15s;
+}
+.quick-add-form .quick-add-cancel:hover { opacity: 1; }
+
 </style>
 </head>
 <body>
@@ -1890,6 +1928,7 @@ html, body {
         }
         headerHtml += '</div>';
         headerHtml += '<div class="swim-lane-actions">';
+        headerHtml += '<button class="swim-lane-quick-add" data-act="quick-add" data-lane-id="' + esc(lane.id) + '" aria-label="Add task to ' + esc(lane.name) + '" data-tip="Quick add task">+</button>';
         headerHtml += '<button class="btn-icon" data-act="open-terminal" data-lane-id="' + esc(lane.id) + '" data-tip="Open terminal attached to session">&#x2328;</button>';
         headerHtml += '<button class="btn-icon" data-act="debug-window" data-lane-id="' + esc(lane.id) + '" data-tip="Open debug shell window">&#x1F41B;</button>';
         headerHtml += '<button class="btn-icon" data-act="restart-debug" data-lane-id="' + esc(lane.id) + '" data-tip="Kill &amp; restart debug window">&#x1F504;</button>';
@@ -1926,7 +1965,9 @@ html, body {
         headerHtml += '<div class="swim-lane-meta">';
         headerHtml += '<span style="opacity:0.4">Tasks without a swim lane</span>';
         headerHtml += '</div>';
-        headerHtml += '<div class="swim-lane-actions"></div>';
+        headerHtml += '<div class="swim-lane-actions">';
+        headerHtml += '<button class="swim-lane-quick-add" data-act="quick-add" data-lane-id="__default" aria-label="Add task to Default Lane" data-tip="Quick add task">+</button>';
+        headerHtml += '</div>';
 
         headerEl.innerHTML = headerHtml;
         laneEl.appendChild(headerEl);
@@ -2197,9 +2238,111 @@ html, body {
         }
     }
 
+    /* ── Inline Quick Add Form ──────────────────────────────────────────── */
+
+    var activeQuickAddLaneId = null;
+
+    function showQuickAddForm(laneId, triggerBtn) {
+        // Close any existing quick-add form
+        closeQuickAddForm();
+
+        activeQuickAddLaneId = laneId;
+        var swimLaneEl = triggerBtn.closest('.swim-lane');
+        if (!swimLaneEl) return;
+
+        var form = document.createElement('div');
+        form.className = 'quick-add-form';
+        form.dataset.quickAddLane = laneId;
+
+        var input = document.createElement('input');
+        input.type = 'text';
+        input.placeholder = 'Task title...';
+        input.setAttribute('aria-label', 'New task title');
+
+        var submitBtn = document.createElement('button');
+        submitBtn.className = 'quick-add-submit';
+        submitBtn.textContent = 'Add';
+        submitBtn.type = 'button';
+
+        var cancelBtn = document.createElement('button');
+        cancelBtn.className = 'quick-add-cancel';
+        cancelBtn.textContent = 'Cancel';
+        cancelBtn.type = 'button';
+
+        form.appendChild(input);
+        form.appendChild(submitBtn);
+        form.appendChild(cancelBtn);
+
+        // Insert the form after the header, before the columns
+        var header = swimLaneEl.querySelector('.swim-lane-header');
+        if (header && header.nextSibling) {
+            swimLaneEl.insertBefore(form, header.nextSibling);
+        } else {
+            swimLaneEl.appendChild(form);
+        }
+
+        input.focus();
+
+        function submitQuickAdd() {
+            var title = input.value.trim();
+            if (!title) { input.focus(); return; }
+            vscode.postMessage({
+                type: 'createTask',
+                description: title,
+                kanbanColumn: 'backlog',
+                swimLaneId: laneId,
+                priority: 5
+            });
+            closeQuickAddForm();
+        }
+
+        submitBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            submitQuickAdd();
+        });
+
+        cancelBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            closeQuickAddForm();
+        });
+
+        input.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                submitQuickAdd();
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                closeQuickAddForm();
+            }
+        });
+
+        // Prevent clicks inside the form from bubbling to the board
+        form.addEventListener('click', function(e) {
+            e.stopPropagation();
+        });
+    }
+
+    function closeQuickAddForm() {
+        activeQuickAddLaneId = null;
+        var existing = board.querySelectorAll('.quick-add-form');
+        for (var i = 0; i < existing.length; i++) {
+            existing[i].parentNode.removeChild(existing[i]);
+        }
+    }
+
     /* ── Event delegation on board ───────────────────────────────────────── */
 
     board.addEventListener('click', function(e) {
+        // Quick-add button in swim lane header
+        var quickAddBtn = e.target.closest('.swim-lane-quick-add');
+        if (quickAddBtn) {
+            e.stopPropagation();
+            var laneId = quickAddBtn.dataset.laneId;
+            if (laneId === '__default') laneId = '';
+            showQuickAddForm(laneId, quickAddBtn);
+            return;
+        }
+
         // Swim lane header collapse toggle
         var header = e.target.closest('.swim-lane-header');
         if (header) {
