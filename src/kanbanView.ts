@@ -541,6 +541,15 @@ html, body {
     font-weight: 600; letter-spacing: 0.3px;
 }
 .dep-badge.met { background: rgba(78,201,176,0.15); color: #4ec9b0; }
+.worktree-badge {
+    display: inline-flex; align-items: center; gap: 3px;
+    font-size: 9px; padding: 1px 6px; border-radius: 3px;
+    background: rgba(86,156,214,0.15); color: #569cd6;
+    font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;
+}
+.worktree-badge.active {
+    background: rgba(78,201,176,0.18); color: #4ec9b0;
+}
 
 /* ── Modal toggle switch (pill style) ────────────────────────────────── */
 .auto-toggles-row {
@@ -1502,6 +1511,11 @@ html, body {
         if (task.autoClose) autoFlags.push('C');
         if (autoFlags.length > 0) {
             html += '<span class="auto-badge" title="Auto: ' + (task.autoStart ? 'Start ' : '') + (task.autoPilot ? 'Pilot ' : '') + (task.autoClose ? 'Close' : '') + '">&#x26A1; ' + autoFlags.join('') + '</span>';
+        }
+        if (task.useWorktree) {
+            var wtClass = task.worktreePath ? 'worktree-badge active' : 'worktree-badge';
+            var wtTip = task.worktreePath ? 'Worktree: ' + task.worktreePath : 'Worktree (pending)';
+            html += '<span class="' + wtClass + '" title="' + esc(wtTip) + '">&#x1F333; WT</span>';
         }
         if (task.dependsOn && task.dependsOn.length > 0) {
             var allMet = true;
