@@ -1320,6 +1320,9 @@ html, body {
                 <button class="toggle-chip" id="el-dt-worktree" data-toggle="useWorktree" title="Use git worktree">&#x1F333; Worktree</button>
             </div>
         </div>
+        <div id="el-server-warning" style="display:none;background:#6b3a00;color:#ffcc80;border:1px solid #ff9800;border-radius:6px;padding:8px 12px;margin-bottom:8px;font-size:12px;">
+            &#x26A0; Changing server will kill the current tmux session and all running tasks in this lane.
+        </div>
         <div class="modal-actions">
             <button class="btn" id="el-cancel">Cancel</button>
             <button class="btn-primary" id="el-submit">Save</button>
@@ -2725,6 +2728,7 @@ html, body {
     var elDtPilot = document.getElementById('el-dt-pilot');
     var elDtClose = document.getElementById('el-dt-close');
     var elDtWorktree = document.getElementById('el-dt-worktree');
+    var elSubmitBtn = document.getElementById('el-submit');
     var editingLaneId = null;
     var editingLaneServerId = null;
 
@@ -2745,6 +2749,9 @@ html, body {
             elServerWarning.style.display = 'block';
         } else {
             elServerWarning.style.display = 'none';
+            elSubmitBtn._serverChangeConfirmed = false;
+            elSubmitBtn.textContent = 'Save';
+            elSubmitBtn.style.background = '';
         }
     });
 
@@ -2755,6 +2762,9 @@ html, body {
         elServer.innerHTML = buildServerOptionsHtml();
         elServer.value = editingLaneServerId;
         elServerWarning.style.display = 'none';
+        elSubmitBtn._serverChangeConfirmed = false;
+        elSubmitBtn.textContent = 'Save';
+        elSubmitBtn.style.background = '';
         elSession.value = lane.sessionName || '';
         elDir.value = lane.workingDirectory || '~/';
         elProvider.value = lane.aiProvider || '';
@@ -2780,7 +2790,7 @@ html, body {
         if (e.target === editLaneOverlay) closeEditLaneModal();
     });
 
-    document.getElementById('el-submit').addEventListener('click', function() {
+    elSubmitBtn.addEventListener('click', function() {
         if (!editingLaneId) return;
         var name = elName.value.trim();
         var newServerId = elServer.value;
@@ -2788,10 +2798,12 @@ html, body {
         var dir = elDir.value.trim();
         if (!name) return;
         var serverChanged = newServerId !== editingLaneServerId;
-        if (serverChanged) {
-            if (!confirm('Changing server will kill the current tmux session and all running tasks in this lane. Continue?')) {
-                return;
-            }
+        if (serverChanged && !elSubmitBtn._serverChangeConfirmed) {
+            elServerWarning.style.display = 'block';
+            elSubmitBtn.textContent = 'Confirm Change';
+            elSubmitBtn.style.background = '#e65100';
+            elSubmitBtn._serverChangeConfirmed = true;
+            return;
         }
         var provider = elProvider.value || undefined;
         var model = elModel.value || undefined;
