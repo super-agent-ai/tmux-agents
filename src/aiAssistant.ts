@@ -12,6 +12,7 @@ interface ProviderConfig {
     pipeCommand: string;
     args: string[];
     forkArgs: string[];
+    resumeFlag?: string;
     env: Record<string, string>;
     defaultWorkingDirectory?: string;
     shell: boolean;
@@ -76,6 +77,7 @@ export class AIAssistantManager {
             pipeCommand: p.pipeCommand || p.command || key,
             args: this.normalizeArgs(p.args),
             forkArgs: this.normalizeArgs(p.forkArgs),
+            resumeFlag: (typeof p.resumeFlag === 'string' && p.resumeFlag) ? p.resumeFlag : undefined,
             env: (p.env as Record<string, string>) || {},
             defaultWorkingDirectory: p.defaultWorkingDirectory || undefined,
             shell: p.shell ?? true,
@@ -250,10 +252,20 @@ export class AIAssistantManager {
 
     /**
      * Get the command to fork/continue a session for a given AI provider.
+     * When a ccSessionId is provided and the provider has a resumeFlag,
+     * uses `command resumeFlag sessionId` to resume the specific session.
+     * Otherwise falls back to the generic forkArgs (e.g. `--continue`).
      */
-    getForkCommand(provider: AIProvider, _sessionName: string): string {
+    getForkCommand(provider: AIProvider, _sessionName: string, ccSessionId?: string): string {
         const config = this.getProviderConfig(provider);
         const envPrefix = this.buildEnvPrefix(config.env);
+
+        // If we have a specific session ID and the provider supports resume-by-ID
+        if (ccSessionId && config.resumeFlag) {
+            return [envPrefix + config.command, config.resumeFlag, ccSessionId].join(' ');
+        }
+
+        // Fall back to generic fork (e.g. --continue for most recent session)
         const parts = [envPrefix + config.command, ...config.forkArgs];
         return parts.join(' ');
     }

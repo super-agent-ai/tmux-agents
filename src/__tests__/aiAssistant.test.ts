@@ -150,9 +150,64 @@ describe('AIAssistantManager', () => {
     // ─── getForkCommand ──────────────────────────────────────────────────
 
     describe('getForkCommand', () => {
-        it('returns fork command for provider', () => {
+        it('returns fork command for provider without session ID', () => {
             const cmd = manager.getForkCommand(AIProvider.CLAUDE, 'session-1');
             expect(cmd).toBe('claude');
+        });
+
+        it('uses resumeFlag with session ID when provided', () => {
+            // Mock provider config with resumeFlag
+            mockGet.mockImplementation((key: string) => {
+                if (key === 'aiProviders') {
+                    return {
+                        claude: {
+                            command: 'claude',
+                            forkArgs: ['--continue'],
+                            resumeFlag: '--resume',
+                        },
+                    };
+                }
+                return undefined;
+            });
+            const m = new AIAssistantManager();
+            const cmd = m.getForkCommand(AIProvider.CLAUDE, 'session-1', 'abc-123-def');
+            expect(cmd).toBe('claude --resume abc-123-def');
+        });
+
+        it('falls back to forkArgs when no session ID provided', () => {
+            mockGet.mockImplementation((key: string) => {
+                if (key === 'aiProviders') {
+                    return {
+                        claude: {
+                            command: 'claude',
+                            forkArgs: ['--continue'],
+                            resumeFlag: '--resume',
+                        },
+                    };
+                }
+                return undefined;
+            });
+            const m = new AIAssistantManager();
+            const cmd = m.getForkCommand(AIProvider.CLAUDE, 'session-1');
+            expect(cmd).toBe('claude --continue');
+        });
+
+        it('falls back to forkArgs when resumeFlag is not configured', () => {
+            mockGet.mockImplementation((key: string) => {
+                if (key === 'aiProviders') {
+                    return {
+                        claude: {
+                            command: 'claude',
+                            forkArgs: ['--continue'],
+                            // no resumeFlag
+                        },
+                    };
+                }
+                return undefined;
+            });
+            const m = new AIAssistantManager();
+            const cmd = m.getForkCommand(AIProvider.CLAUDE, 'session-1', 'some-id');
+            expect(cmd).toBe('claude --continue');
         });
     });
 
