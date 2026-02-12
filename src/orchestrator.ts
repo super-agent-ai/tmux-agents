@@ -335,6 +335,7 @@ export class AgentOrchestrator implements vscode.Disposable {
             if (task && task.status === TaskStatus.IN_PROGRESS) {
                 task.status = TaskStatus.COMPLETED;
                 task.completedAt = Date.now();
+                task.kanbanColumn = 'done';
                 this._onTaskCompleted.fire(task);
             }
             agent.currentTaskId = undefined;

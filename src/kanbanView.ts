@@ -1597,13 +1597,24 @@ html, body {
         return '#4ec9b0';
     }
 
+    /** Check whether a swimLaneId maps to a known (existing) swim lane */
+    function isKnownLaneId(lid) {
+        if (!lid) return true; // empty = default lane
+        for (var si = 0; si < swimLanes.length; si++) {
+            if (swimLanes[si].id === lid) return true;
+        }
+        return false;
+    }
+
     function tasksForLaneAndColumn(laneId, colId) {
         var result = [];
         for (var i = 0; i < tasks.length; i++) {
             var t = tasks[i];
             if (t.parentTaskId) continue;  // subtasks shown inside parent
             var tLane = t.swimLaneId || '';
-            if (tLane === laneId && getCol(t) === colId) {
+            // Orphaned tasks (swimLaneId references a deleted lane) go to default lane
+            var effectiveLane = isKnownLaneId(tLane) ? tLane : '';
+            if (effectiveLane === laneId && getCol(t) === colId) {
                 result.push(t);
             }
         }
@@ -2228,7 +2239,9 @@ html, body {
 
     function hasTasksForLane(laneId) {
         for (var i = 0; i < tasks.length; i++) {
-            if ((tasks[i].swimLaneId || '') === laneId) return true;
+            var tLane = tasks[i].swimLaneId || '';
+            var effectiveLane = isKnownLaneId(tLane) ? tLane : '';
+            if (effectiveLane === laneId) return true;
         }
         return false;
     }
