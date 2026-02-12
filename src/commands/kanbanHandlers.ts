@@ -165,7 +165,34 @@ export async function handleKanbanMessage(
             const service = ctx.serviceManager.getService(lane.serverId);
             if (!service) break;
             try {
-                const terminal = await ctx.smartAttachment.attachToSession(service, lane.sessionName);
+                // Check for existing "terminal" window in the session
+                const sessions = await service.getTmuxTreeFresh();
+                const session = sessions.find(s => s.name === lane.sessionName);
+                let win = session?.windows.find(w => w.name === 'terminal');
+
+                if (!win) {
+                    // No existing terminal window — create one
+                    await service.newWindow(lane.sessionName, 'terminal');
+                    await ctx.cleanupInitWindow(lane.serverId, lane.sessionName);
+
+                    const freshSessions = await service.getTmuxTreeFresh();
+                    const freshSession = freshSessions.find(s => s.name === lane.sessionName);
+                    win = freshSession?.windows.find(w => w.name === 'terminal');
+
+                    // cd to working directory in new terminal window
+                    if (win && lane.workingDirectory) {
+                        const pIdx = win.panes[0]?.index || '0';
+                        await service.sendKeys(lane.sessionName, win.index, pIdx, `cd ${lane.workingDirectory}`);
+                    }
+                }
+
+                const winIndex = win?.index || '0';
+                const paneIndex = win?.panes[0]?.index || '0';
+
+                const terminal = await ctx.smartAttachment.attachToSession(service, lane.sessionName, {
+                    windowIndex: winIndex,
+                    paneIndex: paneIndex
+                });
                 terminal.show();
                 ctx.tmuxSessionProvider.refresh();
             } catch (error) {
@@ -184,17 +211,16 @@ export async function handleKanbanMessage(
                 // Check for existing debug window in the session
                 const sessions = await service.getTmuxTreeFresh();
                 const session = sessions.find(s => s.name === lane.sessionName);
-                let win = session?.windows.find(w => w.name.startsWith('debug-'));
+                let win = session?.windows.find(w => w.name === 'debug');
 
                 if (!win) {
                     // No existing debug window — create one
-                    const debugName = 'debug-' + Date.now().toString(36).slice(-4);
-                    await service.newWindow(lane.sessionName, debugName);
+                    await service.newWindow(lane.sessionName, 'debug');
                     await ctx.cleanupInitWindow(lane.serverId, lane.sessionName);
 
                     const freshSessions = await service.getTmuxTreeFresh();
                     const freshSession = freshSessions.find(s => s.name === lane.sessionName);
-                    win = freshSession?.windows.find(w => w.name === debugName);
+                    win = freshSession?.windows.find(w => w.name === 'debug');
 
                     // cd to working directory and launch claude in new window
                     if (win) {
@@ -250,19 +276,18 @@ export async function handleKanbanMessage(
                 // Kill existing debug window if present
                 const sessions = await service.getTmuxTreeFresh();
                 const session = sessions.find(s => s.name === lane.sessionName);
-                const existingDebug = session?.windows.find(w => w.name.startsWith('debug-'));
+                const existingDebug = session?.windows.find(w => w.name === 'debug');
                 if (existingDebug) {
                     await service.killWindow(lane.sessionName, existingDebug.index);
                 }
 
                 // Create a fresh debug window
-                const debugName = 'debug-' + Date.now().toString(36).slice(-4);
-                await service.newWindow(lane.sessionName, debugName);
+                await service.newWindow(lane.sessionName, 'debug');
                 await ctx.cleanupInitWindow(lane.serverId, lane.sessionName);
 
                 const freshSessions = await service.getTmuxTreeFresh();
                 const freshSession = freshSessions.find(s => s.name === lane.sessionName);
-                const win = freshSession?.windows.find(w => w.name === debugName);
+                const win = freshSession?.windows.find(w => w.name === 'debug');
 
                 if (win) {
                     const pIdx = win.panes[0]?.index || '0';
