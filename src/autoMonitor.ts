@@ -4,6 +4,7 @@ import { TmuxSessionProvider } from './treeProvider';
 import { AgentOrchestrator } from './orchestrator';
 import { Database } from './database';
 import { TaskStatus, OrchestratorTask, KanbanSwimLane } from './types';
+import { markDoneTimestamp } from './autoCloseMonitor';
 
 export interface AutoMonitorContext {
     serviceManager: TmuxServiceManager;
