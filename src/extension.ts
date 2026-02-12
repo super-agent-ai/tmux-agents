@@ -26,6 +26,8 @@ import { syncTaskListAttachments, SessionSyncContext } from './sessionSync';
 import { buildSingleTaskPrompt, buildTaskBoxPrompt, appendPromptTail, buildPersonaContext } from './promptBuilder';
 import { OrganizationManager } from './organizationManager';
 import { GuildManager } from './guildManager';
+import { PromptRegistry } from './promptRegistry';
+import { PromptExecutor } from './promptExecutor';
 
 function getServiceForItem(
     serviceManager: TmuxServiceManager,
@@ -110,6 +112,14 @@ export function activate(context: vscode.ExtensionContext) {
     const teamManager = new TeamManager();
     const organizationManager = new OrganizationManager();
     const guildManager = new GuildManager();
+
+    // ── Default Prompt Templates ─────────────────────────────────────────────
+    const promptRegistry = new PromptRegistry(context.extensionPath);
+    const defaultPromptsEnabled = vscode.workspace.getConfiguration('tmuxAgents').get<boolean>('defaultPromptsEnabled', true);
+    if (defaultPromptsEnabled) {
+        promptRegistry.load(context.extensionPath);
+    }
+    const promptExecutor = new PromptExecutor();
 
     // ── Database ──────────────────────────────────────────────────────────────
     const dbDir = context.globalStorageUri.fsPath;
@@ -781,11 +791,106 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
         pickService: () => pickService(serviceManager),
     });
 
+    // ── Default Prompt Commands ──────────────────────────────────────────────
+
+    const promptExecutorContext = {
+        promptRegistry,
+        submitTask: (task: OrchestratorTask) => orchestrator.submitTask(task),
+        saveTask: (task: OrchestratorTask) => database.saveTask(task),
+        startTaskFlow: (task: OrchestratorTask) => startTaskFlow(task),
+        swimLanes,
+    };
+
+    const listDefaultPromptsCmd = vscode.commands.registerCommand('tmux-agents.listDefaultPrompts', async () => {
+        if (!defaultPromptsEnabled) {
+            vscode.window.showWarningMessage('Default prompts are disabled. Enable tmuxAgents.defaultPromptsEnabled to use them.');
+            return;
+        }
+        const templates = promptRegistry.getAllTemplates();
+        const items = templates.map(t => ({
+            label: t.name,
+            description: `[${t.category}] ${t.description}`,
+            detail: `Slug: ${t.slug} | Inputs: ${t.inputs.map(i => i.name + (i.required ? '*' : '')).join(', ')}`,
+            slug: t.slug,
+        }));
+        const picked = await vscode.window.showQuickPick(items, {
+            placeHolder: 'Select a default prompt template to execute',
+        });
+        if (picked) {
+            vscode.commands.executeCommand('tmux-agents.executeDefaultPrompt', picked.slug);
+        }
+    });
+
+    const executeDefaultPromptCmd = vscode.commands.registerCommand('tmux-agents.executeDefaultPrompt', async (slug?: string) => {
+        if (!defaultPromptsEnabled) {
+            vscode.window.showWarningMessage('Default prompts are disabled. Enable tmuxAgents.defaultPromptsEnabled to use them.');
+            return;
+        }
+
+        if (!slug) {
+            const templates = promptRegistry.getAllTemplates();
+            const picked = await vscode.window.showQuickPick(
+                templates.map(t => ({ label: t.name, description: t.description, slug: t.slug })),
+                { placeHolder: 'Select a prompt to execute' }
+            );
+            if (!picked) { return; }
+            slug = picked.slug;
+        }
+
+        const template = promptRegistry.getTemplate(slug);
+        if (!template) {
+            vscode.window.showErrorMessage(`Unknown prompt template: ${slug}`);
+            return;
+        }
+
+        // Gather inputs from user
+        const inputs: Record<string, string> = {};
+        for (const inputDef of template.inputs) {
+            const value = await vscode.window.showInputBox({
+                prompt: `${inputDef.description}${inputDef.required ? ' (required)' : ''}`,
+                placeHolder: inputDef.name,
+                value: inputDef.default || '',
+            });
+            if (value === undefined) { return; } // Cancelled
+            if (value) { inputs[inputDef.name] = value; }
+        }
+
+        // Pick swim lane if available
+        let swimLaneId: string | undefined;
+        if (swimLanes.length > 0) {
+            const lanePick = await vscode.window.showQuickPick(
+                [
+                    { label: '(none)', description: 'No swim lane', id: undefined as string | undefined },
+                    ...swimLanes.map(l => ({ label: l.name, description: l.workingDirectory, id: l.id as string | undefined })),
+                ],
+                { placeHolder: 'Assign to a swim lane?' }
+            );
+            swimLaneId = lanePick?.id;
+        }
+
+        const result = promptExecutor.execute({
+            slug,
+            inputs,
+            swimLaneId,
+            autoStart: true,
+        }, promptExecutorContext);
+
+        if (result.success) {
+            vscode.window.showInformationMessage(`Prompt "${template.name}" queued as task ${result.taskId}`);
+            updateKanban();
+        } else {
+            vscode.window.showErrorMessage(`Failed to execute prompt: ${result.error}`);
+        }
+    });
+
     // ── Register All ──────────────────────────────────────────────────────────
 
     context.subscriptions.push(
         ...sessionDisposables,
         ...agentDisposables,
+        // Default prompt commands
+        listDefaultPromptsCmd,
+        executeDefaultPromptCmd,
         // Event subscriptions
         agentStateChangedDisposable,
         taskCompletedDisposable,
@@ -808,7 +913,8 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
         guildManager,
         dashboardView,
         graphView,
-        kanbanView
+        kanbanView,
+        promptRegistry
     );
 
     log('Tmux Agents activated successfully');
