@@ -1822,6 +1822,7 @@ export class ApiCatalog {
                 { name: 'autoStart', type: 'boolean', required: false, description: 'Auto-start: automatically launch implementation (default false)' },
                 { name: 'autoPilot', type: 'boolean', required: false, description: 'Auto-pilot: automatically answer questions (default false)' },
                 { name: 'autoClose', type: 'boolean', required: false, description: 'Auto-close: close tmux and move to done when finished (default false)' },
+                { name: 'useWorktree', type: 'boolean', required: false, description: 'Use git worktree: run task in a dedicated git worktree (default false)' },
                 { name: 'dependsOn', type: 'string', required: false, description: 'Comma-separated task IDs this task depends on (must complete before this task starts)' },
                 { name: 'aiProvider', type: 'string', required: false, description: 'AI provider override (default: use swim lane or global default)', enum: ['claude','gemini','codex','opencode','cursor','copilot','aider','amp','cline','kiro'] },
                 { name: 'aiModel', type: 'string', required: false, description: 'AI model override (default: use swim lane or global default)' },
@@ -1837,9 +1838,10 @@ export class ApiCatalog {
                     swimLaneId: p.swimLaneId || undefined,
                     targetRole: p.role || undefined,
                     input: p.details || undefined,
-                    autoStart: p.autoStart ? true : undefined,
-                    autoPilot: p.autoPilot ? true : undefined,
-                    autoClose: p.autoClose ? true : undefined,
+                    autoStart: p.autoStart !== undefined ? !!p.autoStart : undefined,
+                    autoPilot: p.autoPilot !== undefined ? !!p.autoPilot : undefined,
+                    autoClose: p.autoClose !== undefined ? !!p.autoClose : undefined,
+                    useWorktree: p.useWorktree !== undefined ? !!p.useWorktree : undefined,
                     dependsOn: p.dependsOn ? String(p.dependsOn).split(',').map((s: string) => s.trim()).filter((s: string) => s) : undefined,
                     aiProvider: p.aiProvider || undefined,
                     aiModel: p.aiModel || undefined,
@@ -1871,7 +1873,7 @@ export class ApiCatalog {
                     await d.startTaskFlow?.(task);
                 }
                 d.updateKanban?.();
-                const autoFlags = [task.autoStart && 'S', task.autoPilot && 'P', task.autoClose && 'C'].filter(Boolean);
+                const autoFlags = [task.autoStart && 'S', task.autoPilot && 'P', task.autoClose && 'C', task.useWorktree && 'W'].filter(Boolean);
                 return ok(`Created task "${p.description}" [${taskId}]${autoFlags.length ? ' (auto:' + autoFlags.join('') + ')' : ''}`, { taskId });
             }
         });
@@ -1928,7 +1930,7 @@ export class ApiCatalog {
                 if (tasks.length === 0) { return ok('No tasks found', []); }
                 const summary = tasks.map(t => {
                     let line = `[${t.id.slice(0,8)}] "${t.description}" col=${t.kanbanColumn || 'auto'} p=${t.priority} lane=${t.swimLaneId || 'default'}`;
-                    const af = [t.autoStart && 'S', t.autoPilot && 'P', t.autoClose && 'C'].filter(Boolean);
+                    const af = [t.autoStart && 'S', t.autoPilot && 'P', t.autoClose && 'C', t.useWorktree && 'W'].filter(Boolean);
                     if (af.length) { line += ` [auto:${af.join('')}]`; }
                     if (t.output) { line += ` summary="${t.output.slice(0, 60)}..."`; }
                     return line;
@@ -1936,7 +1938,7 @@ export class ApiCatalog {
                 return ok(`${tasks.length} task(s):\n${summary.join('\n')}`, tasks.map(t => ({
                     id: t.id, description: t.description, column: t.kanbanColumn, priority: t.priority,
                     status: t.status, swimLaneId: t.swimLaneId, assignedAgentId: t.assignedAgentId,
-                    autoStart: t.autoStart || false, autoPilot: t.autoPilot || false, autoClose: t.autoClose || false, output: t.output || null,
+                    autoStart: t.autoStart || false, autoPilot: t.autoPilot || false, autoClose: t.autoClose || false, useWorktree: t.useWorktree || false, output: t.output || null,
                 })));
             }
         });
@@ -1954,12 +1956,13 @@ export class ApiCatalog {
 
         this.register({
             name: 'kanban.setAutoMode', category: cat,
-            description: 'Set auto flags on a kanban task. autoStart: launch automatically, autoPilot: answer questions, autoClose: close tmux when done.',
+            description: 'Set auto flags on a kanban task. autoStart: launch automatically, autoPilot: answer questions, autoClose: close tmux when done, useWorktree: run in dedicated git worktree.',
             params: [
                 { name: 'taskId', type: 'string', required: true, description: 'Task ID' },
                 { name: 'autoStart', type: 'boolean', required: false, description: 'Auto-start: automatically launch implementation' },
                 { name: 'autoPilot', type: 'boolean', required: false, description: 'Auto-pilot: automatically answer questions' },
                 { name: 'autoClose', type: 'boolean', required: false, description: 'Auto-close: close tmux and move to done when finished' },
+                { name: 'useWorktree', type: 'boolean', required: false, description: 'Use git worktree: run task in a dedicated git worktree' },
             ],
             returnsData: false,
             execute: async (p) => {
@@ -1968,13 +1971,14 @@ export class ApiCatalog {
                 if (p.autoStart !== undefined) { task.autoStart = !!p.autoStart; }
                 if (p.autoPilot !== undefined) { task.autoPilot = !!p.autoPilot; }
                 if (p.autoClose !== undefined) { task.autoClose = !!p.autoClose; }
+                if (p.useWorktree !== undefined) { task.useWorktree = !!p.useWorktree; }
                 d.saveTask?.(task);
                 // Auto-start if toggled on while in todo with a swim lane
                 if (task.autoStart && task.kanbanColumn === 'todo' && task.swimLaneId) {
                     d.startTaskFlow?.(task);
                 }
                 d.updateKanban?.();
-                const flags = [task.autoStart && 'start', task.autoPilot && 'pilot', task.autoClose && 'close'].filter(Boolean);
+                const flags = [task.autoStart && 'start', task.autoPilot && 'pilot', task.autoClose && 'close', task.useWorktree && 'worktree'].filter(Boolean);
                 return ok(`Auto flags for task ${p.taskId}: ${flags.length ? flags.join(', ') : 'none'}`);
             }
         });
@@ -2016,6 +2020,7 @@ export class ApiCatalog {
                 { name: 'autoStart', type: 'boolean', required: false, description: 'Auto-start: automatically launch implementation' },
                 { name: 'autoPilot', type: 'boolean', required: false, description: 'Auto-pilot: automatically answer questions' },
                 { name: 'autoClose', type: 'boolean', required: false, description: 'Auto-close: close tmux and move to done when finished' },
+                { name: 'useWorktree', type: 'boolean', required: false, description: 'Use git worktree: run task in a dedicated git worktree' },
                 { name: 'dependsOn', type: 'string', required: false, description: 'Comma-separated task IDs this task depends on (empty string to clear)' },
             ],
             returnsData: false,
@@ -2030,6 +2035,7 @@ export class ApiCatalog {
                 if (p.autoStart !== undefined) { task.autoStart = !!p.autoStart; }
                 if (p.autoPilot !== undefined) { task.autoPilot = !!p.autoPilot; }
                 if (p.autoClose !== undefined) { task.autoClose = !!p.autoClose; }
+                if (p.useWorktree !== undefined) { task.useWorktree = !!p.useWorktree; }
                 if (p.dependsOn !== undefined) {
                     const parsed = String(p.dependsOn).split(',').map((s: string) => s.trim()).filter((s: string) => s);
                     task.dependsOn = parsed.length > 0 ? parsed : undefined;
@@ -2090,6 +2096,7 @@ export class ApiCatalog {
                     autoStart: resolveToggle(task, 'autoStart', taskLane),
                     autoPilot: resolveToggle(task, 'autoPilot', taskLane),
                     autoClose: resolveToggle(task, 'autoClose', taskLane),
+                    useWorktree: resolveToggle(task, 'useWorktree', taskLane),
                     parentTaskId: task.parentTaskId || null, subtaskIds: task.subtaskIds || [],
                     tmuxSessionName: task.tmuxSessionName || null, tmuxWindowIndex: task.tmuxWindowIndex || null,
                     tmuxServerId: task.tmuxServerId || null,

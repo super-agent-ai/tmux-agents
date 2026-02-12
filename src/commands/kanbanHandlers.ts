@@ -381,10 +381,10 @@ export async function handleKanbanMessage(
                 aiModel: payload.aiModel || undefined,
             };
             // Apply explicit payload overrides first (so they take priority)
-            if (payload.autoStart) { task.autoStart = true; }
-            if (payload.autoPilot) { task.autoPilot = true; }
-            if (payload.autoClose) { task.autoClose = true; }
-            if (payload.useWorktree) { task.useWorktree = true; }
+            if (payload.autoStart !== undefined) { task.autoStart = !!payload.autoStart; }
+            if (payload.autoPilot !== undefined) { task.autoPilot = !!payload.autoPilot; }
+            if (payload.autoClose !== undefined) { task.autoClose = !!payload.autoClose; }
+            if (payload.useWorktree !== undefined) { task.useWorktree = !!payload.useWorktree; }
             // Then inherit swim lane defaults for any toggles not explicitly set
             if (task.swimLaneId) {
                 const lane = ctx.swimLanes.find(l => l.id === task.swimLaneId);
