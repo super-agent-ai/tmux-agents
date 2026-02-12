@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
 import * as util from 'util';
-import { AIProvider, AIStatus, AISessionInfo, TmuxPane } from './types';
+import { AIProvider, AIStatus, AISessionInfo, CcPaneMetadata, TmuxPane } from './types';
 import { TmuxService } from './tmuxService';
 import { resolveModelAlias } from './aiModels';
 
@@ -12,6 +12,7 @@ interface ProviderConfig {
     pipeCommand: string;
     args: string[];
     forkArgs: string[];
+    resumeFlag?: string;
     env: Record<string, string>;
     defaultWorkingDirectory?: string;
     shell: boolean;
@@ -76,6 +77,7 @@ export class AIAssistantManager {
             pipeCommand: p.pipeCommand || p.command || key,
             args: this.normalizeArgs(p.args),
             forkArgs: this.normalizeArgs(p.forkArgs),
+            resumeFlag: (typeof p.resumeFlag === 'string' && p.resumeFlag) ? p.resumeFlag : undefined,
             env: (p.env as Record<string, string>) || {},
             defaultWorkingDirectory: p.defaultWorkingDirectory || undefined,
             shell: p.shell ?? true,
@@ -250,10 +252,20 @@ export class AIAssistantManager {
 
     /**
      * Get the command to fork/continue a session for a given AI provider.
+     * When a ccSessionId is provided and the provider has a resumeFlag,
+     * uses `command resumeFlag sessionId` to resume the specific session.
+     * Otherwise falls back to the generic forkArgs (e.g. `--continue`).
      */
-    getForkCommand(provider: AIProvider, _sessionName: string): string {
+    getForkCommand(provider: AIProvider, _sessionName: string, ccSessionId?: string): string {
         const config = this.getProviderConfig(provider);
         const envPrefix = this.buildEnvPrefix(config.env);
+
+        // If we have a specific session ID and the provider supports resume-by-ID
+        if (ccSessionId && config.resumeFlag) {
+            return [envPrefix + config.command, config.resumeFlag, ccSessionId].join(' ');
+        }
+
+        // Fall back to generic fork (e.g. --continue for most recent session)
         const parts = [envPrefix + config.command, ...config.forkArgs];
         return parts.join(' ');
     }
@@ -345,6 +357,85 @@ export class AIAssistantManager {
         };
 
         return { ...pane, aiInfo };
+    }
+
+    /**
+     * Map a @cc_state value from hooks to an AIStatus.
+     * Returns null if the state string is not recognized.
+     */
+    mapCcStateToAIStatus(ccState: string): AIStatus | null {
+        switch (ccState.toLowerCase()) {
+            case 'busy':
+                return AIStatus.WORKING;
+            case 'user':
+                return AIStatus.WAITING;
+            case 'idle':
+                return AIStatus.IDLE;
+            default:
+                return null;
+        }
+    }
+
+    /**
+     * Parse raw @cc_* option strings into a typed CcPaneMetadata object.
+     */
+    parseCcMetadata(options: Record<string, string>): CcPaneMetadata {
+        const parseNum = (key: string): number | undefined => {
+            const val = options[key];
+            if (val === undefined || val === '') { return undefined; }
+            const n = Number(val);
+            return isNaN(n) ? undefined : n;
+        };
+
+        return {
+            model: options['cc_model'] || undefined,
+            sessionId: options['cc_session_id'] || undefined,
+            cwd: options['cc_cwd'] || undefined,
+            contextPct: parseNum('cc_context_pct'),
+            cost: parseNum('cc_cost'),
+            tokensIn: parseNum('cc_tokens_in'),
+            tokensOut: parseNum('cc_tokens_out'),
+            linesAdded: parseNum('cc_lines_added'),
+            linesRemoved: parseNum('cc_lines_removed'),
+            lastTool: options['cc_last_tool'] || undefined,
+            agent: options['cc_agent'] || undefined,
+            version: options['cc_version'] || undefined,
+            gitBranch: options['cc_git_branch'] || undefined,
+            outputStyle: options['cc_output_style'] || undefined,
+            burnRate: parseNum('cc_burn_rate'),
+            tokensRate: parseNum('cc_tokens_rate'),
+            elapsed: options['cc_elapsed'] || undefined,
+        };
+    }
+
+    /**
+     * Enrich a TmuxPane using @cc_* pane options when available.
+     * If cc_state is present, uses it as the authoritative status.
+     * Otherwise falls back to the existing heuristic-based enrichPane().
+     */
+    enrichPaneWithOptions(pane: TmuxPane, ccOptions: Record<string, string>): TmuxPane {
+        const provider = this.detectAIProvider(pane.command);
+        if (!provider) {
+            return { ...pane };
+        }
+
+        const ccState = ccOptions['cc_state'];
+        if (ccState) {
+            const status = this.mapCcStateToAIStatus(ccState);
+            if (status !== null) {
+                const metadata = this.parseCcMetadata(ccOptions);
+                const aiInfo: AISessionInfo = {
+                    provider,
+                    status,
+                    launchCommand: pane.command,
+                    metadata,
+                };
+                return { ...pane, aiInfo };
+            }
+        }
+
+        // No cc_state or unrecognized value — fall back to heuristic
+        return this.enrichPane(pane);
     }
 
     /**

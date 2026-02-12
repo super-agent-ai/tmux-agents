@@ -619,6 +619,7 @@ export class ApiCatalog {
                 { name: 'provider', type: 'string', required: true, description: 'AI provider', enum: ['claude', 'gemini', 'codex'] },
                 { name: 'sourceSession', type: 'string', required: true, description: 'Source session to fork from' },
                 { name: 'name', type: 'string', required: false, description: 'New session name (auto-generated if omitted)' },
+                { name: 'sessionId', type: 'string', required: false, description: 'AI session ID (e.g. from @cc_session_id) for targeted resume' },
             ],
             returnsData: true,
             execute: async (p) => {
@@ -632,7 +633,7 @@ export class ApiCatalog {
                     counter++;
                 }
                 await svc.newSession(forkName);
-                const forkCmd = d.aiManager.getForkCommand(provider, p.sourceSession);
+                const forkCmd = d.aiManager.getForkCommand(provider, p.sourceSession, p.sessionId);
                 await svc.sendKeysToSession(forkName, forkCmd);
                 d.refreshTree();
                 return ok(`Forked "${p.sourceSession}" as "${forkName}" with ${p.provider}`, { sessionName: forkName });
@@ -703,7 +704,8 @@ export class ApiCatalog {
                 const providers = Object.values(AIProvider).map(p => ({
                     provider: p,
                     launchCommand: d.aiManager.getLaunchCommand(p),
-                    forkCommand: d.aiManager.getForkCommand(p, 'example')
+                    forkCommand: d.aiManager.getForkCommand(p, 'example'),
+                    resumeCommand: d.aiManager.getForkCommand(p, 'example', '<session_id>')
                 }));
                 return ok(`${providers.length} providers: ${providers.map(p => p.provider).join(', ')}`, providers);
             }

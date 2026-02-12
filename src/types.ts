@@ -94,6 +94,28 @@ export interface AISessionInfo {
     status: AIStatus;
     /** Raw command that launched the AI */
     launchCommand: string;
+    /** Rich metadata from @cc_* pane options (when hooks are installed) */
+    metadata?: CcPaneMetadata;
+}
+
+export interface CcPaneMetadata {
+    model?: string;
+    sessionId?: string;
+    cwd?: string;
+    contextPct?: number;
+    cost?: number;
+    tokensIn?: number;
+    tokensOut?: number;
+    linesAdded?: number;
+    linesRemoved?: number;
+    lastTool?: string;
+    agent?: string;
+    version?: string;
+    gitBranch?: string;
+    outputStyle?: string;
+    burnRate?: number;
+    tokensRate?: number;
+    elapsed?: string;
 }
 
 // ─── Activity Rollup ─────────────────────────────────────────────────────────
@@ -170,6 +192,8 @@ export interface TmuxPane {
     sessionName: string;
     windowIndex: string;
     index: string;
+    /** The tmux pane identifier (e.g. "%0", "%5") */
+    paneId?: string;
     command: string;
     currentPath: string;
     isActive: boolean;

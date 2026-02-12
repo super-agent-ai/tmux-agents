@@ -240,6 +240,7 @@
               "forkArgs": [
                 "--continue"
               ],
+              "resumeFlag": "--resume",
               "env": {}
             },
             "gemini": {
@@ -247,6 +248,7 @@
               "pipeCommand": "gemini",
               "args": [],
               "forkArgs": [],
+              "resumeFlag": "--resume",
               "env": {}
             },
             "codex": {
@@ -254,6 +256,7 @@
               "pipeCommand": "codex",
               "args": [],
               "forkArgs": [],
+              "resumeFlag": "--resume",
               "env": {}
             },
             "opencode": {
@@ -263,6 +266,7 @@
               "forkArgs": [
                 "--continue"
               ],
+              "resumeFlag": "--resume",
               "env": {}
             },
             "cursor": {
@@ -272,6 +276,7 @@
               "forkArgs": [
                 "--resume"
               ],
+              "resumeFlag": "--resume",
               "env": {}
             },
             "copilot": {
@@ -281,6 +286,7 @@
               "forkArgs": [
                 "--continue"
               ],
+              "resumeFlag": "--resume",
               "env": {}
             },
             "aider": {
@@ -288,6 +294,7 @@
               "pipeCommand": "aider",
               "args": [],
               "forkArgs": [],
+              "resumeFlag": "--resume",
               "env": {}
             },
             "amp": {
@@ -295,6 +302,7 @@
               "pipeCommand": "amp",
               "args": [],
               "forkArgs": [],
+              "resumeFlag": "--resume",
               "env": {}
             },
             "cline": {
@@ -302,6 +310,7 @@
               "pipeCommand": "cline",
               "args": [],
               "forkArgs": [],
+              "resumeFlag": "--resume",
               "env": {}
             },
             "kiro": {
@@ -311,6 +320,7 @@
               "forkArgs": [
                 "--resume"
               ],
+              "resumeFlag": "--resume",
               "env": {}
             }
           },
@@ -352,7 +362,11 @@
                     }
                   }
                 ],
-                "description": "Arguments for forking/continuing a session. String or array."
+                "description": "Arguments for forking/continuing a session (no session ID). String or array."
+              },
+              "resumeFlag": {
+                "type": "string",
+                "description": "Flag to resume a specific session by ID (e.g. '--resume'). Used as: command <resumeFlag> <sessionId>."
               },
               "env": {
                 "type": "object",

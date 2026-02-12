@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { TmuxServiceManager } from './serviceManager';
-import { TmuxSession, TmuxWindow, TmuxPane, ServerIdentity,
+import { TmuxSession, TmuxWindow, TmuxPane, ServerIdentity, CcPaneMetadata,
          ProcessCategory, PROCESS_CATEGORY_COLORS, PROCESS_CATEGORY_ICONS,
          AIStatus, AI_STATUS_COLORS, AI_STATUS_ICONS, ActivityPriority } from './types';
 import { ProcessTracker } from './processTracker';
@@ -88,7 +88,10 @@ export class TmuxSessionProvider implements vscode.TreeDataProvider<TmuxTreeItem
         return element;
     }
 
-    private enrichSessions(sessions: TmuxSession[]): TmuxSession[] {
+    private async enrichSessions(sessions: TmuxSession[]): Promise<TmuxSession[]> {
+        // Step 0: Batch-read @cc_* pane options for all AI panes
+        const ccOptionsMap = await this.batchReadCcOptions(sessions);
+
         // Step 1: Enrich each pane with process tracking and AI info
         const paneEnrichedSessions = sessions.map(session => ({
             ...session,
@@ -96,7 +99,13 @@ export class TmuxSessionProvider implements vscode.TreeDataProvider<TmuxTreeItem
                 ...window,
                 panes: window.panes.map(pane => {
                     let enriched = this.processTracker.enrichPane(pane);
-                    enriched = this.aiManager.enrichPane(enriched);
+                    // Use @cc_* options when available, otherwise fall back to heuristic
+                    const ccOpts = pane.paneId ? ccOptionsMap.get(pane.paneId) : undefined;
+                    if (ccOpts && Object.keys(ccOpts).length > 0) {
+                        enriched = this.aiManager.enrichPaneWithOptions(enriched, ccOpts);
+                    } else {
+                        enriched = this.aiManager.enrichPane(enriched);
+                    }
                     return enriched;
                 })
             }))
@@ -109,6 +118,43 @@ export class TmuxSessionProvider implements vscode.TreeDataProvider<TmuxTreeItem
         const withHotkeys = this.hotkeyManager.assignHotkeys(rolledUp);
 
         return withHotkeys;
+    }
+
+    /**
+     * Batch-read @cc_* pane options for all AI panes, grouped by server.
+     */
+    private async batchReadCcOptions(sessions: TmuxSession[]): Promise<Map<string, Record<string, string>>> {
+        const paneIdsByServer = new Map<string, string[]>();
+
+        for (const session of sessions) {
+            for (const window of session.windows) {
+                for (const pane of window.panes) {
+                    if (pane.paneId && this.aiManager.detectAIProvider(pane.command)) {
+                        const ids = paneIdsByServer.get(session.serverId) || [];
+                        ids.push(pane.paneId);
+                        paneIdsByServer.set(session.serverId, ids);
+                    }
+                }
+            }
+        }
+
+        const merged = new Map<string, Record<string, string>>();
+        const promises: Promise<void>[] = [];
+
+        for (const [serverId, paneIds] of paneIdsByServer) {
+            const service = this.serviceManager.getService(serverId);
+            if (!service) { continue; }
+            promises.push(
+                service.getMultiplePaneOptions(paneIds).then(serverMap => {
+                    for (const [id, opts] of serverMap) {
+                        merged.set(id, opts);
+                    }
+                }).catch(() => {})
+            );
+        }
+
+        await Promise.all(promises);
+        return merged;
     }
 
     private buildHotkeyFooter(): TmuxTreeItem[] {
@@ -131,7 +177,7 @@ export class TmuxSessionProvider implements vscode.TreeDataProvider<TmuxTreeItem
             if (services.length === 1 && services[0].serverId === 'local') {
                 const sessions = await services[0].getTmuxTree();
                 if (sessions.length > 0) {
-                    const enriched = this.enrichSessions(sessions);
+                    const enriched = await this.enrichSessions(sessions);
 
                     const sessionNodes = enriched.map(session => new TmuxSessionTreeItem(session));
                     return sessionNodes;
@@ -159,7 +205,7 @@ export class TmuxSessionProvider implements vscode.TreeDataProvider<TmuxTreeItem
             }
 
             // Enrich all sessions together so hotkeys are globally unique
-            const enriched = allSessions.length > 0 ? this.enrichSessions(allSessions) : [];
+            const enriched = allSessions.length > 0 ? await this.enrichSessions(allSessions) : [];
 
             // Map enriched sessions back to their servers
             const serverNodes: TmuxTreeItem[] = [];
@@ -367,7 +413,13 @@ export class TmuxPaneTreeItem extends vscode.TreeItem {
             const iconName = AI_STATUS_ICONS[pane.aiInfo.status];
             const colorName = AI_STATUS_COLORS[pane.aiInfo.status];
             this.iconPath = new vscode.ThemeIcon(iconName, new vscode.ThemeColor(colorName));
-            this.description = `${pane.aiInfo.provider} - ${pane.aiInfo.status}`;
+            // Show model in description when available from metadata
+            const meta = pane.aiInfo.metadata;
+            if (meta?.model) {
+                this.description = `${pane.aiInfo.provider}/${meta.model} - ${pane.aiInfo.status}`;
+            } else {
+                this.description = `${pane.aiInfo.provider} - ${pane.aiInfo.status}`;
+            }
         } else if (pane.processCategory && pane.processCategory !== ProcessCategory.IDLE) {
             // Non-idle process: use process category icons and colors
             const iconName = PROCESS_CATEGORY_ICONS[pane.processCategory];
@@ -411,6 +463,22 @@ export class TmuxPaneTreeItem extends vscode.TreeItem {
         if (pane.aiInfo) {
             tooltip.appendMarkdown(`**AI Provider:** ${pane.aiInfo.provider}\n\n`);
             tooltip.appendMarkdown(`**AI Status:** ${pane.aiInfo.status}\n\n`);
+            const meta = pane.aiInfo.metadata;
+            if (meta) {
+                if (meta.model) { tooltip.appendMarkdown(`**Model:** ${meta.model}\n\n`); }
+                if (meta.contextPct !== undefined) { tooltip.appendMarkdown(`**Context:** ${meta.contextPct}%\n\n`); }
+                if (meta.cost !== undefined) { tooltip.appendMarkdown(`**Cost:** $${meta.cost.toFixed(4)}\n\n`); }
+                if (meta.tokensIn !== undefined || meta.tokensOut !== undefined) {
+                    tooltip.appendMarkdown(`**Tokens:** ${meta.tokensIn ?? 0} in / ${meta.tokensOut ?? 0} out\n\n`);
+                }
+                if (meta.linesAdded !== undefined || meta.linesRemoved !== undefined) {
+                    tooltip.appendMarkdown(`**Lines:** +${meta.linesAdded ?? 0} / -${meta.linesRemoved ?? 0}\n\n`);
+                }
+                if (meta.gitBranch) { tooltip.appendMarkdown(`**Branch:** ${meta.gitBranch}\n\n`); }
+                if (meta.version) { tooltip.appendMarkdown(`**Version:** ${meta.version}\n\n`); }
+                if (meta.elapsed) { tooltip.appendMarkdown(`**Elapsed:** ${meta.elapsed}\n\n`); }
+                if (meta.sessionId) { tooltip.appendMarkdown(`**Session:** ${meta.sessionId.slice(0, 8)}\n\n`); }
+            }
         }
         if (pane.processCategory && pane.processCategory !== ProcessCategory.IDLE) {
             tooltip.appendMarkdown(`**Process:** ${pane.processDescription}\n\n`);

@@ -706,7 +706,22 @@ export function registerSessionCommands(
         try {
             await service.newSession(finalForkName);
 
-            const forkCmd = ctx.aiManager.getForkCommand(provider, sessionName);
+            // Try to get the CC session ID from the source pane for a targeted resume
+            let ccSessionId: string | undefined;
+            const sourcePanes = item.session.windows.flatMap(w => w.panes);
+            const aiPane = sourcePanes.find(p => p.aiInfo?.metadata?.sessionId);
+            if (aiPane) {
+                ccSessionId = aiPane.aiInfo!.metadata!.sessionId;
+            } else {
+                // Fall back to reading pane options directly if metadata wasn't enriched
+                const paneWithId = sourcePanes.find(p => p.paneId);
+                if (paneWithId?.paneId) {
+                    const opts = await service.getPaneOptions(paneWithId.paneId);
+                    ccSessionId = opts['cc_session_id'] || undefined;
+                }
+            }
+
+            const forkCmd = ctx.aiManager.getForkCommand(provider, sessionName, ccSessionId);
             await service.sendKeysToSession(finalForkName, forkCmd);
 
             ctx.tmuxSessionProvider.refresh();

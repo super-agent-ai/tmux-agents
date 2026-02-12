@@ -152,7 +152,7 @@ describe('TmuxService', () => {
             // Second call batch: list-sessions, list-windows, list-panes
             mockExec.mockResolvedValueOnce({ stdout: 'dev:1:1700000000:1700000100\n', stderr: '' });
             mockExec.mockResolvedValueOnce({ stdout: 'dev:0:main:1\n', stderr: '' });
-            mockExec.mockResolvedValueOnce({ stdout: 'dev:0:0:bash:/home/user:1:12345\n', stderr: '' });
+            mockExec.mockResolvedValueOnce({ stdout: 'dev:0:0:bash:/home/user:1:12345:%0\n', stderr: '' });
 
             const service = new TmuxService(LOCAL_SERVER);
             const tree = await service.getTmuxTree();
@@ -164,6 +164,28 @@ describe('TmuxService', () => {
             expect(tree[0].windows[0].name).toBe('main');
             expect(tree[0].windows[0].panes).toHaveLength(1);
             expect(tree[0].windows[0].panes[0].command).toBe('bash');
+        });
+
+        it('parses paneId from 8th field in pane format', async () => {
+            mockExec.mockResolvedValueOnce({ stdout: 'tmux 3.4', stderr: '' });
+            mockExec.mockResolvedValueOnce({ stdout: 'dev:1:1700000000:1700000100\n', stderr: '' });
+            mockExec.mockResolvedValueOnce({ stdout: 'dev:0:main:1\n', stderr: '' });
+            mockExec.mockResolvedValueOnce({ stdout: 'dev:0:0:claude:/home/user:1:12345:%5\n', stderr: '' });
+
+            const service = new TmuxService(LOCAL_SERVER);
+            const tree = await service.getTmuxTree();
+            expect(tree[0].windows[0].panes[0].paneId).toBe('%5');
+        });
+
+        it('handles missing paneId in legacy 7-field format', async () => {
+            mockExec.mockResolvedValueOnce({ stdout: 'tmux 3.4', stderr: '' });
+            mockExec.mockResolvedValueOnce({ stdout: 'dev:1:1700000000:1700000100\n', stderr: '' });
+            mockExec.mockResolvedValueOnce({ stdout: 'dev:0:main:1\n', stderr: '' });
+            mockExec.mockResolvedValueOnce({ stdout: 'dev:0:0:bash:/tmp:1:999\n', stderr: '' });
+
+            const service = new TmuxService(LOCAL_SERVER);
+            const tree = await service.getTmuxTree();
+            expect(tree[0].windows[0].panes[0].paneId).toBeUndefined();
         });
 
         it('returns empty array when tmux is not installed', async () => {
@@ -213,6 +235,109 @@ describe('TmuxService', () => {
 
             const fresh = await service.getTmuxTree();
             expect(fresh[0].name).toBe('b');
+        });
+    });
+
+    // ─── getPaneOptions ──────────────────────────────────────────────────
+
+    describe('getPaneOptions', () => {
+        it('parses @cc_* options from tmux output', async () => {
+            mockExec.mockResolvedValueOnce({
+                stdout: '@cc_state busy\n@cc_model opus\n@cc_cost 0.1234\nsome_other_option value\n',
+                stderr: '',
+            });
+
+            const service = new TmuxService(LOCAL_SERVER);
+            const opts = await service.getPaneOptions('%5');
+
+            expect(opts).toEqual({
+                cc_state: 'busy',
+                cc_model: 'opus',
+                cc_cost: '0.1234',
+            });
+        });
+
+        it('returns empty map when no @cc_* options exist', async () => {
+            mockExec.mockResolvedValueOnce({
+                stdout: 'remain-on-exit off\nwindow-active-style default\n',
+                stderr: '',
+            });
+
+            const service = new TmuxService(LOCAL_SERVER);
+            const opts = await service.getPaneOptions('%0');
+            expect(opts).toEqual({});
+        });
+
+        it('returns empty map on error', async () => {
+            mockExec.mockRejectedValueOnce(new Error('pane not found'));
+
+            const service = new TmuxService(LOCAL_SERVER);
+            const opts = await service.getPaneOptions('%99');
+            expect(opts).toEqual({});
+        });
+
+        it('filters out non-cc options', async () => {
+            mockExec.mockResolvedValueOnce({
+                stdout: '@cc_state idle\n@other_option value\nplain-option value\n',
+                stderr: '',
+            });
+
+            const service = new TmuxService(LOCAL_SERVER);
+            const opts = await service.getPaneOptions('%0');
+            expect(opts).toEqual({ cc_state: 'idle' });
+            expect(opts).not.toHaveProperty('other_option');
+        });
+    });
+
+    // ─── getMultiplePaneOptions ──────────────────────────────────────────
+
+    describe('getMultiplePaneOptions', () => {
+        it('batches multiple pane reads into single command', async () => {
+            mockExec.mockResolvedValueOnce({
+                stdout: [
+                    '---%0---',
+                    '@cc_state busy',
+                    '@cc_model opus',
+                    '---%3---',
+                    '@cc_state idle',
+                    '@cc_cost 0.5',
+                ].join('\n'),
+                stderr: '',
+            });
+
+            const service = new TmuxService(LOCAL_SERVER);
+            const result = await service.getMultiplePaneOptions(['%0', '%3']);
+
+            expect(result.size).toBe(2);
+            expect(result.get('%0')).toEqual({ cc_state: 'busy', cc_model: 'opus' });
+            expect(result.get('%3')).toEqual({ cc_state: 'idle', cc_cost: '0.5' });
+        });
+
+        it('returns empty map for empty paneIds array', async () => {
+            const service = new TmuxService(LOCAL_SERVER);
+            const result = await service.getMultiplePaneOptions([]);
+            expect(result.size).toBe(0);
+            expect(mockExec).not.toHaveBeenCalled();
+        });
+
+        it('handles error gracefully', async () => {
+            mockExec.mockRejectedValueOnce(new Error('connection failed'));
+
+            const service = new TmuxService(LOCAL_SERVER);
+            const result = await service.getMultiplePaneOptions(['%0']);
+            expect(result.size).toBe(0);
+        });
+
+        it('handles pane with no cc options', async () => {
+            mockExec.mockResolvedValueOnce({
+                stdout: '---%0---\n@cc_state busy\n---%1---\nremain-on-exit off\n',
+                stderr: '',
+            });
+
+            const service = new TmuxService(LOCAL_SERVER);
+            const result = await service.getMultiplePaneOptions(['%0', '%1']);
+            expect(result.get('%0')).toEqual({ cc_state: 'busy' });
+            expect(result.get('%1')).toEqual({});
         });
     });
 });

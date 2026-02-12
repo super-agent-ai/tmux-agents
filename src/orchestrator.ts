@@ -297,6 +297,34 @@ export class AgentOrchestrator implements vscode.Disposable {
             }
 
             try {
+                // Try @cc_* pane options first (cheap, single command)
+                const paneTarget = `${agent.sessionName}:${agent.windowIndex}.${agent.paneIndex}`;
+                const ccOptions = await service.getPaneOptions(paneTarget);
+                const ccState = ccOptions['cc_state'];
+
+                if (ccState) {
+                    const aiStatus = this.aiAssistantManager.mapCcStateToAIStatus(ccState);
+                    if (aiStatus !== null) {
+                        let newState: AgentState;
+                        switch (aiStatus) {
+                            case AIStatus.WORKING:
+                                newState = AgentState.WORKING;
+                                break;
+                            case AIStatus.WAITING:
+                            case AIStatus.IDLE:
+                                newState = AgentState.IDLE;
+                                break;
+                            default:
+                                newState = agent.state;
+                        }
+                        if (newState !== agent.state) {
+                            this.updateAgentState(agent.id, newState);
+                        }
+                        continue;
+                    }
+                }
+
+                // Fall back to capture-pane heuristic
                 const content = await service.capturePaneContent(
                     agent.sessionName,
                     agent.windowIndex,
