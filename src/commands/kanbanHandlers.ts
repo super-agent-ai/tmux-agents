@@ -1019,6 +1019,88 @@ ${content.slice(-3000)}`;
             }
             break;
         }
+        case 'aiCreateTask': {
+            const laneId = payload.swimLaneId || '';
+            const lane = laneId ? ctx.swimLanes.find(l => l.id === laneId) : undefined;
+
+            // Create the task first with placeholder values
+            const newTask: OrchestratorTask = {
+                id: 'task-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+                description: 'New AI task',
+                status: TaskStatus.PENDING,
+                priority: 5,
+                kanbanColumn: 'backlog',
+                swimLaneId: laneId || undefined,
+                createdAt: Date.now(),
+            };
+            if (lane) { applySwimLaneDefaults(newTask, lane); }
+            ctx.orchestrator.submitTask(newTask);
+            ctx.database.saveTask(newTask);
+
+            // Spawn AI to generate task details
+            const aiSpawnCfg = ctx.aiManager.getSpawnConfig(ctx.aiManager.getDefaultProvider());
+            console.log(`[aiCreateTask] Spawning: ${aiSpawnCfg.command} ${aiSpawnCfg.args.join(' ')}`);
+
+            try {
+                const aiResult = await new Promise<string>((resolve) => {
+                    const prompt = `You are a task planner for a software development team. Generate a new task specification for an agent to work on.
+
+Respond ONLY with valid JSON (no markdown, no code fences), in this exact format:
+{"title": "Short task title (under 60 chars)", "description": "Detailed description", "role": "coder"}
+
+## Title Rules
+- Start with an action verb: Add, Fix, Refactor, Update, Implement, Write, Configure, Remove
+- Keep under 60 characters
+- Be specific and actionable
+
+## Description Structure
+Write the description with three sections separated by newlines:
+- **What**: What to build, change, or fix (1-2 sentences)
+- **Acceptance Criteria**: Bulleted list of done-when conditions
+- **Implementation Notes**: Technical hints — files to touch, patterns to follow, dependencies to consider
+
+## Role Selection
+- coder: Implementation, bug fixes, refactoring, scripting
+- reviewer: Code review, security audit, architecture assessment
+- tester: Writing tests, improving coverage, test infrastructure
+- devops: CI/CD, Docker, deployment, infrastructure
+- researcher: Investigation, comparison, analysis, documentation
+
+Generate a useful, well-structured development task.`;
+
+                    const cmdStr = [aiSpawnCfg.command, ...aiSpawnCfg.args].join(' ');
+                    const proc = cp.exec(cmdStr, { env: { ...process.env, ...aiSpawnCfg.env }, cwd: safeCwd(aiSpawnCfg.cwd), maxBuffer: 10 * 1024 * 1024, timeout: 30000 }, (error, stdout, stderr) => {
+                        if (error) {
+                            console.warn(`[aiCreateTask] Error: ${error.message}. stderr: ${(stderr || '').slice(0, 500)}`);
+                        }
+                        resolve(error ? '' : stdout.trim());
+                    });
+                    proc.stdin!.on('error', () => {});
+                    process.nextTick(() => { if (proc.stdin && proc.stdin.writable && !proc.killed) { proc.stdin.write(prompt); proc.stdin.end(); } });
+                });
+
+                if (aiResult) {
+                    let json = aiResult;
+                    const fenceMatch = aiResult.match(/```(?:json)?\s*([\s\S]*?)```/);
+                    if (fenceMatch) { json = fenceMatch[1].trim(); }
+                    try {
+                        const parsed = JSON.parse(json);
+                        if (parsed.title) { newTask.description = parsed.title; }
+                        if (parsed.description) { newTask.input = parsed.description; }
+                        if (parsed.role) { newTask.targetRole = parsed.role; }
+                        ctx.database.saveTask(newTask);
+                    } catch {
+                        console.warn('[aiCreateTask] Failed to parse AI response as JSON');
+                    }
+                }
+            } catch (err) {
+                console.error(`[aiCreateTask] Unexpected error: ${err}`);
+            }
+
+            ctx.updateKanban();
+            ctx.kanbanView.sendMessage({ type: 'aiTaskCreated', taskId: newTask.id });
+            break;
+        }
         case 'aiExpandTask': {
             const text = payload.text || '';
             if (!text) break;

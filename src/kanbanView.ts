@@ -1004,6 +1004,23 @@ html, body {
 .swim-lane-auto-add:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 1px; }
 .swim-lane-auto-add.creating { opacity: 0.4; pointer-events: none; }
 
+/* ── Swim Lane AI Add (Green +) ───────────────────────────────────── */
+.swim-lane-ai-add {
+    width: 24px; height: 24px; padding: 0; border: none; border-radius: 4px;
+    background: rgba(34,197,94,0.15); color: #22c55e; cursor: pointer;
+    font-size: 16px; display: inline-flex; align-items: center; justify-content: center;
+    opacity: 0.8; transition: opacity 0.15s, background 0.15s, color 0.15s;
+}
+.swim-lane-ai-add:hover { opacity: 1; background: rgba(34,197,94,0.25); color: #22c55e; }
+.swim-lane-ai-add:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 1px; }
+.swim-lane-ai-add.creating { opacity: 0.4; pointer-events: none; }
+.swim-lane-ai-add .ai-add-spinner {
+    width: 14px; height: 14px; border: 2px solid rgba(34,197,94,0.3);
+    border-top-color: #22c55e; border-radius: 50%;
+    animation: ai-add-spin 0.6s linear infinite;
+}
+@keyframes ai-add-spin { to { transform: rotate(360deg); } }
+
 </style>
 </head>
 <body>
@@ -1401,6 +1418,7 @@ html, body {
     var editingTaskId = null;
     var modalColumn = 'backlog';
     var modalSwimLaneId = '';
+    var pendingOpenTaskId = null;
 
     // Drag state
     var draggedTaskId = null;
@@ -1964,6 +1982,7 @@ html, body {
         headerHtml += '<div class="swim-lane-actions">';
         headerHtml += '<button class="swim-lane-quick-add" data-act="quick-add" data-lane-id="' + esc(lane.id) + '" aria-label="Add task to ' + esc(lane.name) + '" data-tip="Quick add task">+</button>';
         headerHtml += '<button class="swim-lane-auto-add" data-act="auto-add" data-lane-id="' + esc(lane.id) + '" aria-label="Auto create task in ' + esc(lane.name) + '" data-tip="Auto create task">+</button>';
+        headerHtml += '<button class="swim-lane-ai-add" data-act="ai-add" data-lane-id="' + esc(lane.id) + '" aria-label="AI generate task in ' + esc(lane.name) + '" data-tip="AI generate task">+</button>';
         headerHtml += '<button class="btn-icon" data-act="open-terminal" data-lane-id="' + esc(lane.id) + '" data-tip="Open terminal attached to session">&#x2328;</button>';
         headerHtml += '<button class="btn-icon" data-act="debug-window" data-lane-id="' + esc(lane.id) + '" data-tip="Open debug shell window">&#x1F41B;</button>';
         headerHtml += '<button class="btn-icon" data-act="restart-debug" data-lane-id="' + esc(lane.id) + '" data-tip="Kill &amp; restart debug window">&#x1F504;</button>';
@@ -2003,6 +2022,7 @@ html, body {
         headerHtml += '<div class="swim-lane-actions">';
         headerHtml += '<button class="swim-lane-quick-add" data-act="quick-add" data-lane-id="__default" aria-label="Add task to Default Lane" data-tip="Quick add task">+</button>';
         headerHtml += '<button class="swim-lane-auto-add" data-act="auto-add" data-lane-id="__default" aria-label="Auto create task in Default Lane" data-tip="Auto create task">+</button>';
+        headerHtml += '<button class="swim-lane-ai-add" data-act="ai-add" data-lane-id="__default" aria-label="AI generate task in Default Lane" data-tip="AI generate task">+</button>';
         headerHtml += '</div>';
 
         headerEl.innerHTML = headerHtml;
@@ -2371,6 +2391,21 @@ html, body {
     /* ── Event delegation on board ───────────────────────────────────────── */
 
     board.addEventListener('click', function(e) {
+        // AI-add button (green +) in swim lane header
+        var aiAddBtn = e.target.closest('.swim-lane-ai-add');
+        if (aiAddBtn) {
+            e.stopPropagation();
+            var laneId = aiAddBtn.dataset.laneId;
+            if (laneId === '__default') laneId = '';
+            aiAddBtn.classList.add('creating');
+            aiAddBtn.innerHTML = '<span class="ai-add-spinner"></span>';
+            vscode.postMessage({
+                type: 'aiCreateTask',
+                swimLaneId: laneId
+            });
+            return;
+        }
+
         // Auto-add button (red +) in swim lane header
         var autoAddBtn = e.target.closest('.swim-lane-auto-add');
         if (autoAddBtn) {
@@ -3387,6 +3422,14 @@ html, body {
             renderFavBar();
             renderFilterTagsChips();
             render();
+            // Open edit modal for AI-created task after state is updated
+            if (pendingOpenTaskId) {
+                var aiTask = findTask(pendingOpenTaskId);
+                if (aiTask) {
+                    pendingOpenTaskId = null;
+                    openTaskModal(getCol(aiTask), aiTask.swimLaneId || '', aiTask);
+                }
+            }
         }
         if (msg.type === 'tmuxScanResult') {
             importSessions = (msg.sessions || []).map(function(s) { s.selected = true; return s; });
@@ -3438,6 +3481,18 @@ html, body {
                 if (typeof msg.toggles.useWorktree === 'boolean') {
                     msg.toggles.useWorktree ? tmWorktree.classList.add('active') : tmWorktree.classList.remove('active');
                 }
+            }
+        }
+        if (msg.type === 'aiTaskCreated') {
+            // Reset all AI-add buttons
+            var aiAddBtns = board.querySelectorAll('.swim-lane-ai-add');
+            for (var ab = 0; ab < aiAddBtns.length; ab++) {
+                aiAddBtns[ab].classList.remove('creating');
+                aiAddBtns[ab].innerHTML = '+';
+            }
+            if (msg.taskId) {
+                // Open edit modal for the newly created task after state updates
+                pendingOpenTaskId = msg.taskId;
             }
         }
     });
