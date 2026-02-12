@@ -744,6 +744,12 @@
           "group": "2_orchestrator"
         }
       ],
+      "editor/title": [
+        {
+          "command": "tmux-agents.openKanban",
+          "group": "navigation"
+        }
+      ],
       "view/item/context": [
         {
           "command": "tmux-agents.attach",
