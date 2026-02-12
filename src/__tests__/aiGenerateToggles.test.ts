@@ -175,10 +175,10 @@ describe('AI Generate Toggle Support', () => {
         });
 
         it('preserves toggle population when editing existing tasks', () => {
-            expect(html).toContain("task && task.autoStart ? tmAutoStart.classList.add('active') : tmAutoStart.classList.remove('active')");
-            expect(html).toContain("task && task.autoPilot ? tmAutoPilot.classList.add('active') : tmAutoPilot.classList.remove('active')");
-            expect(html).toContain("task && task.autoClose ? tmAutoClose.classList.add('active') : tmAutoClose.classList.remove('active')");
-            expect(html).toContain("task && task.useWorktree ? tmWorktree.classList.add('active') : tmWorktree.classList.remove('active')");
+            expect(html).toContain("resolveTaskToggle(task, 'autoStart')) ? tmAutoStart.classList.add('active') : tmAutoStart.classList.remove('active')");
+            expect(html).toContain("resolveTaskToggle(task, 'autoPilot')) ? tmAutoPilot.classList.add('active') : tmAutoPilot.classList.remove('active')");
+            expect(html).toContain("resolveTaskToggle(task, 'autoClose')) ? tmAutoClose.classList.add('active') : tmAutoClose.classList.remove('active')");
+            expect(html).toContain("resolveTaskToggle(task, 'useWorktree')) ? tmWorktree.classList.add('active') : tmWorktree.classList.remove('active')");
         });
     });
 
