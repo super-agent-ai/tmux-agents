@@ -820,6 +820,82 @@ html, body {
 .history-arrow { opacity: 0.5; }
 .history-time { margin-left: auto; opacity: 0.5; font-size: 9px; white-space: nowrap; }
 
+/* ── Swimlane Filter Bar ───────────────────────────────────────────── */
+.filter-bar {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 6px 16px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    flex-shrink: 0;
+    background: var(--vscode-sideBar-background, rgba(255,255,255,0.02));
+}
+.filter-bar-label { font-size: 11px; opacity: 0.6; white-space: nowrap; font-weight: 600; }
+.filter-bar select {
+    padding: 3px 6px; border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+    border-radius: 4px; font-size: 11px; font-family: inherit;
+    background: var(--vscode-input-background, rgba(255,255,255,0.06));
+    color: var(--vscode-input-foreground, var(--vscode-foreground));
+}
+.filter-bar .filter-toggle {
+    display: inline-flex; align-items: center; gap: 3px;
+    padding: 2px 8px; border-radius: 10px; font-size: 10px; cursor: pointer;
+    background: var(--vscode-button-secondaryBackground, rgba(255,255,255,0.06));
+    color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+    border: 1px solid var(--vscode-panel-border); transition: background 0.15s;
+    user-select: none;
+}
+.filter-bar .filter-toggle:hover { background: var(--vscode-button-secondaryHoverBackground, rgba(255,255,255,0.1)); }
+.filter-bar .filter-toggle.active {
+    background: var(--vscode-button-background); color: var(--vscode-button-foreground);
+    border-color: var(--vscode-button-background);
+}
+.filter-tags-row {
+    display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+}
+.filter-tag-chip {
+    display: inline-flex; align-items: center; gap: 3px;
+    padding: 2px 7px; border-radius: 10px; font-size: 10px; cursor: pointer;
+    border: 1px solid var(--vscode-panel-border); transition: all 0.15s;
+    user-select: none;
+}
+.filter-tag-chip.selected {
+    border-color: var(--vscode-focusBorder);
+    box-shadow: 0 0 0 1px var(--vscode-focusBorder);
+}
+.filter-tag-chip:hover { opacity: 0.85; }
+
+/* ── Filter Swimlane Group ─────────────────────────────────────────── */
+.filter-group {
+    border-bottom: 1px solid var(--vscode-panel-border);
+}
+.filter-group:last-child { border-bottom: none; }
+.filter-group-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 16px;
+    background: rgba(86,156,214,0.06);
+    border-bottom: 1px solid var(--vscode-panel-border);
+    cursor: pointer; user-select: none;
+    font-size: 12px; font-weight: 600;
+}
+.filter-group-header:hover { background: rgba(86,156,214,0.10); }
+.filter-group-collapse {
+    font-size: 10px; opacity: 0.6; transition: transform 0.2s;
+    flex-shrink: 0; width: 14px; text-align: center;
+}
+.filter-group-collapse.collapsed { transform: rotate(-90deg); }
+.filter-group-label { flex: 1; }
+.filter-group-count {
+    font-size: 9px; padding: 1px 5px; border-radius: 8px;
+    background: var(--vscode-badge-background); color: var(--vscode-badge-foreground);
+}
+.filter-group-body {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    padding: 8px 16px;
+}
+.filter-group-body.collapsed { display: none; }
+.filter-group-card {
+    flex: 0 0 240px; max-width: 320px;
+}
+
 </style>
 </head>
 <body>
@@ -834,6 +910,18 @@ html, body {
         </div>
     </div>
     <div class="fav-bar" id="fav-bar"></div>
+    <div class="filter-bar" id="filter-bar">
+        <span class="filter-bar-label">Group By:</span>
+        <select id="filter-criterion">
+            <option value="none">None (Swim Lanes)</option>
+            <option value="tags">Tags</option>
+            <option value="dependencies">Dependencies</option>
+            <option value="createdDate">Created Date</option>
+            <option value="startedDate">Started Date</option>
+        </select>
+        <span id="filter-tags-container" class="filter-tags-row" style="display:none"></span>
+        <span class="filter-toggle" id="filter-show-empty" title="Show empty groups">Show Empty</span>
+    </div>
     <div class="board" id="board"></div>
 </div>
 
@@ -1164,6 +1252,33 @@ html, body {
     var favouriteFolders = [];
     var collapsedLanes = {};
 
+    // ── Swimlane filter state ─────────────────────────────────────────
+    var filterCriterion = 'none';
+    var filterSelectedTags = [];
+    var filterShowEmpty = false;
+    var collapsedFilterGroups = {};
+
+    // Restore persisted filter state
+    try {
+        var saved = localStorage.getItem('tmuxAgents.swimlaneFilter');
+        if (saved) {
+            var parsed = JSON.parse(saved);
+            filterCriterion = parsed.criterion || 'none';
+            filterSelectedTags = parsed.selectedTags || [];
+            filterShowEmpty = !!parsed.showEmpty;
+        }
+    } catch (e) { /* ignore */ }
+
+    function persistFilterState() {
+        try {
+            localStorage.setItem('tmuxAgents.swimlaneFilter', JSON.stringify({
+                criterion: filterCriterion,
+                selectedTags: filterSelectedTags,
+                showEmpty: filterShowEmpty
+            }));
+        } catch (e) { /* ignore */ }
+    }
+
     // Task modal state
     var editingTaskId = null;
     var modalColumn = 'backlog';
@@ -1177,6 +1292,9 @@ html, body {
 
     // DOM refs
     var board = document.getElementById('board');
+    var filterCriterionEl = document.getElementById('filter-criterion');
+    var filterTagsContainer = document.getElementById('filter-tags-container');
+    var filterShowEmptyEl = document.getElementById('filter-show-empty');
 
     // Lane modal refs
     var laneOverlay = document.getElementById('lane-modal-overlay');
@@ -1782,6 +1900,228 @@ html, body {
         return laneEl;
     }
 
+    /* ── Swimlane Filter Logic ──────────────────────────────────────────── */
+
+    function collectAllTagsFromTasks() {
+        var tagSet = {};
+        for (var i = 0; i < tasks.length; i++) {
+            if (tasks[i].tags) {
+                for (var j = 0; j < tasks[i].tags.length; j++) {
+                    tagSet[tasks[i].tags[j]] = true;
+                }
+            }
+        }
+        return Object.keys(tagSet).sort();
+    }
+
+    function classifyDateBucket(ts, now) {
+        if (!ts) return 'noDate';
+        var todayStart = new Date(now);
+        todayStart.setHours(0, 0, 0, 0);
+        if (ts >= todayStart.getTime()) return 'today';
+        var weekStart = new Date(now);
+        weekStart.setHours(0, 0, 0, 0);
+        var day = weekStart.getDay();
+        var diff = day === 0 ? 6 : day - 1;
+        weekStart.setDate(weekStart.getDate() - diff);
+        if (ts >= weekStart.getTime()) return 'thisWeek';
+        var monthStart = new Date(now);
+        monthStart.setHours(0, 0, 0, 0);
+        monthStart.setDate(1);
+        if (ts >= monthStart.getTime()) return 'thisMonth';
+        return 'older';
+    }
+
+    var DATE_BUCKET_LABELS = { today: 'Today', thisWeek: 'This Week', thisMonth: 'This Month', older: 'Older', noDate: 'No Date' };
+    var DATE_BUCKET_ORDER = ['today', 'thisWeek', 'thisMonth', 'older', 'noDate'];
+    var DEP_LABELS = { blocked: 'Blocked', unblocked: 'Unblocked', noDependencies: 'No Dependencies' };
+    var DEP_ORDER = ['blocked', 'unblocked', 'noDependencies'];
+
+    function computeFilterGroups() {
+        if (filterCriterion === 'none') return [];
+        // Get top-level tasks (skip subtasks)
+        var topTasks = [];
+        for (var i = 0; i < tasks.length; i++) {
+            if (!tasks[i].parentTaskId) topTasks.push(tasks[i]);
+        }
+
+        if (filterCriterion === 'tags') {
+            return groupTasksByTags(topTasks);
+        } else if (filterCriterion === 'dependencies') {
+            return groupTasksByDeps(topTasks);
+        } else if (filterCriterion === 'createdDate') {
+            return groupTasksByDate(topTasks, 'createdAt');
+        } else if (filterCriterion === 'startedDate') {
+            return groupTasksByDate(topTasks, 'startedAt');
+        }
+        return [];
+    }
+
+    function groupTasksByTags(topTasks) {
+        var tagMap = {};
+        var untagged = [];
+        for (var i = 0; i < topTasks.length; i++) {
+            var t = topTasks[i];
+            if (!t.tags || t.tags.length === 0) {
+                untagged.push(t.id);
+                continue;
+            }
+            var relevant = filterSelectedTags.length > 0
+                ? t.tags.filter(function(tg) { return filterSelectedTags.indexOf(tg) !== -1; })
+                : t.tags;
+            if (relevant.length === 0) {
+                untagged.push(t.id);
+                continue;
+            }
+            for (var j = 0; j < relevant.length; j++) {
+                if (!tagMap[relevant[j]]) tagMap[relevant[j]] = [];
+                tagMap[relevant[j]].push(t.id);
+            }
+        }
+        var keys = filterSelectedTags.length > 0
+            ? filterSelectedTags.filter(function(tg) { return !!tagMap[tg]; })
+            : Object.keys(tagMap).sort();
+        var groups = [];
+        for (var k = 0; k < keys.length; k++) {
+            groups.push({ key: 'tag:' + keys[k], label: keys[k], taskIds: tagMap[keys[k]] });
+        }
+        groups.push({ key: 'tag:__untagged', label: 'Untagged', taskIds: untagged });
+        return groups;
+    }
+
+    function groupTasksByDeps(topTasks) {
+        var completedIds = {};
+        for (var i = 0; i < tasks.length; i++) {
+            if (tasks[i].status === 'completed' || tasks[i].kanbanColumn === 'done') {
+                completedIds[tasks[i].id] = true;
+            }
+        }
+        var groups = { blocked: [], unblocked: [], noDependencies: [] };
+        for (var i = 0; i < topTasks.length; i++) {
+            var t = topTasks[i];
+            if (!t.dependsOn || t.dependsOn.length === 0) {
+                groups.noDependencies.push(t.id);
+            } else {
+                var allMet = true;
+                for (var d = 0; d < t.dependsOn.length; d++) {
+                    if (!completedIds[t.dependsOn[d]]) { allMet = false; break; }
+                }
+                groups[allMet ? 'unblocked' : 'blocked'].push(t.id);
+            }
+        }
+        return DEP_ORDER.map(function(cls) {
+            return { key: 'dep:' + cls, label: DEP_LABELS[cls], taskIds: groups[cls] };
+        });
+    }
+
+    function groupTasksByDate(topTasks, field) {
+        var now = Date.now();
+        var groups = { today: [], thisWeek: [], thisMonth: [], older: [], noDate: [] };
+        for (var i = 0; i < topTasks.length; i++) {
+            var bucket = classifyDateBucket(topTasks[i][field], now);
+            groups[bucket].push(topTasks[i].id);
+        }
+        return DATE_BUCKET_ORDER.map(function(b) {
+            var label = DATE_BUCKET_LABELS[b];
+            if (field === 'startedAt' && b === 'noDate') label = 'Not Started';
+            return { key: field + ':' + b, label: label, taskIds: groups[b] };
+        });
+    }
+
+    function buildFilterGroupCard(task) {
+        // Reuse the standard card builder but wrapped in filter-group-card
+        var wrapper = document.createElement('div');
+        wrapper.className = 'filter-group-card';
+        wrapper.appendChild(buildCard(task));
+        return wrapper;
+    }
+
+    function buildFilterGroupSection(group) {
+        var el = document.createElement('div');
+        el.className = 'filter-group';
+        el.dataset.groupKey = group.key;
+
+        var isCollapsed = !!collapsedFilterGroups[group.key];
+        var chevron = isCollapsed ? '&#x25B6;' : '&#x25BC;';
+
+        var headerEl = document.createElement('div');
+        headerEl.className = 'filter-group-header';
+        headerEl.innerHTML = '<span class="filter-group-collapse' + (isCollapsed ? ' collapsed' : '') + '">' + chevron + '</span>'
+            + '<span class="filter-group-label">' + esc(group.label) + '</span>'
+            + '<span class="filter-group-count">' + group.taskIds.length + '</span>';
+        el.appendChild(headerEl);
+
+        var bodyEl = document.createElement('div');
+        bodyEl.className = 'filter-group-body' + (isCollapsed ? ' collapsed' : '');
+
+        if (group.taskIds.length === 0) {
+            bodyEl.innerHTML = '<span style="opacity:0.4;font-size:11px">No tasks</span>';
+        } else {
+            for (var i = 0; i < group.taskIds.length; i++) {
+                var task = findTask(group.taskIds[i]);
+                if (task) bodyEl.appendChild(buildFilterGroupCard(task));
+            }
+        }
+        el.appendChild(bodyEl);
+
+        // Toggle collapse
+        headerEl.addEventListener('click', function() {
+            collapsedFilterGroups[group.key] = !collapsedFilterGroups[group.key];
+            render();
+        });
+
+        return el;
+    }
+
+    function renderFilterTagsChips() {
+        var allTags = collectAllTagsFromTasks();
+        if (filterCriterion !== 'tags' || allTags.length === 0) {
+            filterTagsContainer.style.display = 'none';
+            return;
+        }
+        filterTagsContainer.style.display = '';
+        var html = '<span style="font-size:10px;opacity:0.5;margin-right:2px">Filter:</span>';
+        for (var i = 0; i < allTags.length; i++) {
+            var tc = tagColor(allTags[i]);
+            var sel = filterSelectedTags.indexOf(allTags[i]) !== -1 ? ' selected' : '';
+            html += '<span class="filter-tag-chip' + sel + '" style="background:' + tc.bg + ';color:' + tc.fg + '" data-filter-tag="' + esc(allTags[i]) + '">' + esc(allTags[i]) + '</span>';
+        }
+        filterTagsContainer.innerHTML = html;
+    }
+
+    // Wire filter bar events
+    filterCriterionEl.value = filterCriterion;
+    if (filterShowEmpty) filterShowEmptyEl.classList.add('active');
+
+    filterCriterionEl.addEventListener('change', function() {
+        filterCriterion = filterCriterionEl.value;
+        persistFilterState();
+        renderFilterTagsChips();
+        render();
+    });
+
+    filterShowEmptyEl.addEventListener('click', function() {
+        filterShowEmpty = !filterShowEmpty;
+        filterShowEmptyEl.classList.toggle('active');
+        persistFilterState();
+        render();
+    });
+
+    filterTagsContainer.addEventListener('click', function(e) {
+        var chip = e.target.closest('.filter-tag-chip');
+        if (!chip) return;
+        var tag = chip.dataset.filterTag;
+        var idx = filterSelectedTags.indexOf(tag);
+        if (idx !== -1) {
+            filterSelectedTags.splice(idx, 1);
+        } else {
+            filterSelectedTags.push(tag);
+        }
+        persistFilterState();
+        renderFilterTagsChips();
+        render();
+    });
+
     /* ── Render ──────────────────────────────────────────────────────────── */
 
     function hasTasksForLane(laneId) {
@@ -1794,7 +2134,23 @@ html, body {
     function render() {
         board.innerHTML = '';
 
-        // Named swim lanes
+        // If a filter criterion is active, render filter groups instead of swim lanes
+        if (filterCriterion !== 'none') {
+            var groups = computeFilterGroups();
+            if (!filterShowEmpty) {
+                groups = groups.filter(function(g) { return g.taskIds.length > 0; });
+            }
+            if (groups.length === 0) {
+                board.innerHTML = '<div style="padding:32px 16px;text-align:center;opacity:0.4;font-size:12px">No tasks match the current filter</div>';
+            } else {
+                for (var g = 0; g < groups.length; g++) {
+                    board.appendChild(buildFilterGroupSection(groups[g]));
+                }
+            }
+            return;
+        }
+
+        // Default: Named swim lanes
         for (var l = 0; l < swimLanes.length; l++) {
             board.appendChild(buildSwimLane(swimLanes[l]));
         }
@@ -2756,6 +3112,7 @@ html, body {
             servers = msg.servers || [];
             favouriteFolders = msg.favouriteFolders || [];
             renderFavBar();
+            renderFilterTagsChips();
             render();
         }
         if (msg.type === 'tmuxScanResult') {
@@ -2798,6 +3155,7 @@ html, body {
     });
 
     /* ── Initial render ──────────────────────────────────────────────────── */
+    renderFilterTagsChips();
     render();
 })();
 </script>
