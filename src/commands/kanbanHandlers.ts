@@ -353,6 +353,16 @@ export async function handleKanbanMessage(
                 aiProvider: payload.aiProvider || undefined,
                 aiModel: payload.aiModel || undefined,
             };
+            // Apply swimlane default toggles first, then let explicit payload override
+            if (task.swimLaneId) {
+                const lane = ctx.swimLanes.find(l => l.id === task.swimLaneId);
+                if (lane?.defaultToggles) {
+                    if (lane.defaultToggles.autoStart) { task.autoStart = true; }
+                    if (lane.defaultToggles.autoPilot) { task.autoPilot = true; }
+                    if (lane.defaultToggles.autoClose) { task.autoClose = true; }
+                    if (lane.defaultToggles.useWorktree) { task.useWorktree = true; }
+                }
+            }
             if (payload.autoStart) { task.autoStart = true; }
             if (payload.autoPilot) { task.autoPilot = true; }
             if (payload.autoClose) { task.autoClose = true; }
@@ -895,6 +905,9 @@ export async function handleKanbanMessage(
             lane.aiProvider = payload.aiProvider || undefined;
             lane.aiModel = payload.aiModel || undefined;
             lane.contextInstructions = payload.contextInstructions || undefined;
+            if (payload.defaultToggles !== undefined) {
+                lane.defaultToggles = payload.defaultToggles || undefined;
+            }
 
             // Handle server change — kill old session first
             if (payload.serverId && payload.serverId !== lane.serverId) {

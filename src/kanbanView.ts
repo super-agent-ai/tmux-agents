@@ -374,6 +374,11 @@ html, body {
 .role-badge.devops { background: rgba(206,145,120,0.2); color: #ce9178; }
 .role-badge.researcher { background: rgba(79,193,255,0.2); color: #4fc1ff; }
 .role-badge.custom { background: rgba(212,212,212,0.15); color: #d4d4d4; }
+.default-toggles-badge {
+    display: inline-flex; align-items: center; gap: 2px;
+    padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 500;
+    background: rgba(78,201,176,0.15); color: #4ec9b0;
+}
 .agent-name {
     font-size: 10px; opacity: 0.5; margin-left: auto;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 80px;
@@ -446,6 +451,35 @@ html, body {
 .field-warning {
     margin-top: 4px; padding: 4px 8px; border-radius: 3px; font-size: 11px;
     background: rgba(205,133,63,0.15); color: #e8a855; border-left: 3px solid #e8a855;
+}
+.default-toggles-section {
+    margin-top: 14px; padding: 10px 12px; border-radius: 6px;
+    background: var(--vscode-editor-background, rgba(0,0,0,0.15));
+    border: 1px solid var(--vscode-panel-border);
+}
+.default-toggles-section .section-label {
+    display: block; font-size: 12px; font-weight: 600;
+    color: var(--vscode-foreground); margin-bottom: 2px;
+}
+.default-toggles-section .section-hint {
+    font-size: 11px; color: var(--vscode-descriptionForeground, rgba(255,255,255,0.5));
+    margin-bottom: 8px;
+}
+.toggle-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.toggle-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 4px 10px; border-radius: 4px; font-size: 11px; font-family: inherit;
+    cursor: pointer; border: 1px solid var(--vscode-panel-border);
+    background: var(--vscode-button-secondaryBackground, rgba(255,255,255,0.06));
+    color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+    transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+    opacity: 0.6;
+}
+.toggle-chip:hover { opacity: 0.85; border-color: var(--vscode-focusBorder); }
+.toggle-chip.active {
+    opacity: 1; background: var(--vscode-button-background, #0e639c);
+    color: var(--vscode-button-foreground, #fff);
+    border-color: var(--vscode-button-background, #0e639c);
 }
 .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
 .modal-task-actions {
@@ -1246,6 +1280,16 @@ html, body {
             <label>Context / Instructions</label>
             <textarea id="el-context" placeholder="Additional context or instructions injected into every task prompt..."></textarea>
         </div>
+        <div class="default-toggles-section">
+            <label class="section-label">Default Task Toggles</label>
+            <div class="section-hint">New tasks in this lane will inherit these toggles</div>
+            <div class="toggle-row">
+                <button class="toggle-chip" id="el-dt-start" data-toggle="autoStart" title="Auto-start tasks">&#x25B6; Start</button>
+                <button class="toggle-chip" id="el-dt-pilot" data-toggle="autoPilot" title="Auto-pilot tasks">&#x2708; Pilot</button>
+                <button class="toggle-chip" id="el-dt-close" data-toggle="autoClose" title="Auto-close tasks">&#x23FB; Close</button>
+                <button class="toggle-chip" id="el-dt-worktree" data-toggle="useWorktree" title="Use git worktree">&#x1F333; Worktree</button>
+            </div>
+        </div>
         <div class="modal-actions">
             <button class="btn" id="el-cancel">Cancel</button>
             <button class="btn-primary" id="el-submit">Save</button>
@@ -1925,6 +1969,15 @@ html, body {
         headerHtml += '<span>session: ' + esc(lane.sessionName) + '</span>';
         if (lane.aiProvider) {
             headerHtml += '<span class="role-badge custom">' + esc(lane.aiProvider) + '</span>';
+        }
+        var dt = lane.defaultToggles || {};
+        var dtFlags = [];
+        if (dt.autoStart) dtFlags.push('S');
+        if (dt.autoPilot) dtFlags.push('P');
+        if (dt.autoClose) dtFlags.push('C');
+        if (dt.useWorktree) dtFlags.push('WT');
+        if (dtFlags.length > 0) {
+            headerHtml += '<span class="default-toggles-badge" data-tip="Default toggles: ' + dtFlags.join(', ') + '">&#x2699; ' + dtFlags.join('') + '</span>';
         }
         headerHtml += '</div>';
         headerHtml += '<div class="swim-lane-actions">';
@@ -2624,8 +2677,19 @@ html, body {
     var elProvider = document.getElementById('el-provider');
     var elModel = document.getElementById('el-model');
     var elContext = document.getElementById('el-context');
+    var elDtStart = document.getElementById('el-dt-start');
+    var elDtPilot = document.getElementById('el-dt-pilot');
+    var elDtClose = document.getElementById('el-dt-close');
+    var elDtWorktree = document.getElementById('el-dt-worktree');
     var editingLaneId = null;
     var editingLaneServerId = null;
+
+    // Wire default toggle chips
+    [elDtStart, elDtPilot, elDtClose, elDtWorktree].forEach(function(chip) {
+        chip.addEventListener('click', function() {
+            chip.classList.toggle('active');
+        });
+    });
 
     // Wire provider→model for edit lane modal
     elProvider.addEventListener('change', function() {
@@ -2652,6 +2716,12 @@ html, body {
         elProvider.value = lane.aiProvider || '';
         populateModelDropdown(elModel, lane.aiProvider || '', lane.aiModel || '');
         elContext.value = lane.contextInstructions || '';
+        // Populate default toggle chips
+        var dt = lane.defaultToggles || {};
+        elDtStart.classList.toggle('active', !!dt.autoStart);
+        elDtPilot.classList.toggle('active', !!dt.autoPilot);
+        elDtClose.classList.toggle('active', !!dt.autoClose);
+        elDtWorktree.classList.toggle('active', !!dt.useWorktree);
         editLaneOverlay.classList.add('active');
         elName.focus();
     }
@@ -2682,6 +2752,14 @@ html, body {
         var provider = elProvider.value || undefined;
         var model = elModel.value || undefined;
         var context = elContext.value.trim() || undefined;
+        var defaultToggles = {
+            autoStart: elDtStart.classList.contains('active'),
+            autoPilot: elDtPilot.classList.contains('active'),
+            autoClose: elDtClose.classList.contains('active'),
+            useWorktree: elDtWorktree.classList.contains('active')
+        };
+        // Only send non-empty toggles object
+        var hasToggles = defaultToggles.autoStart || defaultToggles.autoPilot || defaultToggles.autoClose || defaultToggles.useWorktree;
         vscode.postMessage({
             type: 'editSwimLane',
             swimLaneId: editingLaneId,
@@ -2691,7 +2769,8 @@ html, body {
             workingDirectory: dir,
             aiProvider: provider,
             aiModel: model,
-            contextInstructions: context
+            contextInstructions: context,
+            defaultToggles: hasToggles ? defaultToggles : undefined
         });
         // Update local state
         for (var i = 0; i < swimLanes.length; i++) {
@@ -2706,6 +2785,7 @@ html, body {
                 swimLanes[i].aiProvider = provider;
                 swimLanes[i].aiModel = model;
                 swimLanes[i].contextInstructions = context;
+                swimLanes[i].defaultToggles = hasToggles ? defaultToggles : undefined;
                 break;
             }
         }
