@@ -22,6 +22,7 @@ import { registerSessionCommands } from './commands/sessionCommands';
 import { registerAgentCommands } from './commands/agentCommands';
 import { checkAutoCompletions, checkAutoPilot } from './autoMonitor';
 import { checkAutoCloseTimers, markDoneTimestamp, AutoCloseMonitorContext } from './autoCloseMonitor';
+import { syncTaskListAttachments, SessionSyncContext } from './sessionSync';
 import { buildSingleTaskPrompt, buildTaskBoxPrompt, appendPromptTail, buildPersonaContext } from './promptBuilder';
 import { OrganizationManager } from './organizationManager';
 import { GuildManager } from './guildManager';
@@ -660,10 +661,25 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
         updateDashboard,
     };
 
+    const sessionSyncCtx: SessionSyncContext = {
+        serviceManager,
+        tmuxSessionProvider,
+        orchestrator,
+        database,
+        swimLanes,
+        updateKanban,
+    };
+
+    // Run initial session sync to attach task lists to active (maximized) sessions
+    syncTaskListAttachments(sessionSyncCtx).catch(err =>
+        console.warn('tmux-agents: Initial session sync failed:', err)
+    );
+
     const autoMonitorTimer = setInterval(async () => {
         await checkAutoCompletions(autoMonitorCtx);
         await checkAutoPilot(autoMonitorCtx);
         await checkAutoCloseTimers(autoCloseCtx);
+        await syncTaskListAttachments(sessionSyncCtx);
     }, 15000);
 
     async function ensureLaneSession(lane: KanbanSwimLane): Promise<boolean> {
