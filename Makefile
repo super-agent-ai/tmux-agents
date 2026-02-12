@@ -1,9 +1,12 @@
-.PHONY: compile test watch package install uninstall clean test-integration test-e2e test-all
+.PHONY: compile test watch package install uninstall clean test-integration test-all
 
 VERSION := $(shell node -p "require('./package.json').version")
 VSIX    := tmux-agents-$(VERSION).vsix
 
-compile:
+node_modules: package.json
+	npm install
+
+compile: node_modules
 	npm run compile
 
 test:
@@ -27,8 +30,5 @@ clean:
 
 test-integration: compile
 	npx vscode-test
-
-test-e2e: compile package
-	npx wdio run wdio.conf.ts
 
 test-all: test test-integration
