@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import * as path from 'path';
 import { TmuxSessionProvider, TmuxSessionTreeItem, TmuxWindowTreeItem, TmuxPaneTreeItem, ShortcutsProvider } from './treeProvider';
 import { ChatViewProvider } from './chatView';
 import { ApiCatalog } from './apiCatalog';
@@ -507,24 +506,23 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
                 if (resolveToggle(t, 'useWorktree', lane) && lane.workingDirectory) {
                     const shortId = t.id.slice(-8);
                     const branchName = `task-${shortId}`;
-                    // Expand ~ to home directory before using in commands
-                    const expandedDir = lane.workingDirectory.startsWith('~')
-                        ? lane.workingDirectory.replace('~', process.env.HOME || require('os').homedir())
-                        : lane.workingDirectory;
-                    const worktreePath = path.resolve(expandedDir, '..', '.worktrees', branchName);
                     try {
+                        // Resolve ~ on the target server (local or remote) via shell
+                        const resolvedDir = (await service.execCommand(`cd ${lane.workingDirectory} && pwd`)).trim();
+                        const parentDir = resolvedDir.substring(0, resolvedDir.lastIndexOf('/'));
+                        const worktreePath = `${parentDir}/.worktrees/${branchName}`;
                         // Clean up previous worktree if it exists (e.g. on restart)
                         if (t.worktreePath) {
                             try {
-                                await service.execCommand(`git -C ${JSON.stringify(expandedDir)} worktree remove ${JSON.stringify(t.worktreePath)} --force`);
+                                await service.execCommand(`git -C ${JSON.stringify(resolvedDir)} worktree remove ${JSON.stringify(t.worktreePath)} --force`);
                             } catch { /* may already be gone */ }
                             t.worktreePath = undefined;
                         }
                         // Delete stale branch if it exists from a previous run
                         try {
-                            await service.execCommand(`git -C ${JSON.stringify(expandedDir)} branch -D ${branchName}`);
+                            await service.execCommand(`git -C ${JSON.stringify(resolvedDir)} branch -D ${branchName}`);
                         } catch { /* branch may not exist */ }
-                        await service.execCommand(`git -C ${JSON.stringify(expandedDir)} worktree add ${JSON.stringify(worktreePath)} -b ${branchName}`);
+                        await service.execCommand(`git -C ${JSON.stringify(resolvedDir)} worktree add ${JSON.stringify(worktreePath)} -b ${branchName}`);
                         t.worktreePath = worktreePath;
                         await service.sendKeys(lane.sessionName, winIndex, paneIndex, `cd ${JSON.stringify(worktreePath)}`);
                     } catch (err) {
