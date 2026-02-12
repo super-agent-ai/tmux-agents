@@ -3070,7 +3070,11 @@ html, body {
             type: 'aiExpandTask',
             text: text,
             currentTitle: tmDesc.value.trim(),
-            currentInput: tmInput.value.trim()
+            currentInput: tmInput.value.trim(),
+            autoStart: tmAutoStart.classList.contains('active'),
+            autoPilot: tmAutoPilot.classList.contains('active'),
+            autoClose: tmAutoClose.classList.contains('active'),
+            useWorktree: tmWorktree.classList.contains('active')
         });
     });
 
@@ -3410,6 +3414,21 @@ html, body {
             if (msg.title) tmDesc.value = msg.title;
             if (msg.description) tmInput.value = msg.description;
             if (msg.role) tmRole.value = msg.role;
+            // Apply AI-generated toggle values (only when explicitly set by AI)
+            if (msg.toggles) {
+                if (typeof msg.toggles.autoStart === 'boolean') {
+                    msg.toggles.autoStart ? tmAutoStart.classList.add('active') : tmAutoStart.classList.remove('active');
+                }
+                if (typeof msg.toggles.autoPilot === 'boolean') {
+                    msg.toggles.autoPilot ? tmAutoPilot.classList.add('active') : tmAutoPilot.classList.remove('active');
+                }
+                if (typeof msg.toggles.autoClose === 'boolean') {
+                    msg.toggles.autoClose ? tmAutoClose.classList.add('active') : tmAutoClose.classList.remove('active');
+                }
+                if (typeof msg.toggles.useWorktree === 'boolean') {
+                    msg.toggles.useWorktree ? tmWorktree.classList.add('active') : tmWorktree.classList.remove('active');
+                }
+            }
         }
     });
 
