@@ -394,6 +394,8 @@ export interface OrchestratorTask {
     autoPilot?: boolean;
     /** Auto-close: when done, close tmux session and move to done */
     autoClose?: boolean;
+    /** Timestamp (ms) when the task entered the 'done' kanban column — used by auto-close timer */
+    doneAt?: number;
     /** Launch in a dedicated git worktree for isolation */
     useWorktree?: boolean;
     /** Path to the created git worktree (for cleanup) */

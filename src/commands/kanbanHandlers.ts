@@ -10,6 +10,7 @@ import { TeamManager } from '../teamManager';
 import { KanbanViewProvider } from '../kanbanView';
 import { Database } from '../database';
 import { OrchestratorTask, TaskStatus, KanbanSwimLane, FavouriteFolder, TaskStatusHistoryEntry, TaskComment } from '../types';
+import { markDoneTimestamp, cancelAutoClose } from '../autoCloseMonitor';
 import { buildBundleTaskPrompt, buildDebugPrompt, appendPromptTail } from '../promptBuilder';
 
 export interface KanbanHandlerContext {
@@ -421,9 +422,14 @@ export async function handleKanbanMessage(
                 const oldColumn = t.kanbanColumn || 'backlog';
                 const oldStatus = t.status;
                 t.kanbanColumn = payload.kanbanColumn;
+                // Cancel pending auto-close timer when a task is moved out of 'done'
+                if (oldColumn === 'done' && payload.kanbanColumn !== 'done') {
+                    cancelAutoClose(t);
+                }
                 if (payload.kanbanColumn === 'done') {
                     t.status = TaskStatus.COMPLETED;
                     t.completedAt = Date.now();
+                    markDoneTimestamp(t);
                     // Clean up worktree if one was created
                     if (t.worktreePath && t.tmuxServerId) {
                         const svc = ctx.serviceManager.getService(t.tmuxServerId);

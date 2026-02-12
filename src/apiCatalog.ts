@@ -11,6 +11,7 @@ import {
     AIProvider, AIStatus, AgentRole, AgentState, AgentInstance,
     StageType, TaskStatus, PipelineStatus, OrchestratorTask, KanbanSwimLane
 } from './types';
+import { markDoneTimestamp } from './autoCloseMonitor';
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
 
@@ -1606,7 +1607,7 @@ export class ApiCatalog {
                 task.status = p.status as TaskStatus;
                 if (p.output) { task.output = p.output; }
                 if (p.error) { task.errorMessage = p.error; }
-                if (p.status === 'completed') { task.completedAt = Date.now(); task.kanbanColumn = 'done'; }
+                if (p.status === 'completed') { task.completedAt = Date.now(); task.kanbanColumn = 'done'; markDoneTimestamp(task); }
                 if (p.status === 'in_progress') { task.startedAt = task.startedAt || Date.now(); task.kanbanColumn = 'in_progress'; }
                 if (p.status === 'failed') { task.completedAt = Date.now(); }
                 d.updateKanban?.();

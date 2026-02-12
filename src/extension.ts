@@ -21,6 +21,7 @@ import { handleKanbanMessage, triggerDependents } from './commands/kanbanHandler
 import { registerSessionCommands } from './commands/sessionCommands';
 import { registerAgentCommands } from './commands/agentCommands';
 import { checkAutoCompletions, checkAutoPilot } from './autoMonitor';
+import { checkAutoCloseTimers, markDoneTimestamp, AutoCloseMonitorContext } from './autoCloseMonitor';
 import { buildSingleTaskPrompt, buildTaskBoxPrompt, appendPromptTail, buildPersonaContext } from './promptBuilder';
 import { OrganizationManager } from './organizationManager';
 import { GuildManager } from './guildManager';
@@ -287,6 +288,7 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
                                 parent.kanbanColumn = 'done';
                                 parent.status = TaskStatus.COMPLETED;
                                 parent.completedAt = Date.now();
+                                markDoneTimestamp(parent);
                                 database.saveTask(parent);
                             }
                         }
@@ -295,6 +297,7 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
                         parent.kanbanColumn = 'done';
                         parent.status = TaskStatus.COMPLETED;
                         parent.completedAt = Date.now();
+                        markDoneTimestamp(parent);
                         database.saveTask(parent);
                     }
                     updateKanban();
@@ -648,9 +651,19 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
         swimLanes,
     };
 
+    const autoCloseCtx: AutoCloseMonitorContext = {
+        serviceManager,
+        tmuxSessionProvider,
+        orchestrator,
+        database,
+        updateKanban,
+        updateDashboard,
+    };
+
     const autoMonitorTimer = setInterval(async () => {
         await checkAutoCompletions(autoMonitorCtx);
         await checkAutoPilot(autoMonitorCtx);
+        await checkAutoCloseTimers(autoCloseCtx);
     }, 15000);
 
     async function ensureLaneSession(lane: KanbanSwimLane): Promise<boolean> {
