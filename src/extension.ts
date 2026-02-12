@@ -385,6 +385,19 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
                 terminal.show();
                 break;
             }
+            case 'detachFromTask': {
+                const task = orchestrator.getTask(payload.taskId);
+                if (!task?.tmuxSessionName) {
+                    break;
+                }
+                const baseName = `tmux: ${task.tmuxSessionName}`;
+                for (const t of vscode.window.terminals) {
+                    if (t.name === baseName || t.name.startsWith(baseName)) {
+                        t.dispose();
+                    }
+                }
+                break;
+            }
             case 'pausePipeline':
                 pipelineEngine.pauseRun(payload.runId);
                 updateDashboard();

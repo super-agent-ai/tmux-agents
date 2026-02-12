@@ -711,7 +711,7 @@ section {
 .task-table tr:hover td {
     background: rgba(255,255,255,0.03);
 }
-.btn-attach {
+.btn-attach, .btn-detach {
     background: none;
     border: 1px solid var(--vscode-button-secondaryBackground, #333);
     color: var(--vscode-button-secondaryForeground, #ccc);
@@ -720,9 +720,21 @@ section {
     font-size: 11px;
     cursor: pointer;
     white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
 }
-.btn-attach:hover {
+.btn-attach:hover, .btn-detach:hover {
     background: var(--vscode-button-secondaryHoverBackground, #444);
+}
+.btn-detach {
+    border-color: var(--vscode-statusBarItem-errorBackground, #c33);
+    color: var(--vscode-statusBarItem-errorBackground, #c33);
+}
+.btn-attach .attach-icon, .btn-detach .detach-icon {
+    width: 12px;
+    height: 12px;
+    vertical-align: middle;
 }
 .task-desc {
     max-width: 300px;
@@ -1143,6 +1155,7 @@ section {
     // ── State ────────────────────────────────────────────────────────────────
     let currentState = null;
     let autoRefreshOn = false;
+    var attachedTasks = {};
 
     // ── DOM Refs ─────────────────────────────────────────────────────────────
     const agentGrid = document.getElementById('agent-grid');
@@ -1483,9 +1496,16 @@ section {
             }
 
             var hasTmux = task.tmuxSessionName && task.tmuxServerId;
-            var attachBtn = hasTmux
-                ? '<button class="btn-attach" data-attach-task="' + escapeHtml(task.id) + '" title="Attach to ' + escapeHtml(task.tmuxSessionName + ':' + (task.tmuxWindowIndex || '0') + '.' + (task.tmuxPaneIndex || '0')) + '">&#x1F4CE; Attach</button>'
-                : '';
+            var isAttached = attachedTasks[task.id] || false;
+            var attachBtn = '';
+            if (hasTmux) {
+                var tmuxTarget = escapeHtml(task.tmuxSessionName + ':' + (task.tmuxWindowIndex || '0') + '.' + (task.tmuxPaneIndex || '0'));
+                if (isAttached) {
+                    attachBtn = '<button class="btn-detach" data-detach-task="' + escapeHtml(task.id) + '" title="Detach from ' + tmuxTarget + '"><svg class="detach-icon" viewBox="0 0 16 16" fill="currentColor"><rect x="3" y="3" width="10" height="10" rx="1"/></svg> Detach</button>';
+                } else {
+                    attachBtn = '<button class="btn-attach" data-attach-task="' + escapeHtml(task.id) + '" title="Attach to ' + tmuxTarget + '"><svg class="attach-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M4 2 L4 14 L13 8 Z"/></svg> Attach</button>';
+                }
+            }
 
             html += '<tr>';
             html += '<td><span class="priority-indicator ' + priClass + '">' + (task.priority || 0) + '</span></td>';
@@ -1773,10 +1793,23 @@ section {
 
     // ── Event Delegation ─────────────────────────────────────────────────────
     document.getElementById('app').addEventListener('click', function(e) {
+        // Handle detach-from-task buttons
+        var detachBtn = e.target.closest('[data-detach-task]');
+        if (detachBtn) {
+            var taskId = detachBtn.dataset.detachTask;
+            vscode.postMessage({ type: 'detachFromTask', taskId: taskId });
+            attachedTasks[taskId] = false;
+            renderTaskQueue(currentState.taskQueue || []);
+            return;
+        }
+
         // Handle attach-to-task buttons
         var attachBtn = e.target.closest('[data-attach-task]');
         if (attachBtn) {
-            vscode.postMessage({ type: 'attachToTask', taskId: attachBtn.dataset.attachTask });
+            var taskId = attachBtn.dataset.attachTask;
+            vscode.postMessage({ type: 'attachToTask', taskId: taskId });
+            attachedTasks[taskId] = true;
+            renderTaskQueue(currentState.taskQueue || []);
             return;
         }
 
