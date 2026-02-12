@@ -225,6 +225,11 @@
           ],
           "description": "Fallback AI provider used when the default provider fails or is unavailable."
         },
+        "tmuxAgents.defaultPromptsEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable built-in default prompt templates (Create Test Plans, Auto-Pass Tests, Install Plugins). Disable for gradual rollout."
+        },
         "tmuxAgents.aiProviders": {
           "type": "object",
           "default": {
@@ -664,6 +669,18 @@
         "title": "Create Pipeline from Description",
         "category": "Tmux Orchestrator",
         "icon": "$(wand)"
+      },
+      {
+        "command": "tmux-agents.listDefaultPrompts",
+        "title": "List Default Prompts",
+        "category": "Tmux Orchestrator",
+        "icon": "$(list-unordered)"
+      },
+      {
+        "command": "tmux-agents.executeDefaultPrompt",
+        "title": "Execute Default Prompt",
+        "category": "Tmux Orchestrator",
+        "icon": "$(play)"
       }
     ],
     "menus": {
@@ -742,6 +759,11 @@
           "command": "tmux-agents.quickTeamResearch",
           "when": "view == tmux-agents",
           "group": "2_orchestrator"
+        },
+        {
+          "command": "tmux-agents.listDefaultPrompts",
+          "when": "view == tmux-agents",
+          "group": "3_prompts"
         }
       ],
       "editor/title": [
@@ -993,7 +1015,7 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./ && cp node_modules/sql.js/dist/sql-wasm.wasm out/ && cp node_modules/sql.js/dist/sql-wasm.js out/",
+    "compile": "tsc -p ./ && cp node_modules/sql.js/dist/sql-wasm.wasm out/ && cp node_modules/sql.js/dist/sql-wasm.js out/ && mkdir -p out/prompts && cp src/prompts/defaults.json out/prompts/",
     "watch": "tsc -watch -p ./",
     "test": "vitest run",
     "test:watch": "vitest",
