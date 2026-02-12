@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
 import * as util from 'util';
-import { AIProvider, AIStatus, AISessionInfo, TmuxPane } from './types';
+import { AIProvider, AIStatus, AISessionInfo, CcPaneMetadata, TmuxPane } from './types';
 import { TmuxService } from './tmuxService';
 import { resolveModelAlias } from './aiModels';
 
@@ -345,6 +345,85 @@ export class AIAssistantManager {
         };
 
         return { ...pane, aiInfo };
+    }
+
+    /**
+     * Map a @cc_state value from hooks to an AIStatus.
+     * Returns null if the state string is not recognized.
+     */
+    mapCcStateToAIStatus(ccState: string): AIStatus | null {
+        switch (ccState.toLowerCase()) {
+            case 'busy':
+                return AIStatus.WORKING;
+            case 'user':
+                return AIStatus.WAITING;
+            case 'idle':
+                return AIStatus.IDLE;
+            default:
+                return null;
+        }
+    }
+
+    /**
+     * Parse raw @cc_* option strings into a typed CcPaneMetadata object.
+     */
+    parseCcMetadata(options: Record<string, string>): CcPaneMetadata {
+        const parseNum = (key: string): number | undefined => {
+            const val = options[key];
+            if (val === undefined || val === '') { return undefined; }
+            const n = Number(val);
+            return isNaN(n) ? undefined : n;
+        };
+
+        return {
+            model: options['cc_model'] || undefined,
+            sessionId: options['cc_session_id'] || undefined,
+            cwd: options['cc_cwd'] || undefined,
+            contextPct: parseNum('cc_context_pct'),
+            cost: parseNum('cc_cost'),
+            tokensIn: parseNum('cc_tokens_in'),
+            tokensOut: parseNum('cc_tokens_out'),
+            linesAdded: parseNum('cc_lines_added'),
+            linesRemoved: parseNum('cc_lines_removed'),
+            lastTool: options['cc_last_tool'] || undefined,
+            agent: options['cc_agent'] || undefined,
+            version: options['cc_version'] || undefined,
+            gitBranch: options['cc_git_branch'] || undefined,
+            outputStyle: options['cc_output_style'] || undefined,
+            burnRate: parseNum('cc_burn_rate'),
+            tokensRate: parseNum('cc_tokens_rate'),
+            elapsed: options['cc_elapsed'] || undefined,
+        };
+    }
+
+    /**
+     * Enrich a TmuxPane using @cc_* pane options when available.
+     * If cc_state is present, uses it as the authoritative status.
+     * Otherwise falls back to the existing heuristic-based enrichPane().
+     */
+    enrichPaneWithOptions(pane: TmuxPane, ccOptions: Record<string, string>): TmuxPane {
+        const provider = this.detectAIProvider(pane.command);
+        if (!provider) {
+            return { ...pane };
+        }
+
+        const ccState = ccOptions['cc_state'];
+        if (ccState) {
+            const status = this.mapCcStateToAIStatus(ccState);
+            if (status !== null) {
+                const metadata = this.parseCcMetadata(ccOptions);
+                const aiInfo: AISessionInfo = {
+                    provider,
+                    status,
+                    launchCommand: pane.command,
+                    metadata,
+                };
+                return { ...pane, aiInfo };
+            }
+        }
+
+        // No cc_state or unrecognized value — fall back to heuristic
+        return this.enrichPane(pane);
     }
 
     /**

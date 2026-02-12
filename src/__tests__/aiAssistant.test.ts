@@ -266,4 +266,161 @@ describe('AIAssistantManager', () => {
             expect(enriched.aiInfo).toBeUndefined();
         });
     });
+
+    // ─── mapCcStateToAIStatus ───────────────────────────────────────────
+
+    describe('mapCcStateToAIStatus', () => {
+        it('maps busy to WORKING', () => {
+            expect(manager.mapCcStateToAIStatus('busy')).toBe(AIStatus.WORKING);
+        });
+
+        it('maps user to WAITING', () => {
+            expect(manager.mapCcStateToAIStatus('user')).toBe(AIStatus.WAITING);
+        });
+
+        it('maps idle to IDLE', () => {
+            expect(manager.mapCcStateToAIStatus('idle')).toBe(AIStatus.IDLE);
+        });
+
+        it('is case insensitive', () => {
+            expect(manager.mapCcStateToAIStatus('BUSY')).toBe(AIStatus.WORKING);
+            expect(manager.mapCcStateToAIStatus('User')).toBe(AIStatus.WAITING);
+            expect(manager.mapCcStateToAIStatus('IDLE')).toBe(AIStatus.IDLE);
+        });
+
+        it('returns null for unknown state', () => {
+            expect(manager.mapCcStateToAIStatus('unknown')).toBeNull();
+            expect(manager.mapCcStateToAIStatus('')).toBeNull();
+        });
+    });
+
+    // ─── parseCcMetadata ────────────────────────────────────────────────
+
+    describe('parseCcMetadata', () => {
+        it('parses all string fields', () => {
+            const opts = {
+                cc_model: 'opus',
+                cc_session_id: 'abc-123',
+                cc_cwd: '/home/user',
+                cc_last_tool: 'Read',
+                cc_agent: 'main',
+                cc_version: '1.0.0',
+                cc_git_branch: 'feature-x',
+                cc_output_style: 'concise',
+                cc_elapsed: '5m30s',
+            };
+            const meta = manager.parseCcMetadata(opts);
+            expect(meta.model).toBe('opus');
+            expect(meta.sessionId).toBe('abc-123');
+            expect(meta.cwd).toBe('/home/user');
+            expect(meta.lastTool).toBe('Read');
+            expect(meta.agent).toBe('main');
+            expect(meta.version).toBe('1.0.0');
+            expect(meta.gitBranch).toBe('feature-x');
+            expect(meta.outputStyle).toBe('concise');
+            expect(meta.elapsed).toBe('5m30s');
+        });
+
+        it('parses numeric fields', () => {
+            const opts = {
+                cc_context_pct: '42',
+                cc_cost: '0.1234',
+                cc_tokens_in: '50000',
+                cc_tokens_out: '10000',
+                cc_lines_added: '150',
+                cc_lines_removed: '30',
+                cc_burn_rate: '1.5678',
+                cc_tokens_rate: '2500',
+            };
+            const meta = manager.parseCcMetadata(opts);
+            expect(meta.contextPct).toBe(42);
+            expect(meta.cost).toBe(0.1234);
+            expect(meta.tokensIn).toBe(50000);
+            expect(meta.tokensOut).toBe(10000);
+            expect(meta.linesAdded).toBe(150);
+            expect(meta.linesRemoved).toBe(30);
+            expect(meta.burnRate).toBe(1.5678);
+            expect(meta.tokensRate).toBe(2500);
+        });
+
+        it('returns undefined for missing fields', () => {
+            const meta = manager.parseCcMetadata({});
+            expect(meta.model).toBeUndefined();
+            expect(meta.cost).toBeUndefined();
+            expect(meta.contextPct).toBeUndefined();
+        });
+
+        it('handles non-numeric values gracefully', () => {
+            const meta = manager.parseCcMetadata({ cc_cost: 'not-a-number' });
+            expect(meta.cost).toBeUndefined();
+        });
+
+        it('handles empty string values', () => {
+            const meta = manager.parseCcMetadata({ cc_model: '', cc_cost: '' });
+            expect(meta.model).toBeUndefined();
+            expect(meta.cost).toBeUndefined();
+        });
+    });
+
+    // ─── enrichPaneWithOptions ──────────────────────────────────────────
+
+    describe('enrichPaneWithOptions', () => {
+        const basePaneClause = {
+            serverId: 'local',
+            sessionName: 'test',
+            windowIndex: '0',
+            index: '0',
+            paneId: '%5',
+            command: 'claude',
+            currentPath: '/tmp',
+            isActive: true,
+            pid: 123,
+        };
+
+        it('uses cc_state as authoritative status when present', () => {
+            const opts = { cc_state: 'busy', cc_model: 'opus', cc_cost: '0.5' };
+            const enriched = manager.enrichPaneWithOptions(basePaneClause, opts);
+            expect(enriched.aiInfo).toBeDefined();
+            expect(enriched.aiInfo!.status).toBe(AIStatus.WORKING);
+            expect(enriched.aiInfo!.metadata).toBeDefined();
+            expect(enriched.aiInfo!.metadata!.model).toBe('opus');
+            expect(enriched.aiInfo!.metadata!.cost).toBe(0.5);
+        });
+
+        it('maps cc_state=user to WAITING', () => {
+            const opts = { cc_state: 'user' };
+            const enriched = manager.enrichPaneWithOptions(basePaneClause, opts);
+            expect(enriched.aiInfo!.status).toBe(AIStatus.WAITING);
+        });
+
+        it('maps cc_state=idle to IDLE', () => {
+            const opts = { cc_state: 'idle' };
+            const enriched = manager.enrichPaneWithOptions(basePaneClause, opts);
+            expect(enriched.aiInfo!.status).toBe(AIStatus.IDLE);
+        });
+
+        it('falls back to heuristic enrichPane when cc_state is absent', () => {
+            const opts = { cc_model: 'opus' };  // no cc_state
+            const enriched = manager.enrichPaneWithOptions(basePaneClause, opts);
+            expect(enriched.aiInfo).toBeDefined();
+            // Without cc_state, falls back to heuristic which defaults to IDLE (no captured content)
+            expect(enriched.aiInfo!.status).toBe(AIStatus.IDLE);
+            // No metadata since we fell back to heuristic
+            expect(enriched.aiInfo!.metadata).toBeUndefined();
+        });
+
+        it('returns pane without aiInfo for non-AI command', () => {
+            const nonAiPane = { ...basePaneClause, command: 'vim' };
+            const opts = { cc_state: 'busy' };
+            const enriched = manager.enrichPaneWithOptions(nonAiPane, opts);
+            expect(enriched.aiInfo).toBeUndefined();
+        });
+
+        it('falls back to heuristic for unrecognized cc_state', () => {
+            const opts = { cc_state: 'unknown_state' };
+            const enriched = manager.enrichPaneWithOptions(basePaneClause, opts);
+            // Unrecognized cc_state → falls back to heuristic
+            expect(enriched.aiInfo!.status).toBe(AIStatus.IDLE);
+        });
+    });
 });

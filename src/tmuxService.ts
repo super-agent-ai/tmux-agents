@@ -162,7 +162,7 @@ export class TmuxService {
             const [sessionsOutput, windowsOutput, panesOutput] = await Promise.all([
                 exec(this.buildCommand('tmux list-sessions -F "#{session_name}:#{session_attached}:#{session_created}:#{session_activity}"')),
                 exec(this.buildCommand('tmux list-windows -a -F "#{session_name}:#{window_index}:#{window_name}:#{window_active}"')),
-                exec(this.buildCommand('tmux list-panes -a -F "#{session_name}:#{window_index}:#{pane_index}:#{pane_current_command}:#{pane_current_path}:#{pane_active}:#{pane_pid}"'))
+                exec(this.buildCommand('tmux list-panes -a -F "#{session_name}:#{window_index}:#{pane_index}:#{pane_current_command}:#{pane_current_path}:#{pane_active}:#{pane_pid}:#{pane_id}"'))
             ]);
 
             return this.parseTmuxData(sessionsOutput.stdout, windowsOutput.stdout, panesOutput.stdout);
@@ -204,6 +204,7 @@ export class TmuxService {
                 const parts = line.split(':');
                 if (parts.length >= 7) {
                     const [sessionName, windowIndex, paneIndex, paneCommand, currentPath, isActive, pid] = parts;
+                    const paneId = parts.length >= 8 ? parts[7] : undefined;
                     const key = `${sessionName}:${windowIndex}`;
                     if (!panesByWindow.has(key)) {
                         panesByWindow.set(key, []);
@@ -213,6 +214,7 @@ export class TmuxService {
                         sessionName,
                         windowIndex,
                         index: paneIndex,
+                        paneId: paneId || undefined,
                         command: paneCommand,
                         currentPath: currentPath || '~',
                         isActive: isActive === '1',
@@ -563,6 +565,76 @@ export class TmuxService {
     public async hasSession(sessionName: string): Promise<boolean> {
         const sessions = await this.getSessions();
         return sessions.includes(sessionName);
+    }
+
+    /**
+     * Read all @cc_* pane options from a single pane.
+     * Returns a map of option names (without @) to their values.
+     */
+    public async getPaneOptions(paneTarget: string): Promise<Record<string, string>> {
+        try {
+            const cmd = this.buildCommand(`tmux show-options -p -t "${paneTarget}"`);
+            const { stdout } = await exec(cmd);
+            const result: Record<string, string> = {};
+            for (const line of stdout.split('\n')) {
+                const match = line.match(/^@(cc_\w+)\s+(.*)/);
+                if (match) {
+                    result[match[1]] = match[2];
+                }
+            }
+            return result;
+        } catch {
+            return {};
+        }
+    }
+
+    /**
+     * Batch-read @cc_* pane options for multiple panes in a single shell command.
+     * Returns a Map of paneId → options record.
+     */
+    public async getMultiplePaneOptions(paneIds: string[]): Promise<Map<string, Record<string, string>>> {
+        const resultMap = new Map<string, Record<string, string>>();
+        if (paneIds.length === 0) {
+            return resultMap;
+        }
+
+        try {
+            // Build a single command that reads all panes with delimiters
+            const parts = paneIds.map(id =>
+                `echo "---${id}---" && tmux show-options -p -t "${id}" 2>/dev/null || true`
+            );
+            const batchCmd = this.buildCommand(parts.join(' && '));
+            const { stdout } = await exec(batchCmd, { timeout: 10000 });
+
+            let currentId: string | null = null;
+            let currentOptions: Record<string, string> = {};
+
+            for (const line of stdout.split('\n')) {
+                const delimMatch = line.match(/^---(.+)---$/);
+                if (delimMatch) {
+                    if (currentId) {
+                        resultMap.set(currentId, currentOptions);
+                    }
+                    currentId = delimMatch[1];
+                    currentOptions = {};
+                    continue;
+                }
+                if (currentId) {
+                    const optMatch = line.match(/^@(cc_\w+)\s+(.*)/);
+                    if (optMatch) {
+                        currentOptions[optMatch[1]] = optMatch[2];
+                    }
+                }
+            }
+            // Flush last pane
+            if (currentId) {
+                resultMap.set(currentId, currentOptions);
+            }
+        } catch {
+            // On error, return empty map
+        }
+
+        return resultMap;
     }
 
     /**
