@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { TmuxSessionProvider, TmuxSessionTreeItem, TmuxWindowTreeItem, TmuxPaneTreeItem, ShortcutsProvider } from './treeProvider';
 import { ChatViewProvider } from './chatView';
 import { ApiCatalog } from './apiCatalog';
@@ -506,7 +507,7 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
                 if (resolveToggle(t, 'useWorktree', lane) && lane.workingDirectory) {
                     const shortId = t.id.slice(-8);
                     const branchName = `task-${shortId}`;
-                    const worktreePath = `${lane.workingDirectory}/../.worktrees/${branchName}`;
+                    const worktreePath = path.resolve(lane.workingDirectory, '..', '.worktrees', branchName);
                     try {
                         // Clean up previous worktree if it exists (e.g. on restart)
                         if (t.worktreePath) {
@@ -521,9 +522,9 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
                         } catch { /* branch may not exist */ }
                         await service.execCommand(`git -C ${JSON.stringify(lane.workingDirectory)} worktree add ${JSON.stringify(worktreePath)} -b ${branchName}`);
                         t.worktreePath = worktreePath;
-                        await service.sendKeys(lane.sessionName, winIndex, paneIndex, `cd ${worktreePath}`);
+                        await service.sendKeys(lane.sessionName, winIndex, paneIndex, `cd ${JSON.stringify(worktreePath)}`);
                     } catch (err) {
-                        console.warn('[Worktree] Failed to create worktree, falling back to lane directory:', err);
+                        vscode.window.showWarningMessage(`[Worktree] Failed to create worktree: ${err}`);
                         await service.sendKeys(lane.sessionName, winIndex, paneIndex, `cd ${lane.workingDirectory}`);
                     }
                 } else if (lane.workingDirectory) {

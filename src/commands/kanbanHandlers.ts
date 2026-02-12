@@ -555,6 +555,14 @@ export async function handleKanbanMessage(
         case 'startTask': {
             const t = ctx.orchestrator.getTask(payload.taskId);
             if (!t) break;
+            // Apply toggle values from the modal (sent inline to avoid race conditions)
+            if (payload.toggles) {
+                if (payload.toggles.autoStart !== undefined) t.autoStart = !!payload.toggles.autoStart;
+                if (payload.toggles.autoPilot !== undefined) t.autoPilot = !!payload.toggles.autoPilot;
+                if (payload.toggles.autoClose !== undefined) t.autoClose = !!payload.toggles.autoClose;
+                if (payload.toggles.useWorktree !== undefined) t.useWorktree = !!payload.toggles.useWorktree;
+                ctx.database.saveTask(t);
+            }
             await ctx.startTaskFlow(t, {
                 additionalInstructions: payload.additionalInstructions,
                 askForContext: payload.askForContext
@@ -660,6 +668,14 @@ export async function handleKanbanMessage(
         case 'restartTask': {
             const t = ctx.orchestrator.getTask(payload.taskId);
             if (!t) break;
+            // Apply toggle values from the modal (sent inline to avoid race conditions)
+            if (payload.toggles) {
+                if (payload.toggles.autoStart !== undefined) t.autoStart = !!payload.toggles.autoStart;
+                if (payload.toggles.autoPilot !== undefined) t.autoPilot = !!payload.toggles.autoPilot;
+                if (payload.toggles.autoClose !== undefined) t.autoClose = !!payload.toggles.autoClose;
+                if (payload.toggles.useWorktree !== undefined) t.useWorktree = !!payload.toggles.useWorktree;
+                ctx.database.saveTask(t);
+            }
             const lane = t.swimLaneId ? ctx.swimLanes.find(l => l.id === t.swimLaneId) : undefined;
             if (!lane) {
                 vscode.window.showWarningMessage('Task has no swim lane — cannot restart');
