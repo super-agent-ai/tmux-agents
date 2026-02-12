@@ -1516,9 +1516,9 @@ html, body {
 
     function renderMd(s) {
         var h = esc(s);
-        h = h.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-        h = h.replace(/\*(.+?)\*/g, '<em>$1</em>');
-        h = h.replace(/\x60(.+?)\x60/g, '<code class="inline-code">$1</code>');
+        h = h.replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>');
+        h = h.replace(/\\*(.+?)\\*/g, '<em>$1</em>');
+        h = h.replace(/\\x60(.+?)\\x60/g, '<code class="inline-code">$1</code>');
         return h;
     }
 
