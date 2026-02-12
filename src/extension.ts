@@ -16,7 +16,7 @@ import { DashboardViewProvider } from './dashboardView';
 import { GraphViewProvider } from './graphView';
 import { KanbanViewProvider } from './kanbanView';
 import { Database } from './database';
-import { AIProvider, AgentRole, TaskStatus, OrchestratorTask, KanbanSwimLane, FavouriteFolder, StageType } from './types';
+import { AIProvider, AgentRole, TaskStatus, OrchestratorTask, KanbanSwimLane, FavouriteFolder, StageType, resolveToggle } from './types';
 import { handleKanbanMessage, triggerDependents } from './commands/kanbanHandlers';
 import { registerSessionCommands } from './commands/sessionCommands';
 import { registerAgentCommands } from './commands/agentCommands';
@@ -503,11 +503,22 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
                 const winIndex = win?.index || '0';
                 const paneIndex = win?.panes[0]?.index || '0';
 
-                if (t.useWorktree && lane.workingDirectory) {
+                if (resolveToggle(t, 'useWorktree', lane) && lane.workingDirectory) {
                     const shortId = t.id.slice(-8);
                     const branchName = `task-${shortId}`;
                     const worktreePath = `${lane.workingDirectory}/../.worktrees/${branchName}`;
                     try {
+                        // Clean up previous worktree if it exists (e.g. on restart)
+                        if (t.worktreePath) {
+                            try {
+                                await service.execCommand(`git -C ${JSON.stringify(lane.workingDirectory)} worktree remove ${JSON.stringify(t.worktreePath)} --force`);
+                            } catch { /* may already be gone */ }
+                            t.worktreePath = undefined;
+                        }
+                        // Delete stale branch if it exists from a previous run
+                        try {
+                            await service.execCommand(`git -C ${JSON.stringify(lane.workingDirectory)} branch -D ${branchName}`);
+                        } catch { /* branch may not exist */ }
                         await service.execCommand(`git -C ${JSON.stringify(lane.workingDirectory)} worktree add ${JSON.stringify(worktreePath)} -b ${branchName}`);
                         t.worktreePath = worktreePath;
                         await service.sendKeys(lane.sessionName, winIndex, paneIndex, `cd ${worktreePath}`);

@@ -3055,8 +3055,22 @@ html, body {
     });
 
     /* ── Task Edit Action Buttons ──────────────────────────────────────── */
+    function saveModalToggles() {
+        if (!editingTaskId) return;
+        vscode.postMessage({
+            type: 'editTask',
+            taskId: editingTaskId,
+            updates: {
+                autoStart: tmAutoStart.classList.contains('active'),
+                autoPilot: tmAutoPilot.classList.contains('active'),
+                autoClose: tmAutoClose.classList.contains('active'),
+                useWorktree: tmWorktree.classList.contains('active')
+            }
+        });
+    }
     tmaStart.addEventListener('click', function() {
         if (!editingTaskId) return;
+        saveModalToggles();
         vscode.postMessage({ type: 'startTask', taskId: editingTaskId });
         closeTaskModal();
         render();
@@ -3068,6 +3082,7 @@ html, body {
     });
     tmaRestart.addEventListener('click', function() {
         if (!editingTaskId) return;
+        saveModalToggles();
         vscode.postMessage({ type: 'restartTask', taskId: editingTaskId });
         closeTaskModal();
         render();
