@@ -7,6 +7,7 @@ const mockGet = vi.fn(() => undefined);
 vi.mock('vscode', () => ({
     workspace: {
         getConfiguration: vi.fn(() => ({ get: mockGet })),
+        workspaceFolders: [{ uri: { fsPath: '/tmp/test-workspace' } }],
     },
     window: {
         showInformationMessage: vi.fn(),
@@ -152,6 +153,81 @@ describe('AIAssistantManager', () => {
         it('returns fork command for provider', () => {
             const cmd = manager.getForkCommand(AIProvider.CLAUDE, 'session-1');
             expect(cmd).toBe('claude');
+        });
+    });
+
+    // ─── resolveModel ────────────────────────────────────────────────────
+
+    describe('resolveModel', () => {
+        it('returns task model when provided', () => {
+            expect(manager.resolveModel('opus', 'sonnet')).toBe('opus');
+        });
+
+        it('falls back to lane model when task model is undefined', () => {
+            expect(manager.resolveModel(undefined, 'sonnet')).toBe('sonnet');
+        });
+
+        it('returns undefined when neither is provided', () => {
+            expect(manager.resolveModel(undefined, undefined)).toBeUndefined();
+        });
+
+        it('resolves deprecated model aliases', () => {
+            expect(manager.resolveModel('gpt-5.3-codex')).toBe('o3');
+        });
+
+        it('resolves deprecated lane model aliases', () => {
+            expect(manager.resolveModel(undefined, 'gemini-3-pro-preview')).toBe('gemini-2.5-pro');
+        });
+    });
+
+    // ─── getSpawnConfig ─────────────────────────────────────────────────
+
+    describe('getSpawnConfig', () => {
+        it('returns spawn config for claude with model', () => {
+            const cfg = manager.getSpawnConfig(AIProvider.CLAUDE, 'opus');
+            expect(cfg.command).toBe('claude');
+            expect(cfg.args).toContain('--model');
+            expect(cfg.args).toContain('opus');
+            expect(cfg.args).toContain('--print');
+            expect(cfg.shell).toBe(true);
+        });
+
+        it('resolves deprecated model aliases in spawn config', () => {
+            const cfg = manager.getSpawnConfig(AIProvider.CLAUDE, 'gpt-5.2');
+            expect(cfg.args).toContain('gpt-4.1');
+            expect(cfg.args).not.toContain('gpt-5.2');
+        });
+
+        it('returns spawn config for codex provider', () => {
+            const cfg = manager.getSpawnConfig(AIProvider.CODEX, 'o3');
+            expect(cfg.command).toBe('codex');
+            expect(cfg.args).toContain('--model');
+            expect(cfg.args).toContain('o3');
+        });
+
+        it('returns spawn config without model when model is undefined', () => {
+            const cfg = manager.getSpawnConfig(AIProvider.CLAUDE);
+            expect(cfg.args).not.toContain('--model');
+            expect(cfg.args).toContain('--print');
+        });
+
+        it('returns spawn config for aider with --yes flag', () => {
+            const cfg = manager.getSpawnConfig(AIProvider.AIDER, 'sonnet');
+            expect(cfg.args).toContain('--yes');
+            expect(cfg.args).toContain('--model');
+            expect(cfg.args).toContain('sonnet');
+        });
+
+        it('returns spawn config for amp without model flag', () => {
+            const cfg = manager.getSpawnConfig(AIProvider.AMP);
+            expect(cfg.args).not.toContain('--model');
+        });
+
+        it('returns spawn config for kiro with chat subcommand', () => {
+            const cfg = manager.getSpawnConfig(AIProvider.KIRO);
+            expect(cfg.args).toContain('chat');
+            expect(cfg.args).toContain('--no-interactive');
+            expect(cfg.args).toContain('--trust-all-tools');
         });
     });
 
