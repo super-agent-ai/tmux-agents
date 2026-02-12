@@ -991,6 +991,17 @@ html, body {
 }
 .quick-add-form .quick-add-cancel:hover { opacity: 1; }
 
+/* ── Swim Lane Auto Add (Red +) ────────────────────────────────────── */
+.swim-lane-auto-add {
+    width: 24px; height: 24px; padding: 0; border: none; border-radius: 4px;
+    background: transparent; color: var(--vscode-foreground); cursor: pointer;
+    font-size: 16px; display: inline-flex; align-items: center; justify-content: center;
+    opacity: 0.6; transition: opacity 0.15s, background 0.15s, color 0.15s;
+}
+.swim-lane-auto-add:hover { opacity: 1; background: rgba(244,71,71,0.15); color: #f44747; }
+.swim-lane-auto-add:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 1px; }
+.swim-lane-auto-add.creating { opacity: 0.4; pointer-events: none; }
+
 </style>
 </head>
 <body>
@@ -1982,6 +1993,7 @@ html, body {
         headerHtml += '</div>';
         headerHtml += '<div class="swim-lane-actions">';
         headerHtml += '<button class="swim-lane-quick-add" data-act="quick-add" data-lane-id="' + esc(lane.id) + '" aria-label="Add task to ' + esc(lane.name) + '" data-tip="Quick add task">+</button>';
+        headerHtml += '<button class="swim-lane-auto-add" data-act="auto-add" data-lane-id="' + esc(lane.id) + '" aria-label="Auto create task in ' + esc(lane.name) + '" data-tip="Auto create task">+</button>';
         headerHtml += '<button class="btn-icon" data-act="open-terminal" data-lane-id="' + esc(lane.id) + '" data-tip="Open terminal attached to session">&#x2328;</button>';
         headerHtml += '<button class="btn-icon" data-act="debug-window" data-lane-id="' + esc(lane.id) + '" data-tip="Open debug shell window">&#x1F41B;</button>';
         headerHtml += '<button class="btn-icon" data-act="restart-debug" data-lane-id="' + esc(lane.id) + '" data-tip="Kill &amp; restart debug window">&#x1F504;</button>';
@@ -2020,6 +2032,7 @@ html, body {
         headerHtml += '</div>';
         headerHtml += '<div class="swim-lane-actions">';
         headerHtml += '<button class="swim-lane-quick-add" data-act="quick-add" data-lane-id="__default" aria-label="Add task to Default Lane" data-tip="Quick add task">+</button>';
+        headerHtml += '<button class="swim-lane-auto-add" data-act="auto-add" data-lane-id="__default" aria-label="Auto create task in Default Lane" data-tip="Auto create task">+</button>';
         headerHtml += '</div>';
 
         headerEl.innerHTML = headerHtml;
@@ -2386,6 +2399,30 @@ html, body {
     /* ── Event delegation on board ───────────────────────────────────────── */
 
     board.addEventListener('click', function(e) {
+        // Auto-add button (red +) in swim lane header
+        var autoAddBtn = e.target.closest('.swim-lane-auto-add');
+        if (autoAddBtn) {
+            e.stopPropagation();
+            var laneId = autoAddBtn.dataset.laneId;
+            if (laneId === '__default') laneId = '';
+            autoAddBtn.classList.add('creating');
+            var lane = null;
+            for (var si = 0; si < swimLanes.length; si++) {
+                if (swimLanes[si].id === laneId) { lane = swimLanes[si]; break; }
+            }
+            var dt = (lane && lane.defaultToggles) ? lane.defaultToggles : {};
+            var col = dt.autoStart ? 'todo' : 'backlog';
+            vscode.postMessage({
+                type: 'createTask',
+                description: 'New task',
+                kanbanColumn: col,
+                swimLaneId: laneId,
+                priority: 5
+            });
+            setTimeout(function() { autoAddBtn.classList.remove('creating'); }, 600);
+            return;
+        }
+
         // Quick-add button in swim lane header
         var quickAddBtn = e.target.closest('.swim-lane-quick-add');
         if (quickAddBtn) {
