@@ -9,7 +9,7 @@ import { AgentOrchestrator } from '../orchestrator';
 import { TeamManager } from '../teamManager';
 import { KanbanViewProvider } from '../kanbanView';
 import { Database } from '../database';
-import { OrchestratorTask, TaskStatus, KanbanSwimLane, FavouriteFolder, TaskStatusHistoryEntry, TaskComment } from '../types';
+import { OrchestratorTask, TaskStatus, KanbanSwimLane, FavouriteFolder, TaskStatusHistoryEntry, TaskComment, applySwimLaneDefaults, resolveToggle } from '../types';
 import { markDoneTimestamp, cancelAutoClose } from '../autoCloseMonitor';
 import { buildBundleTaskPrompt, buildDebugPrompt, appendPromptTail } from '../promptBuilder';
 
@@ -45,7 +45,9 @@ export async function triggerDependents(ctx: KanbanHandlerContext, completedTask
             const dep = ctx.orchestrator.getTask(depId);
             return dep && dep.status === TaskStatus.COMPLETED;
         });
-        if (allMet && task.autoStart && (task.kanbanColumn === 'todo' || task.kanbanColumn === 'backlog') && task.swimLaneId) {
+        const lane = task.swimLaneId ? ctx.swimLanes.find(l => l.id === task.swimLaneId) : undefined;
+        const effectiveAutoStart = resolveToggle(task, 'autoStart', lane);
+        if (allMet && effectiveAutoStart && (task.kanbanColumn === 'todo' || task.kanbanColumn === 'backlog') && task.swimLaneId) {
             task.kanbanColumn = 'todo';
             ctx.database.saveTask(task);
             await ctx.startTaskFlow(task);
@@ -378,20 +380,16 @@ export async function handleKanbanMessage(
                 aiProvider: payload.aiProvider || undefined,
                 aiModel: payload.aiModel || undefined,
             };
-            // Apply swimlane default toggles first, then let explicit payload override
-            if (task.swimLaneId) {
-                const lane = ctx.swimLanes.find(l => l.id === task.swimLaneId);
-                if (lane?.defaultToggles) {
-                    if (lane.defaultToggles.autoStart) { task.autoStart = true; }
-                    if (lane.defaultToggles.autoPilot) { task.autoPilot = true; }
-                    if (lane.defaultToggles.autoClose) { task.autoClose = true; }
-                    if (lane.defaultToggles.useWorktree) { task.useWorktree = true; }
-                }
-            }
+            // Apply explicit payload overrides first (so they take priority)
             if (payload.autoStart) { task.autoStart = true; }
             if (payload.autoPilot) { task.autoPilot = true; }
             if (payload.autoClose) { task.autoClose = true; }
             if (payload.useWorktree) { task.useWorktree = true; }
+            // Then inherit swim lane defaults for any toggles not explicitly set
+            if (task.swimLaneId) {
+                const lane = ctx.swimLanes.find(l => l.id === task.swimLaneId);
+                applySwimLaneDefaults(task, lane);
+            }
             if (payload.dependsOn && payload.dependsOn.length > 0) { task.dependsOn = payload.dependsOn; }
             ctx.orchestrator.submitTask(task);
             ctx.database.saveTask(task);
@@ -511,8 +509,11 @@ export async function handleKanbanMessage(
                         changedAt: Date.now()
                     });
                 }
-                if (t && t.autoStart && payload.kanbanColumn === 'todo' && t.swimLaneId) {
-                    await ctx.startTaskFlow(t);
+                if (t && payload.kanbanColumn === 'todo' && t.swimLaneId) {
+                    const moveLane = ctx.swimLanes.find(l => l.id === t.swimLaneId);
+                    if (resolveToggle(t, 'autoStart', moveLane)) {
+                        await ctx.startTaskFlow(t);
+                    }
                 }
             }
             ctx.updateKanban();

@@ -9,7 +9,8 @@ import { TaskRouter } from './taskRouter';
 import { AIAssistantManager } from './aiAssistant';
 import {
     AIProvider, AIStatus, AgentRole, AgentState, AgentInstance,
-    StageType, TaskStatus, PipelineStatus, OrchestratorTask, KanbanSwimLane
+    StageType, TaskStatus, PipelineStatus, OrchestratorTask, KanbanSwimLane,
+    applySwimLaneDefaults, resolveToggle
 } from './types';
 import { markDoneTimestamp } from './autoCloseMonitor';
 
@@ -1836,13 +1837,19 @@ export class ApiCatalog {
                     swimLaneId: p.swimLaneId || undefined,
                     targetRole: p.role || undefined,
                     input: p.details || undefined,
-                    autoStart: !!p.autoStart,
-                    autoPilot: !!p.autoPilot,
-                    autoClose: !!p.autoClose,
+                    autoStart: p.autoStart ? true : undefined,
+                    autoPilot: p.autoPilot ? true : undefined,
+                    autoClose: p.autoClose ? true : undefined,
                     dependsOn: p.dependsOn ? String(p.dependsOn).split(',').map((s: string) => s.trim()).filter((s: string) => s) : undefined,
                     aiProvider: p.aiProvider || undefined,
                     aiModel: p.aiModel || undefined,
                 };
+                // Inherit swim lane defaults for any toggles not explicitly set
+                if (task.swimLaneId) {
+                    const lanes = d.getSwimLanes?.() || [];
+                    const lane = lanes.find(l => l.id === task.swimLaneId);
+                    applySwimLaneDefaults(task, lane);
+                }
                 d.orchestrator.submitTask(task);
                 d.saveTask?.(task);
                 // Auto-cascade: when autoStart + dependencies, force deps to auto-start/pilot/close
@@ -2074,11 +2081,15 @@ export class ApiCatalog {
             execute: async (p) => {
                 const task = d.orchestrator.getTask(p.taskId);
                 if (!task) { return err(`Task not found: ${p.taskId}`); }
+                const lanes = d.getSwimLanes?.() || [];
+                const taskLane = task.swimLaneId ? lanes.find(l => l.id === task.swimLaneId) : undefined;
                 return ok(`Task ${p.taskId}: "${task.description}"`, {
                     id: task.id, description: task.description, status: task.status,
                     priority: task.priority, column: task.kanbanColumn, swimLaneId: task.swimLaneId,
                     targetRole: task.targetRole, input: task.input || null, output: task.output || null,
-                    autoStart: task.autoStart || false, autoPilot: task.autoPilot || false, autoClose: task.autoClose || false,
+                    autoStart: resolveToggle(task, 'autoStart', taskLane),
+                    autoPilot: resolveToggle(task, 'autoPilot', taskLane),
+                    autoClose: resolveToggle(task, 'autoClose', taskLane),
                     parentTaskId: task.parentTaskId || null, subtaskIds: task.subtaskIds || [],
                     tmuxSessionName: task.tmuxSessionName || null, tmuxWindowIndex: task.tmuxWindowIndex || null,
                     tmuxServerId: task.tmuxServerId || null,
