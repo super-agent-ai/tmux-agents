@@ -1023,12 +1023,21 @@ ${content.slice(-3000)}`;
             if (!text) break;
             const spawnCfg = ctx.aiManager.getSpawnConfig(ctx.aiManager.getDefaultProvider());
             console.log(`[aiExpandTask] Spawning: ${spawnCfg.command} ${spawnCfg.args.join(' ')}`);
+
+            // Read current toggle states from the webview
+            const currentToggles = {
+                autoStart: !!payload.autoStart,
+                autoPilot: !!payload.autoPilot,
+                autoClose: !!payload.autoClose,
+                useWorktree: !!payload.useWorktree,
+            };
+
             try {
                 const result = await new Promise<string>((resolve) => {
                     let prompt = `You are a task planner for a software development team. Given a rough description, generate a detailed task specification.
 
 Respond ONLY with valid JSON (no markdown, no code fences), in this exact format:
-{"title": "Short task title (under 60 chars)", "description": "Detailed description", "role": "coder"}
+{"title": "Short task title (under 60 chars)", "description": "Detailed description", "role": "coder", "autoStart": true, "autoPilot": true, "autoClose": false, "useWorktree": false}
 
 ## Title Rules
 - Start with an action verb: Add, Fix, Refactor, Update, Implement, Write, Configure, Remove
@@ -1046,7 +1055,14 @@ Write the description with three sections separated by newlines:
 - tester: Writing tests, improving coverage, test infrastructure
 - devops: CI/CD, Docker, deployment, infrastructure
 - researcher: Investigation, comparison, analysis, documentation
-- Empty string if unclear`;
+- Empty string if unclear
+
+## Toggle Control
+You may optionally set these boolean toggles. Only include a toggle in your response if you have a reason to change it. Omitted toggles keep their current value.
+- autoStart (currently ${currentToggles.autoStart}): Automatically launch implementation in tmux. Set true for tasks ready to run immediately.
+- autoPilot (currently ${currentToggles.autoPilot}): Automatically answer agent questions. Set true for well-specified tasks that need no human input.
+- autoClose (currently ${currentToggles.autoClose}): Auto-close tmux window on completion. Set true for self-contained tasks.
+- useWorktree (currently ${currentToggles.useWorktree}): Run in a dedicated git worktree for isolation. Set true for tasks that modify code and benefit from branch isolation.`;
 
                     if (payload.currentTitle || payload.currentInput) {
                         prompt += `\n\nExisting task context:`;
@@ -1072,11 +1088,18 @@ Write the description with three sections separated by newlines:
                     if (fenceMatch) { json = fenceMatch[1].trim(); }
                     try {
                         const parsed = JSON.parse(json);
+                        // Build toggle result — only include toggles the AI explicitly set
+                        const toggleResult: Record<string, boolean> = {};
+                        if (typeof parsed.autoStart === 'boolean') { toggleResult.autoStart = parsed.autoStart; }
+                        if (typeof parsed.autoPilot === 'boolean') { toggleResult.autoPilot = parsed.autoPilot; }
+                        if (typeof parsed.autoClose === 'boolean') { toggleResult.autoClose = parsed.autoClose; }
+                        if (typeof parsed.useWorktree === 'boolean') { toggleResult.useWorktree = parsed.useWorktree; }
                         ctx.kanbanView.sendMessage({
                             type: 'aiExpandResult',
                             title: parsed.title || '',
                             description: parsed.description || '',
-                            role: parsed.role || ''
+                            role: parsed.role || '',
+                            toggles: toggleResult,
                         });
                     } catch {
                         ctx.kanbanView.sendMessage({
