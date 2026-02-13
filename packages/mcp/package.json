@@ -1,0 +1,27 @@
+{
+  "name": "@tmux-agents/mcp",
+  "version": "0.1.19",
+  "description": "MCP server for tmux-agents - integrate with Claude Desktop",
+  "main": "dist/index.js",
+  "bin": {
+    "tmux-agents-mcp": "./dist/server.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "watch": "tsc -p tsconfig.json --watch",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": ["mcp", "claude", "tmux", "agents"],
+  "author": "super-agent.ai",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^0.5.0",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.8.0",
+    "vitest": "^2.0.0"
+  }
+}

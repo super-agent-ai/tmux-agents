@@ -1,0 +1,270 @@
+import * as vscode from 'vscode';
+import * as path from 'path';
+import * as fs from 'fs';
+
+// ─── Types ──────────────────────────────────────────────────────────────────
+
+export interface PromptInput {
+    name: string;
+    type: string;
+    required: boolean;
+    description: string;
+    default?: string;
+}
+
+export interface DefaultPromptTemplate {
+    slug: string;
+    name: string;
+    description: string;
+    category: string;
+    version: string;
+    inputs: PromptInput[];
+    prompt: string;
+}
+
+export interface PromptExecutionResult {
+    success: boolean;
+    slug: string;
+    resolvedPrompt: string;
+    error?: string;
+}
+
+export interface PromptValidationError {
+    field: string;
+    message: string;
+}
+
+// ─── PromptRegistry ─────────────────────────────────────────────────────────
+
+export class PromptRegistry implements vscode.Disposable {
+
+    private templates: Map<string, DefaultPromptTemplate> = new Map();
+    private loaded = false;
+
+    constructor(private extensionPath?: string) {}
+
+    // ─── Loading ─────────────────────────────────────────────────────────────
+
+    /**
+     * Load default prompt templates from the bundled JSON config.
+     * Idempotent — safe to call multiple times.
+     */
+    load(extensionPath?: string): void {
+        if (extensionPath) {
+            this.extensionPath = extensionPath;
+        }
+        this.templates.clear();
+
+        const templates = this.loadFromFile();
+        for (const template of templates) {
+            this.templates.set(template.slug, template);
+        }
+        this.loaded = true;
+    }
+
+    private loadFromFile(): DefaultPromptTemplate[] {
+        // Try compiled output directory first (production), then source (development)
+        const candidates = this.extensionPath
+            ? [
+                path.join(this.extensionPath, 'out', 'prompts', 'defaults.json'),
+                path.join(this.extensionPath, 'src', 'prompts', 'defaults.json'),
+            ]
+            : [];
+
+        // Also try relative to this module (works for both compiled and source)
+        candidates.push(path.join(__dirname, 'prompts', 'defaults.json'));
+        candidates.push(path.join(__dirname, '..', 'src', 'prompts', 'defaults.json'));
+
+        for (const filePath of candidates) {
+            try {
+                if (fs.existsSync(filePath)) {
+                    const raw = fs.readFileSync(filePath, 'utf-8');
+                    const parsed = JSON.parse(raw);
+                    if (Array.isArray(parsed)) {
+                        return parsed as DefaultPromptTemplate[];
+                    }
+                }
+            } catch {
+                // Try next candidate
+            }
+        }
+
+        // Fallback: return embedded defaults
+        return this.getEmbeddedDefaults();
+    }
+
+    /**
+     * Hard-coded fallback in case the JSON file cannot be loaded.
+     */
+    private getEmbeddedDefaults(): DefaultPromptTemplate[] {
+        return [
+            {
+                slug: 'create-test-plans',
+                name: 'Create Test Plans',
+                description: 'Generates structured test plans from requirements or user stories.',
+                category: 'testing',
+                version: '1.0.0',
+                inputs: [
+                    { name: 'requirements', type: 'string', required: true, description: 'Requirements or user stories to generate test plans for.' },
+                    { name: 'format', type: 'string', required: false, description: 'Output format: markdown or json.', default: 'markdown' },
+                ],
+                prompt: 'You are a senior QA engineer. Analyze the following requirements and produce a structured test plan with test cases, steps, and expected results.\n\n## Requirements\n{{requirements}}\n\nOutput format: {{format}}',
+            },
+            {
+                slug: 'auto-pass-tests',
+                name: 'Automatically Pass All Tests',
+                description: 'Analyzes failing tests and applies fixes to make them pass.',
+                category: 'testing',
+                version: '1.0.0',
+                inputs: [
+                    { name: 'testSuite', type: 'string', required: true, description: 'Test suite identifier or file path.' },
+                    { name: 'testCommand', type: 'string', required: false, description: 'Command to run tests.', default: 'npm test' },
+                ],
+                prompt: 'You are a senior engineer. Run the test suite, analyze failures, and fix them.\n\n## Test Suite\n{{testSuite}}\n\n## Test Command\n{{testCommand}}',
+            },
+            {
+                slug: 'install-plugins',
+                name: 'Install Plugins',
+                description: 'Automates plugin discovery, download, and installation.',
+                category: 'devops',
+                version: '1.0.0',
+                inputs: [
+                    { name: 'plugins', type: 'string', required: true, description: 'Plugin name or comma-separated list.' },
+                    { name: 'registry', type: 'string', required: false, description: 'Registry source.', default: 'npm' },
+                ],
+                prompt: 'You are a DevOps engineer. Install the following plugins.\n\n## Plugins\n{{plugins}}\n\n## Registry\n{{registry}}',
+            },
+        ];
+    }
+
+    // ─── Read Operations ─────────────────────────────────────────────────────
+
+    /**
+     * Get all registered default prompt templates.
+     */
+    getAllTemplates(): DefaultPromptTemplate[] {
+        this.ensureLoaded();
+        return Array.from(this.templates.values());
+    }
+
+    /**
+     * Get a prompt template by slug.
+     */
+    getTemplate(slug: string): DefaultPromptTemplate | undefined {
+        this.ensureLoaded();
+        return this.templates.get(slug);
+    }
+
+    /**
+     * Get templates filtered by category.
+     */
+    getTemplatesByCategory(category: string): DefaultPromptTemplate[] {
+        this.ensureLoaded();
+        return Array.from(this.templates.values()).filter(t => t.category === category);
+    }
+
+    /**
+     * Check if a slug exists in the registry.
+     */
+    has(slug: string): boolean {
+        this.ensureLoaded();
+        return this.templates.has(slug);
+    }
+
+    /**
+     * Get all unique categories.
+     */
+    getCategories(): string[] {
+        this.ensureLoaded();
+        const cats = new Set<string>();
+        for (const t of this.templates.values()) {
+            cats.add(t.category);
+        }
+        return Array.from(cats).sort();
+    }
+
+    // ─── Validation ──────────────────────────────────────────────────────────
+
+    /**
+     * Validate inputs for a given prompt template.
+     * Returns an array of validation errors (empty if valid).
+     */
+    validateInputs(slug: string, inputs: Record<string, string>): PromptValidationError[] {
+        const template = this.getTemplate(slug);
+        if (!template) {
+            return [{ field: 'slug', message: `Unknown prompt template: ${slug}` }];
+        }
+
+        const errors: PromptValidationError[] = [];
+
+        for (const inputDef of template.inputs) {
+            const value = inputs[inputDef.name];
+            if (inputDef.required && (!value || value.trim().length === 0)) {
+                errors.push({
+                    field: inputDef.name,
+                    message: `Required input '${inputDef.name}' is missing or empty. ${inputDef.description}`,
+                });
+            }
+        }
+
+        return errors;
+    }
+
+    // ─── Execution ───────────────────────────────────────────────────────────
+
+    /**
+     * Resolve a prompt template with the provided inputs.
+     * Replaces {{placeholder}} tokens with input values.
+     */
+    resolvePrompt(slug: string, inputs: Record<string, string>): PromptExecutionResult {
+        const template = this.getTemplate(slug);
+        if (!template) {
+            return {
+                success: false,
+                slug,
+                resolvedPrompt: '',
+                error: `Unknown prompt template: ${slug}`,
+            };
+        }
+
+        const validationErrors = this.validateInputs(slug, inputs);
+        if (validationErrors.length > 0) {
+            return {
+                success: false,
+                slug,
+                resolvedPrompt: '',
+                error: validationErrors.map(e => `${e.field}: ${e.message}`).join('; '),
+            };
+        }
+
+        // Build resolved inputs with defaults applied
+        const resolvedInputs: Record<string, string> = {};
+        for (const inputDef of template.inputs) {
+            resolvedInputs[inputDef.name] = inputs[inputDef.name] || inputDef.default || '';
+        }
+
+        // Replace template placeholders
+        let resolvedPrompt = template.prompt;
+        for (const [key, value] of Object.entries(resolvedInputs)) {
+            resolvedPrompt = resolvedPrompt.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value);
+        }
+
+        return {
+            success: true,
+            slug,
+            resolvedPrompt,
+        };
+    }
+
+    // ─── Helpers ─────────────────────────────────────────────────────────────
+
+    private ensureLoaded(): void {
+        if (!this.loaded) {
+            this.load();
+        }
+    }
+
+    dispose(): void {
+        this.templates.clear();
+    }
+}

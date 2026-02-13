@@ -1,5 +1,5 @@
 {
-  "name": "tmux-agents",
+  "name": "@tmux-agents/cli",
   "displayName": "tmux-agents",
   "description": "AI Agent orchestration platform for tmux — monitor, route, pipeline, and control 10-50 concurrent AI agents across local and remote servers.",
   "version": "0.1.19",
@@ -9,9 +9,6 @@
     "type": "git",
     "url": "https://github.com/super-agent-ai/tmux-agents.git"
   },
-  "workspaces": [
-    "packages/*"
-  ],
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -23,9 +20,6 @@
     "onView:tmux-agents"
   ],
   "main": "./out/extension.js",
-  "bin": {
-    "tmux-agents-mcp": "./out/mcp/mcp/server.js"
-  },
   "contributes": {
     "configuration": {
       "title": "Tmux Agents",
@@ -1083,33 +1077,21 @@
     ]
   },
   "bin": {
-    "tmux-agents-mcp": "./out/mcp/mcp/server.js"
+    "tmux-agents": "./dist/cli/cli/index.js"
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./ && mkdir -p out/core && cp node_modules/sql.js/dist/sql-wasm.wasm out/core/ && cp node_modules/sql.js/dist/sql-wasm.js out/core/ && cp node_modules/sql.js/dist/sql-wasm.wasm out/ && cp node_modules/sql.js/dist/sql-wasm.js out/ && mkdir -p out/prompts && cp src/prompts/defaults.json out/prompts/",
-    "compile:mcp": "tsc -p tsconfig.mcp.json",
-    "compile:all": "npm run compile && npm run compile:packages",
-    "compile:packages": "npm run compile -w packages/cli && npm run compile -w packages/tui && npm run compile -w packages/mcp && npm run compile -w packages/k8s-runtime",
-    "build:cli": "npm run build -w packages/cli",
-    "build:tui": "npm run build -w packages/tui",
-    "build:mcp": "npm run build -w packages/mcp",
-    "build:k8s": "npm run build -w packages/k8s-runtime",
-    "build:all": "npm run compile:all",
+    "compile": "tsc -p tsconfig.json && chmod +x dist/cli/index.js",
     "watch": "tsc -watch -p ./",
-    "watch:mcp": "tsc -watch -p tsconfig.mcp.json",
+    "build:cli": "tsc -p tsconfig.cli.json && chmod +x dist/cli/cli/index.js",
+    "link:cli": "npm link",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:packages": "npm run test -w packages/cli && npm run test -w packages/tui && npm run test -w packages/mcp",
-    "test:all": "npm run test && npm run test:packages",
     "test:integration": "vscode-test",
-    "publish:cli": "npm publish -w packages/cli",
-    "publish:tui": "npm publish -w packages/tui",
-    "publish:mcp": "npm publish -w packages/mcp",
-    "publish:k8s": "npm publish -w packages/k8s-runtime"
+    "test:all": "npm run test && npm run test:integration",
+    "build": "tsc -p tsconfig.json && chmod +x dist/cli/index.js"
   },
   "devDependencies": {
-    "@types/dockerode": "^4.0.1",
     "@types/mocha": "^10.0.10",
     "@types/node": "^24.0.14",
     "@types/sql.js": "^1.4.9",
@@ -1122,11 +1104,7 @@
     "vitest": "^4.0.18"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.26.0",
-    "@types/ws": "^8.18.1",
-    "dockerode": "^4.0.9",
-    "sql.js": "^1.13.0",
-    "ws": "^8.19.0",
-    "zod": "^4.3.6"
+    "commander": "^12.1.0",
+    "sql.js": "^1.13.0"
   }
 }
