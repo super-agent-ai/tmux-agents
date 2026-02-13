@@ -230,6 +230,13 @@
           "default": true,
           "description": "Enable built-in default prompt templates (Create Test Plans, Auto-Pass Tests, Install Plugins). Disable for gradual rollout."
         },
+        "tmuxAgents.cliLaunchDelayMs": {
+          "type": "number",
+          "default": 3000,
+          "minimum": 500,
+          "maximum": 30000,
+          "description": "Milliseconds to wait after creating a tmux window before sending the AI CLI command and prompt."
+        },
         "tmuxAgents.aiProviders": {
           "type": "object",
           "default": {
@@ -241,6 +248,9 @@
                 "--continue"
               ],
               "resumeFlag": "--resume",
+              "autoPilotFlags": [
+                "--dangerously-skip-permissions"
+              ],
               "env": {}
             },
             "gemini": {
@@ -249,6 +259,9 @@
               "args": [],
               "forkArgs": [],
               "resumeFlag": "--resume",
+              "autoPilotFlags": [
+                "--yolo"
+              ],
               "env": {}
             },
             "codex": {
@@ -257,6 +270,9 @@
               "args": [],
               "forkArgs": [],
               "resumeFlag": "--resume",
+              "autoPilotFlags": [
+                "--full-auto"
+              ],
               "env": {}
             },
             "opencode": {
@@ -267,6 +283,9 @@
                 "--continue"
               ],
               "resumeFlag": "--resume",
+              "autoPilotFlags": [
+                "--yolo"
+              ],
               "env": {}
             },
             "cursor": {
@@ -277,6 +296,9 @@
                 "--resume"
               ],
               "resumeFlag": "--resume",
+              "autoPilotFlags": [
+                "--yolo"
+              ],
               "env": {}
             },
             "copilot": {
@@ -287,6 +309,7 @@
                 "--continue"
               ],
               "resumeFlag": "--resume",
+              "autoPilotFlags": [],
               "env": {}
             },
             "aider": {
@@ -295,6 +318,9 @@
               "args": [],
               "forkArgs": [],
               "resumeFlag": "--resume",
+              "autoPilotFlags": [
+                "--yes-always"
+              ],
               "env": {}
             },
             "amp": {
@@ -303,6 +329,9 @@
               "args": [],
               "forkArgs": [],
               "resumeFlag": "--resume",
+              "autoPilotFlags": [
+                "--dangerously-allow-all"
+              ],
               "env": {}
             },
             "cline": {
@@ -311,6 +340,9 @@
               "args": [],
               "forkArgs": [],
               "resumeFlag": "--resume",
+              "autoPilotFlags": [
+                "--yolo"
+              ],
               "env": {}
             },
             "kiro": {
@@ -321,6 +353,9 @@
                 "--resume"
               ],
               "resumeFlag": "--resume",
+              "autoPilotFlags": [
+                "--trust-all-tools"
+              ],
               "env": {}
             }
           },
@@ -367,6 +402,20 @@
               "resumeFlag": {
                 "type": "string",
                 "description": "Flag to resume a specific session by ID (e.g. '--resume'). Used as: command <resumeFlag> <sessionId>."
+              },
+              "autoPilotFlags": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                ],
+                "description": "CLI flags appended when Pilot toggle is enabled (e.g. '--dangerously-skip-permissions' for Claude). String or array of strings."
               },
               "env": {
                 "type": "object",

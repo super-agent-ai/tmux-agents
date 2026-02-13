@@ -596,9 +596,11 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
 
                 const resolvedProvider = aiManager.resolveProvider(t.aiProvider, lane?.aiProvider);
                 const resolvedModel = aiManager.resolveModel(t.aiModel, lane?.aiModel);
-                const launchCmd = aiManager.getInteractiveLaunchCommand(resolvedProvider, resolvedModel);
+                const isAutoPilot = resolveToggle(t, 'autoPilot', lane);
+                const launchCmd = aiManager.getInteractiveLaunchCommand(resolvedProvider, resolvedModel, isAutoPilot);
                 await service.sendKeys(lane.sessionName, winIndex, paneIndex, launchCmd);
 
+                const launchDelay = vscode.workspace.getConfiguration('tmuxAgents').get<number>('cliLaunchDelayMs', 3000);
                 setTimeout(async () => {
                     try {
                         await service.pasteText(lane.sessionName, winIndex, paneIndex, prompt);
@@ -608,7 +610,7 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
                     } catch (err) {
                         console.warn('Failed to send prompt:', err);
                     }
-                }, 3000);
+                }, launchDelay);
 
                 t.tmuxSessionName = lane.sessionName;
                 t.tmuxWindowIndex = winIndex;

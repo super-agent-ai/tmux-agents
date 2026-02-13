@@ -242,6 +242,7 @@ export async function handleKanbanMessage(
                         const capturedSession = lane.sessionName;
                         const capturedWin = win.index;
                         const capturedPane = pIdx;
+                        const debugDelay = vscode.workspace.getConfiguration('tmuxAgents').get<number>('cliLaunchDelayMs', 3000);
                         setTimeout(async () => {
                             try {
                                 await service.pasteText(capturedSession, capturedWin, capturedPane, debugPrompt);
@@ -250,7 +251,7 @@ export async function handleKanbanMessage(
                             } catch (err) {
                                 console.warn('Failed to send debug instructions:', err);
                             }
-                        }, 3000);
+                        }, debugDelay);
                     }
                 }
 
@@ -308,6 +309,7 @@ export async function handleKanbanMessage(
                     const rCapturedSession = lane.sessionName;
                     const rCapturedWin = win.index;
                     const rCapturedPane = pIdx;
+                    const restartDelay = vscode.workspace.getConfiguration('tmuxAgents').get<number>('cliLaunchDelayMs', 3000);
                     setTimeout(async () => {
                         try {
                             await service.pasteText(rCapturedSession, rCapturedWin, rCapturedPane, restartDebugPrompt);
@@ -316,7 +318,7 @@ export async function handleKanbanMessage(
                         } catch (err) {
                             console.warn('Failed to send debug instructions:', err);
                         }
-                    }, 3000);
+                    }, restartDelay);
 
                     const terminal = await ctx.smartAttachment.attachToSession(service, lane.sessionName, {
                         windowIndex: win.index,
@@ -746,13 +748,15 @@ export async function handleKanbanMessage(
 
                         const bundleProvider = ctx.aiManager.resolveProvider(t.aiProvider, lane.aiProvider);
                         const bundleModel = ctx.aiManager.resolveModel(t.aiModel, lane?.aiModel);
-                        const launchCmd = ctx.aiManager.getInteractiveLaunchCommand(bundleProvider, bundleModel);
+                        const isAutoPilot = resolveToggle(t, 'autoPilot', lane);
+                        const launchCmd = ctx.aiManager.getInteractiveLaunchCommand(bundleProvider, bundleModel, isAutoPilot);
                         await service.sendKeys(lane.sessionName, winIndex, paneIndex, launchCmd);
 
                         const capturedPrompt = prompt;
                         const capturedSession = lane.sessionName;
                         const capturedWin = winIndex;
                         const capturedPane = paneIndex;
+                        const bundleDelay = vscode.workspace.getConfiguration('tmuxAgents').get<number>('cliLaunchDelayMs', 3000);
                         setTimeout(async () => {
                             try {
                                 await service.pasteText(capturedSession, capturedWin, capturedPane, capturedPrompt);
@@ -761,7 +765,7 @@ export async function handleKanbanMessage(
                             } catch (err) {
                                 console.warn('Failed to send bundle prompt:', err);
                             }
-                        }, 3000);
+                        }, bundleDelay);
 
                         t.tmuxSessionName = lane.sessionName;
                         t.tmuxWindowIndex = winIndex;

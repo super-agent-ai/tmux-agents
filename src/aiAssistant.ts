@@ -13,6 +13,7 @@ interface ProviderConfig {
     args: string[];
     forkArgs: string[];
     resumeFlag?: string;
+    autoPilotFlags: string[];
     env: Record<string, string>;
     defaultWorkingDirectory?: string;
     shell: boolean;
@@ -78,6 +79,7 @@ export class AIAssistantManager {
             args: this.normalizeArgs(p.args),
             forkArgs: this.normalizeArgs(p.forkArgs),
             resumeFlag: (typeof p.resumeFlag === 'string' && p.resumeFlag) ? p.resumeFlag : undefined,
+            autoPilotFlags: this.normalizeArgs(p.autoPilotFlags),
             env: (p.env as Record<string, string>) || {},
             defaultWorkingDirectory: p.defaultWorkingDirectory || undefined,
             shell: p.shell ?? true,
@@ -232,7 +234,16 @@ export class AIAssistantManager {
      * Get the CLI command to launch a provider interactively (no --print, no stdin pipe).
      * Suitable for running inside a tmux pane.
      */
-    getInteractiveLaunchCommand(provider: AIProvider, model?: string): string {
+    /**
+     * Return provider-specific auto-accept / auto-pilot CLI flags.
+     * Reads from the user-configurable `autoPilotFlags` in provider settings.
+     */
+    getAutoPilotFlags(provider: AIProvider): string[] {
+        const config = this.getProviderConfig(provider);
+        return config.autoPilotFlags;
+    }
+
+    getInteractiveLaunchCommand(provider: AIProvider, model?: string, autoPilot?: boolean): string {
         const config = this.getProviderConfig(provider);
         const envPrefix = this.buildEnvPrefix(config.env);
         const args = config.args.filter(a => a !== '--print' && a !== '-');
@@ -245,6 +256,9 @@ export class AIAssistantManager {
             } else {
                 args.push('--model', resolvedModel);
             }
+        }
+        if (autoPilot) {
+            args.push(...this.getAutoPilotFlags(provider));
         }
         const parts = [envPrefix + config.command, ...args];
         return parts.join(' ');
