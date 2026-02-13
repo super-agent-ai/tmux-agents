@@ -303,7 +303,7 @@ export class AIAssistantManager {
         }
 
         if (provider === AIProvider.CURSOR) {
-            const args: string[] = ['--output-format', 'text'];
+            const args: string[] = ['-p', '--output-format', 'text'];
             if (resolvedModel) { args.push('--model', resolvedModel); }
             return { command: config.pipeCommand, args, env: config.env, cwd, shell };
         }

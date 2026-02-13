@@ -872,8 +872,8 @@ ${this.apiCatalog.getCatalogText()}
             const isCline = this.selectedProvider === AIProvider.CLINE;
             const isKiro = this.selectedProvider === AIProvider.KIRO;
             const isCursor = this.selectedProvider === AIProvider.CURSOR;
-            const positionalPrompt = this.selectedProvider === AIProvider.COPILOT || isCline || isKiro;
-            const useStdin = !positionalPrompt && !isAider && !isAmp && !isCursor;
+            const positionalPrompt = this.selectedProvider === AIProvider.COPILOT || isCline || isKiro || isCursor;
+            const useStdin = !positionalPrompt && !isAider && !isAmp;
             if (isAider) {
                 // aider uses --message "prompt" flag
                 const escaped = prompt.replace(/'/g, "'\\''");
@@ -882,10 +882,6 @@ ${this.apiCatalog.getCatalogText()}
                 // amp uses -x "prompt" flag for execute mode
                 const escaped = prompt.replace(/'/g, "'\\''");
                 args.push('-x', `'${escaped}'`);
-            } else if (isCursor) {
-                // Cursor uses -p "prompt" flag for non-interactive mode
-                const escaped = prompt.replace(/'/g, "'\\''");
-                args.push('-p', `'${escaped}'`);
             } else if (positionalPrompt) {
                 // Copilot, Cline, Kiro take prompt as positional arg
                 const escaped = prompt.replace(/'/g, "'\\''");
