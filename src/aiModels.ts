@@ -42,9 +42,12 @@ export const PROVIDER_MODELS: Record<string, ModelOption[]> = {
     ],
     cursor: [
         { value: 'auto', label: 'Auto' },
-        { value: 'claude-4-opus', label: 'Claude Opus 4' },
-        { value: 'claude-3.5-sonnet', label: 'Claude 3.5 Sonnet' },
-        { value: 'gpt-4o', label: 'GPT-4o' },
+        { value: 'claude-4.6-opus', label: 'Claude 4.6 Opus' },
+        { value: 'claude-4.5-sonnet', label: 'Claude 4.5 Sonnet' },
+        { value: 'gpt-5.2', label: 'GPT-5.2' },
+        { value: 'gpt-5', label: 'GPT-5' },
+        { value: 'gemini-3-pro', label: 'Gemini 3 Pro' },
+        { value: 'composer-1.5', label: 'Composer 1.5' },
     ],
     copilot: [
         { value: 'claude-sonnet-4', label: 'Claude Sonnet 4' },
@@ -96,9 +99,12 @@ export const DEPRECATED_MODEL_ALIASES: Record<string, string> = {
     'gpt-5.2': 'gpt-4.1',
     'gpt-5': 'gpt-4o',
     // Cursor renames
-    'sonnet-4': 'claude-4-opus',
-    'opus-4.1': 'claude-4-opus',
-    'composer': 'auto',
+    'claude-4-opus': 'claude-4.6-opus',
+    'claude-3.5-sonnet': 'claude-4.5-sonnet',
+    'gpt-4o': 'gpt-5',
+    'sonnet-4': 'claude-4.6-opus',
+    'opus-4.1': 'claude-4.6-opus',
+    'composer': 'composer-1.5',
     // Copilot renames
     'claude-sonnet-4.5': 'claude-sonnet-4',
     'claude-haiku-4.5': 'claude-3.5-sonnet',

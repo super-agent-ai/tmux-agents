@@ -134,7 +134,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         private readonly aiManager?: AIAssistantManager
     ) {
         if (this.aiManager) {
-            this.selectedProvider = this.aiManager.getDefaultProvider();
+            const defaultP = this.aiManager.getDefaultProvider();
+            if (this.aiManager.isCliAvailable(defaultP)) {
+                this.selectedProvider = defaultP;
+            } else {
+                const available = this.aiManager.getFirstAvailableProvider();
+                this.selectedProvider = available || defaultP;
+            }
         }
     }
 
@@ -332,6 +338,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 await this.stopVoiceRecording();
             }
         });
+
+        // Notify user if we auto-switched away from the default provider
+        if (this.aiManager) {
+            const defaultP = this.aiManager.getDefaultProvider();
+            if (this.selectedProvider !== defaultP) {
+                this.postMessage({
+                    type: 'addMessage', role: 'error',
+                    text: `'${defaultP}' CLI not found. Auto-switched to '${this.selectedProvider}'.`
+                });
+            }
+        }
 
         // Send initial model list for the selected provider
         const initialModels = this.getProviderModels();
@@ -854,8 +871,9 @@ ${this.apiCatalog.getCatalogText()}
             const isAmp = this.selectedProvider === AIProvider.AMP;
             const isCline = this.selectedProvider === AIProvider.CLINE;
             const isKiro = this.selectedProvider === AIProvider.KIRO;
-            const positionalPrompt = this.selectedProvider === AIProvider.CURSOR || this.selectedProvider === AIProvider.COPILOT || isCline || isKiro;
-            const useStdin = !positionalPrompt && !isAider && !isAmp;
+            const isCursor = this.selectedProvider === AIProvider.CURSOR;
+            const positionalPrompt = this.selectedProvider === AIProvider.COPILOT || isCline || isKiro;
+            const useStdin = !positionalPrompt && !isAider && !isAmp && !isCursor;
             if (isAider) {
                 // aider uses --message "prompt" flag
                 const escaped = prompt.replace(/'/g, "'\\''");
@@ -864,8 +882,12 @@ ${this.apiCatalog.getCatalogText()}
                 // amp uses -x "prompt" flag for execute mode
                 const escaped = prompt.replace(/'/g, "'\\''");
                 args.push('-x', `'${escaped}'`);
+            } else if (isCursor) {
+                // Cursor uses -p "prompt" flag for non-interactive mode
+                const escaped = prompt.replace(/'/g, "'\\''");
+                args.push('-p', `'${escaped}'`);
             } else if (positionalPrompt) {
-                // Cursor and Copilot take prompt as positional arg
+                // Copilot, Cline, Kiro take prompt as positional arg
                 const escaped = prompt.replace(/'/g, "'\\''");
                 args.push(`'${escaped}'`);
             }
@@ -974,8 +996,8 @@ ${this.apiCatalog.getCatalogText()}
             if (this.abortRequested) {
                 this.postMessage({ type: 'addMessage', role: 'error', text: 'Stopped by user.' });
             } else {
-                const errMsg = e.message?.includes('command not found')
-                    ? 'AI CLI not found. Install the appropriate CLI tool.'
+                const errMsg = e.message?.includes('command not found') || e.message?.includes('ENOENT')
+                    ? `'${this.selectedProvider}' CLI not found. Install it or switch to an available provider.`
                     : `Error: ${e.message?.split('\n')[0] || 'unknown error'}`;
                 this.postMessage({ type: 'addMessage', role: 'error', text: errMsg });
             }

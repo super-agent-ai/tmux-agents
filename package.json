@@ -270,8 +270,8 @@
               "env": {}
             },
             "cursor": {
-              "command": "cursor-agent",
-              "pipeCommand": "cursor-agent",
+              "command": "agent",
+              "pipeCommand": "agent",
               "args": [],
               "forkArgs": [
                 "--resume"

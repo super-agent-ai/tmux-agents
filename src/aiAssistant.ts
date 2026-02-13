@@ -114,7 +114,7 @@ export class AIAssistantManager {
         if (base === 'opencode') {
             return AIProvider.OPENCODE;
         }
-        if (base === 'cursor-agent' || base === 'cursor') {
+        if (base === 'agent' || base === 'cursor-agent' || base === 'cursor') {
             return AIProvider.CURSOR;
         }
         if (base === 'copilot' || base === 'github-copilot') {
@@ -289,7 +289,7 @@ export class AIAssistantManager {
         }
 
         if (provider === AIProvider.CURSOR) {
-            const args: string[] = ['--print', '--output-format', 'text'];
+            const args: string[] = ['--output-format', 'text'];
             if (resolvedModel) { args.push('--model', resolvedModel); }
             return { command: config.pipeCommand, args, env: config.env, cwd, shell };
         }
@@ -436,6 +436,33 @@ export class AIAssistantManager {
 
         // No cc_state or unrecognized value — fall back to heuristic
         return this.enrichPane(pane);
+    }
+
+    /**
+     * Check whether the CLI binary for a provider is available on PATH.
+     */
+    isCliAvailable(provider: AIProvider): boolean {
+        const config = this.getProviderConfig(provider);
+        try {
+            cp.execSync(`which ${config.command}`, { stdio: 'ignore' });
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * Return the first available provider, checking default → fallback → all others.
+     */
+    getFirstAvailableProvider(): AIProvider | null {
+        const defaultP = this.getDefaultProvider();
+        if (this.isCliAvailable(defaultP)) { return defaultP; }
+        const fallback = this.getFallbackProvider();
+        if (fallback !== defaultP && this.isCliAvailable(fallback)) { return fallback; }
+        for (const p of Object.values(AIProvider)) {
+            if (p !== defaultP && p !== fallback && this.isCliAvailable(p)) { return p; }
+        }
+        return null;
     }
 
     /**

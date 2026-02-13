@@ -110,7 +110,7 @@ tmux-agents turns VS Code into a control plane for concurrent AI coding agents. 
 - **tmux** (`brew install tmux` on macOS, `apt install tmux` on Linux)
 - **Node.js 18+** and **npm** (for building from source)
 - **VS Code 1.85+**
-- For AI agents: one or more CLI tools — `claude`, `gemini`, `codex`, `opencode`, `cursor-agent`, `copilot`, `aider`, `amp`, `cline`, or `kiro-cli`
+- For AI agents: one or more CLI tools — `claude`, `gemini`, `codex`, `opencode`, `agent`, `copilot`, `aider`, `amp`, `cline`, or `kiro-cli`
 
 ### Install from source
 ```sh
