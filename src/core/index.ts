@@ -22,6 +22,7 @@ export * from './aiModels';
 export * from './promptBuilder';
 export * from './promptRegistry';
 export * from './promptExecutor';
+export * from './tmuxService';
 
 // Note: Additional exports will be added as we move more files to core/
 // - TmuxService
