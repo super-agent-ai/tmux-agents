@@ -410,8 +410,13 @@ html, body {
     background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
     border: 1px solid var(--vscode-panel-border);
     border-radius: 8px; padding: 20px;
-    width: 400px; max-width: 90vw;
+    width: 400px; max-width: 90vw; max-height: 85vh;
     box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    display: flex; flex-direction: column; overflow: hidden;
+}
+.modal-body {
+    flex: 1; min-height: 0; overflow-y: auto;
+    margin-right: -8px; padding-right: 8px;
 }
 .modal-title { font-size: 14px; font-weight: 600; margin-bottom: 14px; }
 .field { margin-bottom: 10px; }
@@ -1208,6 +1213,7 @@ html, body {
                 <button class="tm-ai-prompt-send" id="tm-ai-prompt-send">Generate</button>
             </div>
         </div>
+        <div class="modal-body">
         <div class="field">
             <label>Title</label>
             <input type="text" id="tm-desc" placeholder="Task title" />
@@ -1321,6 +1327,7 @@ html, body {
             <label>Completion Summary</label>
             <div id="tm-output" class="modal-output"></div>
         </div>
+        </div>
         <div class="modal-task-actions" id="tm-task-actions">
             <button class="mta-btn" id="tma-start" title="Start this task">&#x25B6; Start</button>
             <button class="mta-btn" id="tma-attach" title="Attach to tmux window">&#x1F4CE; Attach</button>
@@ -1340,6 +1347,7 @@ html, body {
 <div class="modal-overlay" id="edit-lane-modal-overlay">
     <div class="modal">
         <div class="modal-title">Edit Swim Lane</div>
+        <div class="modal-body">
         <div class="field">
             <label>Name</label>
             <input type="text" id="el-name" />
@@ -1403,6 +1411,7 @@ html, body {
         </div>
         <div id="el-server-warning" style="display:none;background:#6b3a00;color:#ffcc80;border:1px solid #ff9800;border-radius:6px;padding:8px 12px;margin-bottom:8px;font-size:12px;">
             &#x26A0; Changing server will kill the current tmux session and all running tasks in this lane.
+        </div>
         </div>
         <div class="modal-actions">
             <button class="btn" id="el-cancel">Cancel</button>
