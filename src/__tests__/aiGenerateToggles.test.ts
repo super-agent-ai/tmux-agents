@@ -175,10 +175,12 @@ describe('AI Generate Toggle Support', () => {
         });
 
         it('preserves toggle population when editing existing tasks', () => {
-            expect(html).toContain("resolveTaskToggle(task, 'autoStart')) ? tmAutoStart.classList.add('active') : tmAutoStart.classList.remove('active')");
-            expect(html).toContain("resolveTaskToggle(task, 'autoPilot')) ? tmAutoPilot.classList.add('active') : tmAutoPilot.classList.remove('active')");
-            expect(html).toContain("resolveTaskToggle(task, 'autoClose')) ? tmAutoClose.classList.add('active') : tmAutoClose.classList.remove('active')");
-            expect(html).toContain("resolveTaskToggle(task, 'useWorktree')) ? tmWorktree.classList.add('active') : tmWorktree.classList.remove('active')");
+            // Toggles now use resolveModalToggle which delegates to resolveTaskToggle for existing tasks
+            // and falls back to swim lane defaultToggles for new tasks
+            expect(html).toContain("resolveModalToggle('autoStart') ? tmAutoStart.classList.add('active') : tmAutoStart.classList.remove('active')");
+            expect(html).toContain("resolveModalToggle('autoPilot') ? tmAutoPilot.classList.add('active') : tmAutoPilot.classList.remove('active')");
+            expect(html).toContain("resolveModalToggle('autoClose') ? tmAutoClose.classList.add('active') : tmAutoClose.classList.remove('active')");
+            expect(html).toContain("resolveModalToggle('useWorktree') ? tmWorktree.classList.add('active') : tmWorktree.classList.remove('active')");
         });
     });
 

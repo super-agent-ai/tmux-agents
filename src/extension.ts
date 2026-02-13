@@ -144,7 +144,7 @@ export function activate(context: vscode.ExtensionContext) {
         getKanbanTasks: () => orchestrator.getTaskQueue(),
         saveTask: (task) => database.saveTask(task),
         deleteTask: (taskId) => { orchestrator.cancelTask(taskId); database.deleteTask(taskId); },
-        startTaskFlow: (task) => startTaskFlow(task),
+        startTaskFlow: (task, options) => startTaskFlow(task, options),
     });
 
     const chatViewProvider = new ChatViewProvider(
@@ -845,7 +845,7 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
         promptRegistry,
         submitTask: (task: OrchestratorTask) => orchestrator.submitTask(task),
         saveTask: (task: OrchestratorTask) => database.saveTask(task),
-        startTaskFlow: (task: OrchestratorTask) => startTaskFlow(task),
+        startTaskFlow: (task: OrchestratorTask, options?: Parameters<typeof startTaskFlow>[1]) => startTaskFlow(task, options),
         swimLanes,
     };
 

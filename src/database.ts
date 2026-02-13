@@ -309,9 +309,12 @@ export class Database {
                  task.verificationStatus ?? 'none',
                  task.tmuxSessionName ?? null, task.tmuxWindowIndex ?? null,
                  task.tmuxPaneIndex ?? null, task.tmuxServerId ?? null,
-                 task.autoStart ? 1 : 0, task.autoPilot ? 1 : 0, task.autoClose ? 1 : 0,
+                 task.autoStart === undefined ? null : task.autoStart ? 1 : 0,
+                 task.autoPilot === undefined ? null : task.autoPilot ? 1 : 0,
+                 task.autoClose === undefined ? null : task.autoClose ? 1 : 0,
                  task.aiProvider ?? null, task.aiModel ?? null,
-                 task.useWorktree ? 1 : 0, task.worktreePath ?? null,
+                 task.useWorktree === undefined ? null : task.useWorktree ? 1 : 0,
+                 task.worktreePath ?? null,
                  task.doneAt ?? null]
             );
             // Rebuild subtask relations

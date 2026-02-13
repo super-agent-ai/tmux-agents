@@ -69,7 +69,7 @@ export interface ApiCatalogDeps {
     getKanbanTasks?: () => OrchestratorTask[];
     saveTask?: (task: OrchestratorTask) => void;
     deleteTask?: (taskId: string) => void;
-    startTaskFlow?: (task: OrchestratorTask) => Promise<void>;
+    startTaskFlow?: (task: OrchestratorTask, options?: { additionalInstructions?: string; askForContext?: boolean }) => Promise<void>;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

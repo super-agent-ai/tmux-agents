@@ -2908,10 +2908,20 @@ html, body {
         populateLaneDropdown(task ? (task.swimLaneId || '') : (laneId || ''));
         tmProvider.value = task ? (task.aiProvider || '') : '';
         populateModelDropdown(tmModel, task ? (task.aiProvider || '') : '', task ? (task.aiModel || '') : '');
-        (task && resolveTaskToggle(task, 'autoStart')) ? tmAutoStart.classList.add('active') : tmAutoStart.classList.remove('active');
-        (task && resolveTaskToggle(task, 'autoPilot')) ? tmAutoPilot.classList.add('active') : tmAutoPilot.classList.remove('active');
-        (task && resolveTaskToggle(task, 'autoClose')) ? tmAutoClose.classList.add('active') : tmAutoClose.classList.remove('active');
-        (task && resolveTaskToggle(task, 'useWorktree')) ? tmWorktree.classList.add('active') : tmWorktree.classList.remove('active');
+        // Resolve toggle values: for existing tasks use task > lane default > false;
+        // for NEW tasks, inherit from the selected swim lane defaults so the user
+        // sees the lane's default toggles pre-applied in the modal.
+        var modalLaneId = task ? task.swimLaneId : (laneId || '');
+        var modalLane = modalLaneId ? findSwimLane(modalLaneId) : null;
+        var laneDT = (modalLane && modalLane.defaultToggles) || {};
+        function resolveModalToggle(key) {
+            if (task) return resolveTaskToggle(task, key);
+            return !!laneDT[key];
+        }
+        resolveModalToggle('autoStart') ? tmAutoStart.classList.add('active') : tmAutoStart.classList.remove('active');
+        resolveModalToggle('autoPilot') ? tmAutoPilot.classList.add('active') : tmAutoPilot.classList.remove('active');
+        resolveModalToggle('autoClose') ? tmAutoClose.classList.add('active') : tmAutoClose.classList.remove('active');
+        resolveModalToggle('useWorktree') ? tmWorktree.classList.add('active') : tmWorktree.classList.remove('active');
         // Populate dependencies multi-select
         var depsHtml = '';
         var currentDeps = (task && task.dependsOn) ? task.dependsOn : [];
