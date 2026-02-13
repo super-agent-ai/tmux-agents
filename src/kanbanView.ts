@@ -684,6 +684,14 @@ html, body {
     border-color: var(--vscode-focusBorder);
     box-shadow: 0 0 0 2px rgba(86,156,214,0.3);
     transform: scale(1.02);
+    position: relative;
+}
+.card.merge-target::after {
+    content: '⇢ Merge (Shift)';
+    position: absolute; top: 4px; right: 6px;
+    font-size: 9px; padding: 1px 5px; border-radius: 3px;
+    background: var(--vscode-focusBorder); color: #fff;
+    pointer-events: none; opacity: 0.9;
 }
 
 /* ── Import modal ─────────────────────────────────────────────────────── */
@@ -1969,11 +1977,16 @@ html, body {
             clearDropIndicators();
         });
 
-        // Card-to-card drop for merge
+        // Card-to-card drop for merge (requires SHIFT key)
         card.addEventListener('dragover', function(e) {
             if (!draggedTaskId || draggedTaskId === task.id) return;
             // Don't merge subtasks or if different lanes
             if (task.parentTaskId || (task.swimLaneId || '') !== dragSourceLane) return;
+            // Only show merge overlay when SHIFT is held
+            if (!e.shiftKey) {
+                card.classList.remove('merge-target');
+                return;
+            }
             e.preventDefault();
             e.stopPropagation();
             e.dataTransfer.dropEffect = 'link';
@@ -1983,9 +1996,11 @@ html, body {
             card.classList.remove('merge-target');
         });
         card.addEventListener('drop', function(e) {
+            card.classList.remove('merge-target');
+            // Only merge when SHIFT is held; otherwise let column handle it
+            if (!e.shiftKey) return;
             e.preventDefault();
             e.stopPropagation();
-            card.classList.remove('merge-target');
             var droppedId = e.dataTransfer.getData('text/plain');
             if (!droppedId || droppedId === task.id) return;
             var droppedTask = findTask(droppedId);
