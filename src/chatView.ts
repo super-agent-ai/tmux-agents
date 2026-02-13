@@ -890,6 +890,11 @@ ${this.apiCatalog.getCatalogText()}
             const cmdStr = [spawnCfg.command, ...args].join(' ');
             const execCwd = safeCwd(spawnCfg.cwd) || safeCwd(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath);
 
+            // Trace: show the command being executed
+            const cmdPreview = cmdStr.length > 200 ? cmdStr.slice(0, 200) + '…' : cmdStr;
+            this.postMessage({ type: 'addMessage', role: 'trace', text: `$ ${cmdPreview}\ncwd: ${execCwd || '(none)'} | stdin: ${useStdin ? 'pipe' : 'no'} | timeout: ${(timeoutMs / 1000).toFixed(0)}s` });
+            const spawnTime = Date.now();
+
             let fullOutput = '';
             let timedOut = false;
 
@@ -901,10 +906,13 @@ ${this.apiCatalog.getCatalogText()}
             });
 
             this.currentProc = proc;
+            const pid = proc.pid;
 
             const timer = setTimeout(() => {
                 timedOut = true;
                 proc.kill();
+                const elapsed = ((Date.now() - spawnTime) / 1000).toFixed(1);
+                this.postMessage({ type: 'addMessage', role: 'trace', text: `Timed out after ${elapsed}s (pid ${pid})` });
                 reject(new Error('Command timed out'));
             }, timeoutMs);
 
@@ -917,6 +925,8 @@ ${this.apiCatalog.getCatalogText()}
             proc.on('close', (code: number | null) => {
                 clearTimeout(timer);
                 this.currentProc = null;
+                const elapsed = ((Date.now() - spawnTime) / 1000).toFixed(1);
+                this.postMessage({ type: 'addMessage', role: 'trace', text: `Exit ${code} in ${elapsed}s (pid ${pid}) | ${fullOutput.length} bytes` });
                 if (timedOut) { return; }
                 if (this.abortRequested) {
                     reject(new Error('Stopped by user'));
@@ -930,6 +940,8 @@ ${this.apiCatalog.getCatalogText()}
             proc.on('error', (err: Error) => {
                 clearTimeout(timer);
                 this.currentProc = null;
+                const elapsed = ((Date.now() - spawnTime) / 1000).toFixed(1);
+                this.postMessage({ type: 'addMessage', role: 'trace', text: `Spawn error after ${elapsed}s: ${err.message}` });
                 reject(err);
             });
 
@@ -1190,6 +1202,7 @@ body {
 .msg.assistant { background: var(--vscode-editor-background); border-left: 3px solid var(--vscode-terminal-ansiGreen); }
 .msg.tool { background: var(--vscode-editor-background); border-left: 3px solid var(--vscode-terminal-ansiYellow); font-family: var(--vscode-editor-font-family, monospace); font-size: 11px; }
 .msg.error { background: var(--vscode-inputValidation-errorBackground, #5a1d1d); border-left: 3px solid var(--vscode-errorForeground); }
+.msg.trace { background: var(--vscode-editor-background); border-left: 3px solid var(--vscode-terminal-ansiCyan, #6796e6); font-family: var(--vscode-editor-font-family, monospace); font-size: 11px; opacity: 0.75; }
 .msg-label { font-weight: bold; margin-bottom: 2px; font-size: 11px; opacity: 0.7; }
 
 /* ── Tool result lines ───────────────────────────────────────────────── */
@@ -1644,6 +1657,8 @@ function addMessage(role, text, label) {
         labelEl.textContent = 'Error';
     } else if (role === 'tool') {
         labelEl.textContent = 'Tool Results';
+    } else if (role === 'trace') {
+        labelEl.textContent = 'Trace';
     } else {
         labelEl.textContent = 'AI';
     }
