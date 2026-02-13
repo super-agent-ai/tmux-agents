@@ -1334,6 +1334,7 @@ html, body {
             <button class="mta-btn" id="tma-restart" title="Restart this task">&#x21BB; Restart</button>
             <button class="mta-btn" id="tma-summarize" title="Capture output summary">&#x1F4DD; Summarize</button>
             <button class="mta-btn" id="tma-close-window" title="Close tmux window">&#x23FB; Close Window</button>
+            <button class="mta-btn" id="tma-cleanup-worktree" title="Cleanup worktree (rebase+merge if done, discard if not)">&#x1F9F9; Cleanup Worktree</button>
             <button class="mta-btn danger" id="tma-delete" title="Delete this task">&#x2716; Delete</button>
         </div>
         <div class="modal-actions">
@@ -1588,6 +1589,7 @@ html, body {
     var tmaRestart = document.getElementById('tma-restart');
     var tmaSummarize = document.getElementById('tma-summarize');
     var tmaCloseWindow = document.getElementById('tma-close-window');
+    var tmaCleanupWorktree = document.getElementById('tma-cleanup-worktree');
     var tmaDelete = document.getElementById('tma-delete');
     var tmDeps = document.getElementById('tm-deps');
 
@@ -1848,6 +1850,10 @@ html, body {
         // Close window icon for tasks with a tmux window
         if (task.tmuxSessionName && (colId === 'in_progress' || colId === 'in_review' || colId === 'done')) {
             html += '<button class="card-action-btn danger" data-act="close-window" data-tid="' + esc(task.id) + '" data-tip="Close Window">&#x23FB;</button>';
+        }
+        // Cleanup worktree icon for tasks with an active worktree
+        if (task.worktreePath && resolveTaskToggle(task, 'useWorktree')) {
+            html += '<button class="card-action-btn" data-act="cleanup-worktree" data-tid="' + esc(task.id) + '" data-tip="Cleanup Worktree" style="color:#c586c0">&#x1F9F9;</button>';
         }
         html += '<button class="card-action-btn" data-act="edit" data-tid="' + esc(task.id) + '" data-tip="Edit">&#x270E;</button>';
         html += '<button class="card-action-btn danger" data-act="delete" data-tid="' + esc(task.id) + '" data-tip="Delete">&#x2716;</button>';
@@ -2532,6 +2538,15 @@ html, body {
             return;
         }
 
+        // Cleanup worktree button
+        var cleanupWtBtn = e.target.closest('[data-act="cleanup-worktree"]');
+        if (cleanupWtBtn) {
+            e.stopPropagation();
+            var tid = cleanupWtBtn.dataset.tid;
+            vscode.postMessage({ type: 'cleanupWorktree', taskId: tid });
+            return;
+        }
+
         // Split task box
         var splitBtn = e.target.closest('[data-act="split-box"]');
         if (splitBtn) {
@@ -2976,6 +2991,8 @@ html, body {
             tmaSummarize.style.display = hasTmux ? '' : 'none';
             // Close Window: show for done tasks with a tmux window
             tmaCloseWindow.style.display = (hasTmux && col === 'done') ? '' : 'none';
+            // Cleanup Worktree: show for tasks with an active worktree
+            tmaCleanupWorktree.style.display = task.worktreePath ? '' : 'none';
             // Delete: always show in edit mode
             tmaDelete.style.display = '';
         } else {
@@ -3125,6 +3142,12 @@ html, body {
     tmaCloseWindow.addEventListener('click', function() {
         if (!editingTaskId) return;
         vscode.postMessage({ type: 'closeTaskWindow', taskId: editingTaskId });
+        closeTaskModal();
+        render();
+    });
+    tmaCleanupWorktree.addEventListener('click', function() {
+        if (!editingTaskId) return;
+        vscode.postMessage({ type: 'cleanupWorktree', taskId: editingTaskId });
         closeTaskModal();
         render();
     });
