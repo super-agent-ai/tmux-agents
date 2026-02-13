@@ -671,6 +671,110 @@ export async function handleKanbanMessage(
             }
             break;
         }
+        case 'cleanupWorktree': {
+            const t = ctx.orchestrator.getTask(payload.taskId);
+            if (!t || !t.worktreePath) break;
+
+            const lane = t.swimLaneId ? ctx.swimLanes.find(l => l.id === t.swimLaneId) : undefined;
+            const serverId = t.tmuxServerId || lane?.serverId || 'local';
+            const svc = ctx.serviceManager.getService(serverId);
+            if (!svc) {
+                vscode.window.showWarningMessage('Cannot cleanup worktree: no service available');
+                break;
+            }
+
+            const isDone = t.kanbanColumn === 'done' || t.status === TaskStatus.COMPLETED;
+            const shortId = t.id.slice(-8);
+            const branchName = `task-${shortId}`;
+
+            // Resolve the main repo directory from lane or worktree path
+            let mainRepoDir = lane?.workingDirectory;
+            if (!mainRepoDir && t.worktreePath) {
+                // Use git to find the main worktree
+                try {
+                    mainRepoDir = (await svc.execCommand(`git -C ${JSON.stringify(t.worktreePath)} rev-parse --path-format=absolute --git-common-dir`)).trim().replace(/\/\.git$/, '');
+                } catch {
+                    // Fallback: worktree is at <parent>/.worktrees/<branch>, main repo is sibling
+                    const wtParent = t.worktreePath.substring(0, t.worktreePath.lastIndexOf('/'));
+                    mainRepoDir = wtParent.substring(0, wtParent.lastIndexOf('/'));
+                }
+            }
+            if (!mainRepoDir) {
+                vscode.window.showWarningMessage('Cannot determine main repository directory for worktree cleanup');
+                break;
+            }
+            const resolvedDir = (await svc.execCommand(`cd ${mainRepoDir} && pwd`)).trim();
+
+            // Helper: kill tmux window and clear task tmux properties
+            const killTaskWindow = async () => {
+                if (t.tmuxSessionName && t.tmuxWindowIndex) {
+                    try {
+                        await svc.killWindow(t.tmuxSessionName, t.tmuxWindowIndex);
+                    } catch { /* window or session may already be gone */ }
+                }
+                t.tmuxSessionName = undefined;
+                t.tmuxWindowIndex = undefined;
+                t.tmuxPaneIndex = undefined;
+                t.tmuxServerId = undefined;
+            };
+
+            if (isDone) {
+                // Task completed successfully — rebase onto main and merge
+                const confirm = await vscode.window.showInformationMessage(
+                    `Cleanup worktree for completed task: rebase branch "${branchName}" onto main, merge, and remove worktree?`,
+                    { modal: true },
+                    'Rebase & Merge'
+                );
+                if (confirm !== 'Rebase & Merge') break;
+
+                try {
+                    // Rebase the worktree branch onto main
+                    await svc.execCommand(`git -C ${JSON.stringify(t.worktreePath)} rebase main`);
+                    // Kill tmux window before worktree removal (avoids stale cwd)
+                    await killTaskWindow();
+                    // Switch main repo to main branch and merge
+                    await svc.execCommand(`git -C ${JSON.stringify(resolvedDir)} checkout main`);
+                    await svc.execCommand(`git -C ${JSON.stringify(resolvedDir)} merge ${branchName}`);
+                    // Remove worktree and delete branch
+                    await svc.execCommand(`git -C ${JSON.stringify(resolvedDir)} worktree remove ${JSON.stringify(t.worktreePath)} --force`);
+                    try {
+                        await svc.execCommand(`git -C ${JSON.stringify(resolvedDir)} branch -D ${branchName}`);
+                    } catch { /* branch already removed with worktree */ }
+                    t.worktreePath = undefined;
+                    ctx.database.saveTask(t);
+                    ctx.tmuxSessionProvider.refresh();
+                    ctx.updateKanban();
+                    vscode.window.showInformationMessage(`Worktree cleaned up: branch "${branchName}" merged into main`);
+                } catch (err) {
+                    vscode.window.showWarningMessage(`Worktree cleanup failed: ${err}. You may need to resolve conflicts manually.`);
+                }
+            } else {
+                // Task not done — discard worktree entirely
+                const confirm = await vscode.window.showWarningMessage(
+                    `Discard worktree for incomplete task? This will remove branch "${branchName}" and all uncommitted changes.`,
+                    { modal: true },
+                    'Discard Worktree'
+                );
+                if (confirm !== 'Discard Worktree') break;
+
+                try {
+                    // Kill tmux window first (it's running in the worktree directory)
+                    await killTaskWindow();
+                    await svc.execCommand(`git -C ${JSON.stringify(resolvedDir)} worktree remove ${JSON.stringify(t.worktreePath)} --force`);
+                    try {
+                        await svc.execCommand(`git -C ${JSON.stringify(resolvedDir)} branch -D ${branchName}`);
+                    } catch { /* branch may not exist */ }
+                    t.worktreePath = undefined;
+                    ctx.database.saveTask(t);
+                    ctx.tmuxSessionProvider.refresh();
+                    ctx.updateKanban();
+                    vscode.window.showInformationMessage(`Worktree discarded: branch "${branchName}" removed`);
+                } catch (err) {
+                    vscode.window.showWarningMessage(`Failed to remove worktree: ${err}`);
+                }
+            }
+            break;
+        }
         case 'restartTask': {
             const t = ctx.orchestrator.getTask(payload.taskId);
             if (!t) break;
