@@ -598,11 +598,13 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
                 const resolvedModel = aiManager.resolveModel(t.aiModel, lane?.aiModel);
                 const isAutoPilot = resolveToggle(t, 'autoPilot', lane);
                 const launchCmd = aiManager.getInteractiveLaunchCommand(resolvedProvider, resolvedModel, isAutoPilot);
-                await service.sendKeys(lane.sessionName, winIndex, paneIndex, launchCmd);
 
                 const launchDelay = vscode.workspace.getConfiguration('tmuxAgents').get<number>('cliLaunchDelayMs', 3000);
                 setTimeout(async () => {
                     try {
+                        await service.sendKeys(lane.sessionName, winIndex, paneIndex, launchCmd);
+                        // Wait for CLI to start before pasting prompt
+                        await new Promise(resolve => setTimeout(resolve, launchDelay));
                         await service.pasteText(lane.sessionName, winIndex, paneIndex, prompt);
                         // Allow CLI to process the paste before pressing Enter
                         await new Promise(resolve => setTimeout(resolve, 500));

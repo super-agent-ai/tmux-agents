@@ -235,7 +235,6 @@ export async function handleKanbanMessage(
                         const debugProvider = ctx.aiManager.resolveProvider(undefined, lane.aiProvider);
                         const debugModel = ctx.aiManager.resolveModel(undefined, lane.aiModel);
                         const launchCmd = ctx.aiManager.getInteractiveLaunchCommand(debugProvider, debugModel);
-                        await service.sendKeys(lane.sessionName, win.index, pIdx, launchCmd);
 
                         // Auto-insert swim lane instructions after CLI is ready
                         const debugPrompt = buildDebugPrompt(lane);
@@ -245,6 +244,8 @@ export async function handleKanbanMessage(
                         const debugDelay = vscode.workspace.getConfiguration('tmuxAgents').get<number>('cliLaunchDelayMs', 3000);
                         setTimeout(async () => {
                             try {
+                                await service.sendKeys(capturedSession, capturedWin, capturedPane, launchCmd);
+                                await new Promise(resolve => setTimeout(resolve, debugDelay));
                                 await service.pasteText(capturedSession, capturedWin, capturedPane, debugPrompt);
                                 await new Promise(resolve => setTimeout(resolve, 500));
                                 await service.sendRawKeys(capturedSession, capturedWin, capturedPane, 'Enter');
@@ -302,7 +303,6 @@ export async function handleKanbanMessage(
                     const restartProvider = ctx.aiManager.resolveProvider(undefined, lane.aiProvider);
                     const restartModel = ctx.aiManager.resolveModel(undefined, lane.aiModel);
                     const launchCmd = ctx.aiManager.getInteractiveLaunchCommand(restartProvider, restartModel);
-                    await service.sendKeys(lane.sessionName, win.index, pIdx, launchCmd);
 
                     // Auto-insert swim lane instructions after CLI is ready
                     const restartDebugPrompt = buildDebugPrompt(lane);
@@ -312,6 +312,8 @@ export async function handleKanbanMessage(
                     const restartDelay = vscode.workspace.getConfiguration('tmuxAgents').get<number>('cliLaunchDelayMs', 3000);
                     setTimeout(async () => {
                         try {
+                            await service.sendKeys(rCapturedSession, rCapturedWin, rCapturedPane, launchCmd);
+                            await new Promise(resolve => setTimeout(resolve, restartDelay));
                             await service.pasteText(rCapturedSession, rCapturedWin, rCapturedPane, restartDebugPrompt);
                             await new Promise(resolve => setTimeout(resolve, 500));
                             await service.sendRawKeys(rCapturedSession, rCapturedWin, rCapturedPane, 'Enter');
@@ -750,7 +752,6 @@ export async function handleKanbanMessage(
                         const bundleModel = ctx.aiManager.resolveModel(t.aiModel, lane?.aiModel);
                         const isAutoPilot = resolveToggle(t, 'autoPilot', lane);
                         const launchCmd = ctx.aiManager.getInteractiveLaunchCommand(bundleProvider, bundleModel, isAutoPilot);
-                        await service.sendKeys(lane.sessionName, winIndex, paneIndex, launchCmd);
 
                         const capturedPrompt = prompt;
                         const capturedSession = lane.sessionName;
@@ -759,6 +760,8 @@ export async function handleKanbanMessage(
                         const bundleDelay = vscode.workspace.getConfiguration('tmuxAgents').get<number>('cliLaunchDelayMs', 3000);
                         setTimeout(async () => {
                             try {
+                                await service.sendKeys(capturedSession, capturedWin, capturedPane, launchCmd);
+                                await new Promise(resolve => setTimeout(resolve, bundleDelay));
                                 await service.pasteText(capturedSession, capturedWin, capturedPane, capturedPrompt);
                                 await new Promise(resolve => setTimeout(resolve, 500));
                                 await service.sendRawKeys(capturedSession, capturedWin, capturedPane, 'Enter');
