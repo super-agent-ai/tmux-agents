@@ -1,0 +1,26 @@
+# docker-compose.yml: Optional Compose setup for local development
+# Provides a pre-configured environment for testing Docker runtime
+
+version: '3.8'
+
+services:
+  # Example agent container (not used directly, just for reference)
+  agent-template:
+    image: tmux-agents-base:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    networks:
+      - tmux-agents
+    volumes:
+      - ./workspace:/workspace
+    labels:
+      - "tmux-agents=true"
+    # Don't start by default
+    profiles:
+      - template
+
+networks:
+  tmux-agents:
+    driver: bridge
+    name: tmux-agents

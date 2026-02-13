@@ -1,0 +1,31 @@
+# tmux-agents-base-gpu: GPU-enabled variant with CUDA support
+# For agents that need GPU acceleration
+
+FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
+
+# Install Node.js 22
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends \
+    nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    tmux \
+    git \
+    jq \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy tmux configuration
+COPY tmux.conf /etc/tmux.conf
+
+# Create workspace directory
+WORKDIR /workspace
+
+# Entrypoint: Start tmux server with a session named 'agent' and keep container alive
+ENTRYPOINT ["sh", "-c", "tmux new-session -d -s agent && sleep infinity"]
