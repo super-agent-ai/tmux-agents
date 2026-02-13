@@ -122,6 +122,7 @@ export async function handleKanbanMessage(
         case 'createSwimLane': {
             const laneId = 'lane-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
             const sessionName = (payload.name || 'lane').toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 30) + '-lane';
+            const memoryFileId = crypto.randomUUID?.() || 'mem-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
             const lane: KanbanSwimLane = {
                 id: laneId,
                 name: payload.name,
@@ -131,7 +132,8 @@ export async function handleKanbanMessage(
                 createdAt: Date.now(),
                 sessionActive: false,
                 contextInstructions: payload.contextInstructions || undefined,
-                aiProvider: payload.aiProvider || undefined
+                aiProvider: payload.aiProvider || undefined,
+                memoryFileId,
             };
             ctx.swimLanes.push(lane);
             ctx.database.saveSwimLane(lane);
@@ -949,6 +951,12 @@ export async function handleKanbanMessage(
             lane.contextInstructions = payload.contextInstructions || undefined;
             if (payload.defaultToggles !== undefined) {
                 lane.defaultToggles = payload.defaultToggles || undefined;
+            }
+            // Handle memory path
+            lane.memoryPath = payload.memoryPath || undefined;
+            // Generate memoryFileId if useMemory toggled ON and no ID exists (legacy lane)
+            if (lane.defaultToggles?.useMemory && !lane.memoryFileId) {
+                lane.memoryFileId = crypto.randomUUID?.() || 'mem-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
             }
 
             // Handle server change — kill old session first

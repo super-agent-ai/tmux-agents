@@ -237,7 +237,13 @@ export function appendPromptTail(prompt: string, options?: {
     signalId?: string;
     personaContext?: string;
     guildContext?: string;
+    memoryLoadContext?: string;
+    memorySaveContext?: string;
 }): string {
+    // Memory load goes early — AI has context before starting
+    if (options?.memoryLoadContext) {
+        prompt += `\n\n${options.memoryLoadContext}`;
+    }
     if (options?.personaContext) {
         prompt += `\n\n${options.personaContext}`;
     }
@@ -251,6 +257,10 @@ export function appendPromptTail(prompt: string, options?: {
         prompt += `\n\nBefore starting, ask the user if they have any additional context or requirements for this task.`;
     } else {
         prompt += `\n\nStart implementing immediately without asking for confirmation.`;
+    }
+    // Memory save goes late — AI writes memory as last step before finishing
+    if (options?.memorySaveContext) {
+        prompt += `\n\n${options.memorySaveContext}`;
     }
     if (options?.autoClose && options?.signalId) {
         prompt += `\n\nIMPORTANT: When you have completed ALL the work for this task, output a brief summary of what you did followed by the completion signal, exactly in this format:\n<promise-summary>${options.signalId}\nYour summary of what was accomplished (2-5 sentences). Include: files created or modified, whether tests pass, and any remaining issues.\n</promise-summary>\n<promise>${options.signalId}-DONE</promise>\nThese signals will be detected automatically. Only output them when you are fully done.`;

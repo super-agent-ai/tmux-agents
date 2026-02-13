@@ -1318,7 +1318,12 @@ html, body {
                 <button class="toggle-chip" id="el-dt-pilot" data-toggle="autoPilot" title="Auto-pilot tasks">&#x2708; Pilot</button>
                 <button class="toggle-chip" id="el-dt-close" data-toggle="autoClose" title="Auto-close tasks">&#x23FB; Close</button>
                 <button class="toggle-chip" id="el-dt-worktree" data-toggle="useWorktree" title="Use git worktree">&#x1F333; Worktree</button>
+                <button class="toggle-chip" id="el-dt-memory" data-toggle="useMemory" title="Long-term memory across tasks">&#x1F4BE; Memory</button>
             </div>
+        </div>
+        <div class="field" id="el-memory-path-field" style="display:none;">
+            <label>Memory Path <span style="font-weight:normal;opacity:0.6">(optional)</span></label>
+            <input type="text" id="el-memory-path" placeholder="Default: {workingDirectory}/memory" />
         </div>
         <div id="el-server-warning" style="display:none;background:#6b3a00;color:#ffcc80;border:1px solid #ff9800;border-radius:6px;padding:8px 12px;margin-bottom:8px;font-size:12px;">
             &#x26A0; Changing server will kill the current tmux session and all running tasks in this lane.
@@ -1978,6 +1983,7 @@ html, body {
         if (dt.autoPilot) dtFlags.push('P');
         if (dt.autoClose) dtFlags.push('C');
         if (dt.useWorktree) dtFlags.push('WT');
+        if (dt.useMemory) dtFlags.push('M');
         if (dtFlags.length > 0) {
             headerHtml += '<span class="default-toggles-badge" data-tip="Default toggles: ' + dtFlags.join(', ') + '">&#x2699; ' + dtFlags.join('') + '</span>';
         }
@@ -2728,14 +2734,20 @@ html, body {
     var elDtPilot = document.getElementById('el-dt-pilot');
     var elDtClose = document.getElementById('el-dt-close');
     var elDtWorktree = document.getElementById('el-dt-worktree');
+    var elDtMemory = document.getElementById('el-dt-memory');
+    var elMemoryPathField = document.getElementById('el-memory-path-field');
+    var elMemoryPath = document.getElementById('el-memory-path');
     var elSubmitBtn = document.getElementById('el-submit');
     var editingLaneId = null;
     var editingLaneServerId = null;
 
     // Wire default toggle chips
-    [elDtStart, elDtPilot, elDtClose, elDtWorktree].forEach(function(chip) {
+    [elDtStart, elDtPilot, elDtClose, elDtWorktree, elDtMemory].forEach(function(chip) {
         chip.addEventListener('click', function() {
             chip.classList.toggle('active');
+            if (chip === elDtMemory) {
+                elMemoryPathField.style.display = chip.classList.contains('active') ? '' : 'none';
+            }
         });
     });
 
@@ -2776,6 +2788,9 @@ html, body {
         elDtPilot.classList.toggle('active', !!dt.autoPilot);
         elDtClose.classList.toggle('active', !!dt.autoClose);
         elDtWorktree.classList.toggle('active', !!dt.useWorktree);
+        elDtMemory.classList.toggle('active', !!dt.useMemory);
+        elMemoryPath.value = lane.memoryPath || '';
+        elMemoryPathField.style.display = dt.useMemory ? '' : 'none';
         editLaneOverlay.classList.add('active');
         elName.focus();
     }
@@ -2812,10 +2827,12 @@ html, body {
             autoStart: elDtStart.classList.contains('active'),
             autoPilot: elDtPilot.classList.contains('active'),
             autoClose: elDtClose.classList.contains('active'),
-            useWorktree: elDtWorktree.classList.contains('active')
+            useWorktree: elDtWorktree.classList.contains('active'),
+            useMemory: elDtMemory.classList.contains('active')
         };
+        var memoryPath = elMemoryPath.value.trim() || undefined;
         // Only send non-empty toggles object
-        var hasToggles = defaultToggles.autoStart || defaultToggles.autoPilot || defaultToggles.autoClose || defaultToggles.useWorktree;
+        var hasToggles = defaultToggles.autoStart || defaultToggles.autoPilot || defaultToggles.autoClose || defaultToggles.useWorktree || defaultToggles.useMemory;
         vscode.postMessage({
             type: 'editSwimLane',
             swimLaneId: editingLaneId,
@@ -2826,7 +2843,8 @@ html, body {
             aiProvider: provider,
             aiModel: model,
             contextInstructions: context,
-            defaultToggles: hasToggles ? defaultToggles : undefined
+            defaultToggles: hasToggles ? defaultToggles : undefined,
+            memoryPath: memoryPath
         });
         // Update local state
         for (var i = 0; i < swimLanes.length; i++) {
@@ -2842,6 +2860,7 @@ html, body {
                 swimLanes[i].aiModel = model;
                 swimLanes[i].contextInstructions = context;
                 swimLanes[i].defaultToggles = hasToggles ? defaultToggles : undefined;
+                swimLanes[i].memoryPath = memoryPath;
                 break;
             }
         }

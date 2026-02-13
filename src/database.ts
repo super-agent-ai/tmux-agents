@@ -156,14 +156,14 @@ export class Database {
     private migrate(): void {
         if (!this.db) { return; }
         // Add tmux columns to tasks table if missing
-        const cols = ['tmuxSessionName', 'tmuxWindowIndex', 'tmuxPaneIndex', 'tmuxServerId', 'autoMode', 'autoStart', 'autoPilot', 'autoClose', 'aiProvider', 'aiModel', 'useWorktree', 'worktreePath', 'doneAt'];
+        const cols = ['tmuxSessionName', 'tmuxWindowIndex', 'tmuxPaneIndex', 'tmuxServerId', 'autoMode', 'autoStart', 'autoPilot', 'autoClose', 'aiProvider', 'aiModel', 'useWorktree', 'worktreePath', 'doneAt', 'useMemory'];
         for (const col of cols) {
             try {
                 this.db.run(`ALTER TABLE tasks ADD COLUMN ${col} TEXT`);
             } catch { /* column already exists */ }
         }
         // Add aiProvider and contextInstructions columns to swim_lanes if missing
-        for (const col of ['aiProvider', 'contextInstructions', 'aiModel', 'defaultToggles']) {
+        for (const col of ['aiProvider', 'contextInstructions', 'aiModel', 'defaultToggles', 'memoryFileId', 'memoryPath']) {
             try {
                 this.db.run(`ALTER TABLE swim_lanes ADD COLUMN ${col} TEXT`);
             } catch { /* column already exists */ }
@@ -214,13 +214,14 @@ export class Database {
         if (!this.db) { return; }
         try {
             this.run(
-                `INSERT OR REPLACE INTO swim_lanes (id,name,serverId,workingDirectory,sessionName,createdAt,sessionActive,aiProvider,contextInstructions,aiModel,defaultToggles)
-                 VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+                `INSERT OR REPLACE INTO swim_lanes (id,name,serverId,workingDirectory,sessionName,createdAt,sessionActive,aiProvider,contextInstructions,aiModel,defaultToggles,memoryFileId,memoryPath)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
                 [lane.id, lane.name, lane.serverId, lane.workingDirectory,
                  lane.sessionName, lane.createdAt, lane.sessionActive ? 1 : 0,
                  lane.aiProvider || null, lane.contextInstructions || null,
                  lane.aiModel || null,
-                 lane.defaultToggles ? JSON.stringify(lane.defaultToggles) : null]
+                 lane.defaultToggles ? JSON.stringify(lane.defaultToggles) : null,
+                 lane.memoryFileId || null, lane.memoryPath || null]
             );
             this.scheduleSave();
         } catch (err) { console.error('[Database] saveSwimLane:', err); }
@@ -252,7 +253,9 @@ export class Database {
             aiProvider: r.aiProvider || undefined,
             contextInstructions: r.contextInstructions || undefined,
             aiModel: r.aiModel || undefined,
-            defaultToggles
+            defaultToggles,
+            memoryFileId: r.memoryFileId || undefined,
+            memoryPath: r.memoryPath || undefined,
         };
     };
 
