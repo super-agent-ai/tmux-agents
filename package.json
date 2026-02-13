@@ -1076,16 +1076,22 @@
       }
     ]
   },
+  "bin": {
+    "tmux-agents-mcp": "./out/mcp/mcp/server.js"
+  },
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./ && cp node_modules/sql.js/dist/sql-wasm.wasm out/ && cp node_modules/sql.js/dist/sql-wasm.js out/ && mkdir -p out/prompts && cp src/prompts/defaults.json out/prompts/",
+    "compile:mcp": "tsc -p tsconfig.mcp.json",
     "watch": "tsc -watch -p ./",
+    "watch:mcp": "tsc -watch -p tsconfig.mcp.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "vscode-test",
     "test:all": "npm run test && npm run test:integration"
   },
   "devDependencies": {
+    "@types/dockerode": "^4.0.1",
     "@types/mocha": "^10.0.10",
     "@types/node": "^24.0.14",
     "@types/sql.js": "^1.4.9",
@@ -1098,6 +1104,11 @@
     "vitest": "^4.0.18"
   },
   "dependencies": {
-    "sql.js": "^1.13.0"
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "@types/ws": "^8.18.1",
+    "dockerode": "^4.0.9",
+    "sql.js": "^1.13.0",
+    "ws": "^8.19.0",
+    "zod": "^4.3.6"
   }
 }
