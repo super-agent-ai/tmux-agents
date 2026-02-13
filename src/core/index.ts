@@ -7,7 +7,6 @@
 
 // Infrastructure
 export * from './eventBus';
-export * from './config';
 export * from './types';
 export * from './disposable';
 export * from './eventEmitter';
@@ -28,6 +27,19 @@ export * from './memoryManager';
 export * from './runtimeManager';
 export * from './organizationManager';
 export * from './guildManager';
+
+// Selective exports to avoid duplicates
+// config exports ProviderConfig (also in aiAssistant)
+export { Config, RuntimeConfig, ConfigData } from './config';
+
+// orchestrator exports ITmuxServiceManager (also in apiCatalog), IAIAssistantManager
+export { AgentOrchestrator, ITmuxServiceManager as ITmuxServiceManagerFromOrchestrator, IAIAssistantManager } from './orchestrator';
+
+// aiAssistant exports ProviderConfig (also in config) and ITmuxService
+export { AIAssistantManager, AIAssistantConfig, ITmuxService, ProviderConfig } from './aiAssistant';
+
+// apiCatalog exports ITmuxServiceManager (also in orchestrator)
+export { ApiCatalog, ApiCatalogDeps, ApiActionResult, ApiActionCall, ParsedAIResponse, NextExecutor, ok, err } from './apiCatalog';
 
 // Note: Additional exports will be added as we move more files to core/
 // - TmuxService
