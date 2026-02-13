@@ -2,7 +2,7 @@ import { TmuxServiceManager } from './serviceManager';
 import { TmuxSessionProvider } from './treeProvider';
 import { AgentOrchestrator } from './orchestrator';
 import { Database } from './database';
-import { OrchestratorTask, KanbanSwimLane, TmuxSession } from './types';
+import { OrchestratorTask, KanbanSwimLane, TmuxSession, TaskStatus } from './types';
 
 // ─── Session Sync ────────────────────────────────────────────────────────
 // Reconciles kanban task lists with actual tmux session state.  When a swim
@@ -77,6 +77,9 @@ async function syncLane(ctx: SessionSyncContext, lane: KanbanSwimLane): Promise<
             lane.sessionActive = false;
             ctx.database.saveSwimLane(lane);
         }
+
+        // Mark orphaned active tasks as failed — their tmux session is gone
+        markOrphanedTasksFailed(ctx, lane);
         return;
     }
 
@@ -132,6 +135,38 @@ async function syncLane(ctx: SessionSyncContext, lane: KanbanSwimLane): Promise<
         ctx.tmuxSessionProvider.refresh();
         ctx.updateKanban();
     }
+}
+
+// ─── Dead Session Cleanup ────────────────────────────────────────────────
+
+/**
+ * Finds tasks that are bound to a swim lane's tmux session and are in an
+ * active kanban column (`in_progress` or `in_review`).  Since the session
+ * no longer exists, these tasks are orphaned — their status is set to
+ * `FAILED`, tmux references are cleared, and an error message is recorded.
+ */
+function markOrphanedTasksFailed(ctx: SessionSyncContext, lane: KanbanSwimLane): void {
+    const allTasks = ctx.orchestrator.getTaskQueue();
+    const orphaned = allTasks.filter(t =>
+        t.tmuxSessionName === lane.sessionName &&
+        t.tmuxServerId === lane.serverId &&
+        (t.kanbanColumn === 'in_progress' || t.kanbanColumn === 'in_review')
+    );
+
+    if (orphaned.length === 0) { return; }
+
+    for (const task of orphaned) {
+        task.status = TaskStatus.FAILED;
+        task.errorMessage = 'Tmux session no longer exists';
+        task.tmuxSessionName = undefined;
+        task.tmuxWindowIndex = undefined;
+        task.tmuxPaneIndex = undefined;
+        task.tmuxServerId = undefined;
+        ctx.database.saveTask(task);
+    }
+
+    ctx.tmuxSessionProvider.refresh();
+    ctx.updateKanban();
 }
 
 /**

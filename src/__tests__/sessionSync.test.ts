@@ -389,4 +389,163 @@ describe('syncTaskListAttachments', () => {
         expect(task.tmuxSessionName).toBeUndefined();
         expect(ctx.savedTasks).toHaveLength(0);
     });
+
+    // ─── Dead Session Detection (Orphaned Tasks) ────────────────────────────
+
+    it('marks orphaned in_progress tasks as FAILED when session dies', async () => {
+        const task = makeTask('task-1234567890123-abcdef', {
+            swimLaneId: 'lane-1',
+            kanbanColumn: 'in_progress',
+            status: TaskStatus.IN_PROGRESS,
+            tmuxSessionName: 'test-lane',
+            tmuxWindowIndex: '1',
+            tmuxPaneIndex: '0',
+            tmuxServerId: 'local',
+        });
+        const lane = makeLane({ sessionActive: true });
+
+        // No sessions exist — session has died
+        const ctx = makeMockContext([task], [lane], []);
+        await syncTaskListAttachments(ctx);
+
+        // Task should be marked as FAILED with cleared tmux references
+        expect(task.status).toBe(TaskStatus.FAILED);
+        expect(task.errorMessage).toBe('Tmux session no longer exists');
+        expect(task.tmuxSessionName).toBeUndefined();
+        expect(task.tmuxWindowIndex).toBeUndefined();
+        expect(task.tmuxPaneIndex).toBeUndefined();
+        expect(task.tmuxServerId).toBeUndefined();
+        expect(ctx.savedTasks).toHaveLength(1);
+    });
+
+    it('marks orphaned in_review tasks as FAILED when session dies', async () => {
+        const task = makeTask('task-1234567890123-abcdef', {
+            swimLaneId: 'lane-1',
+            kanbanColumn: 'in_review',
+            status: TaskStatus.IN_PROGRESS,
+            tmuxSessionName: 'test-lane',
+            tmuxWindowIndex: '2',
+            tmuxPaneIndex: '0',
+            tmuxServerId: 'local',
+        });
+        const lane = makeLane({ sessionActive: true });
+
+        const ctx = makeMockContext([task], [lane], []);
+        await syncTaskListAttachments(ctx);
+
+        expect(task.status).toBe(TaskStatus.FAILED);
+        expect(task.errorMessage).toBe('Tmux session no longer exists');
+        expect(task.tmuxSessionName).toBeUndefined();
+        expect(ctx.savedTasks).toHaveLength(1);
+    });
+
+    it('marks multiple orphaned tasks as FAILED when session dies', async () => {
+        const task1 = makeTask('task-aaaa567890123-abcdef', {
+            swimLaneId: 'lane-1',
+            kanbanColumn: 'in_progress',
+            status: TaskStatus.IN_PROGRESS,
+            tmuxSessionName: 'test-lane',
+            tmuxWindowIndex: '1',
+            tmuxPaneIndex: '0',
+            tmuxServerId: 'local',
+        });
+        const task2 = makeTask('task-bbbb567890123-ghijkl', {
+            swimLaneId: 'lane-1',
+            kanbanColumn: 'in_review',
+            status: TaskStatus.IN_PROGRESS,
+            tmuxSessionName: 'test-lane',
+            tmuxWindowIndex: '2',
+            tmuxPaneIndex: '0',
+            tmuxServerId: 'local',
+        });
+        const lane = makeLane({ sessionActive: true });
+
+        const ctx = makeMockContext([task1, task2], [lane], []);
+        await syncTaskListAttachments(ctx);
+
+        expect(task1.status).toBe(TaskStatus.FAILED);
+        expect(task2.status).toBe(TaskStatus.FAILED);
+        expect(ctx.savedTasks).toHaveLength(2);
+    });
+
+    it('does not mark done tasks as FAILED when session dies', async () => {
+        const task = makeTask('task-1234567890123-abcdef', {
+            swimLaneId: 'lane-1',
+            kanbanColumn: 'done',
+            status: TaskStatus.COMPLETED,
+            tmuxSessionName: 'test-lane',
+            tmuxWindowIndex: '1',
+            tmuxPaneIndex: '0',
+            tmuxServerId: 'local',
+        });
+        const lane = makeLane({ sessionActive: true });
+
+        const ctx = makeMockContext([task], [lane], []);
+        await syncTaskListAttachments(ctx);
+
+        // Done task should not be affected
+        expect(task.status).toBe(TaskStatus.COMPLETED);
+        expect(task.tmuxSessionName).toBe('test-lane');
+        expect(ctx.savedTasks).toHaveLength(0);
+    });
+
+    it('does not mark tasks bound to a different server as FAILED', async () => {
+        const task = makeTask('task-1234567890123-abcdef', {
+            swimLaneId: 'lane-1',
+            kanbanColumn: 'in_progress',
+            status: TaskStatus.IN_PROGRESS,
+            tmuxSessionName: 'test-lane',
+            tmuxWindowIndex: '1',
+            tmuxPaneIndex: '0',
+            tmuxServerId: 'remote:other-host',
+        });
+        const lane = makeLane({ sessionActive: true, serverId: 'local' });
+
+        const ctx = makeMockContext([task], [lane], []);
+        await syncTaskListAttachments(ctx);
+
+        // Task is bound to a different server — should not be affected
+        expect(task.status).toBe(TaskStatus.IN_PROGRESS);
+        expect(task.tmuxSessionName).toBe('test-lane');
+        expect(ctx.savedTasks).toHaveLength(0);
+    });
+
+    it('does not mark unbound tasks as FAILED when session dies', async () => {
+        const task = makeTask('task-1234567890123-abcdef', {
+            swimLaneId: 'lane-1',
+            kanbanColumn: 'in_progress',
+            status: TaskStatus.IN_PROGRESS,
+            // No tmux references — task was never attached
+        });
+        const lane = makeLane({ sessionActive: true });
+
+        const ctx = makeMockContext([task], [lane], []);
+        await syncTaskListAttachments(ctx);
+
+        // Task has no tmux binding — should not be affected
+        expect(task.status).toBe(TaskStatus.IN_PROGRESS);
+        expect(ctx.savedTasks).toHaveLength(0);
+    });
+
+    it('handles session death for lane that was already inactive', async () => {
+        const task = makeTask('task-1234567890123-abcdef', {
+            swimLaneId: 'lane-1',
+            kanbanColumn: 'in_progress',
+            status: TaskStatus.IN_PROGRESS,
+            tmuxSessionName: 'test-lane',
+            tmuxWindowIndex: '1',
+            tmuxPaneIndex: '0',
+            tmuxServerId: 'local',
+        });
+        // Lane was already marked inactive from a previous cycle
+        const lane = makeLane({ sessionActive: false });
+
+        const ctx = makeMockContext([task], [lane], []);
+        await syncTaskListAttachments(ctx);
+
+        // Task should still be marked as FAILED (orphan cleanup is idempotent)
+        expect(task.status).toBe(TaskStatus.FAILED);
+        expect(task.errorMessage).toBe('Tmux session no longer exists');
+        expect(task.tmuxSessionName).toBeUndefined();
+    });
 });
