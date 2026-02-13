@@ -11,7 +11,7 @@ import {
     formatAgentOutput,
     formatSuccess,
     formatError
-} from './formatters';
+} from './formatters.js';
 
 // ─── Zod Schemas ───────────────────────────────────────────────────────────
 

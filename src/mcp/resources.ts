@@ -1,5 +1,5 @@
 import { DaemonClient } from '../client/daemonClient';
-import { formatHealthReport } from './formatters';
+import { formatHealthReport } from './formatters.js';
 
 // ─── Resource Definitions ──────────────────────────────────────────────────
 

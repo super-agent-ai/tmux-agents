@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { DaemonClient } from '../client/daemonClient';
-import { formatAgentList, formatTaskList, formatRuntimeList, formatAgentOutput } from './formatters';
+import { formatAgentList, formatTaskList, formatRuntimeList, formatAgentOutput } from './formatters.js';
 
 // ─── Prompt Schemas ────────────────────────────────────────────────────────
 

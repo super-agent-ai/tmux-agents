@@ -1,6 +1,10 @@
 import { vi } from 'vitest';
 export const workspace = {
     getConfiguration: vi.fn(() => ({ get: vi.fn(() => undefined) })),
+    onDidChangeConfiguration: vi.fn((callback) => {
+        // Return disposable, but never actually fire the event in tests
+        return { dispose: () => {} };
+    }),
     workspaceFolders: [],
 };
 export const window = {

@@ -7,6 +7,7 @@ const mockGet = vi.fn(() => undefined);
 vi.mock('vscode', () => ({
     workspace: {
         getConfiguration: vi.fn(() => ({ get: mockGet })),
+        onDidChangeConfiguration: vi.fn(() => ({ dispose: () => {} })),
         workspaceFolders: [{ uri: { fsPath: '/tmp/test-workspace' } }],
     },
     window: {
