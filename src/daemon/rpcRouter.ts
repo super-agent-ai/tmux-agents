@@ -17,6 +17,7 @@ import {
 	AgentTeam,
 	Pipeline,
 	PipelineRun,
+	PipelineStatus,
 } from '../core/types';
 
 export interface JsonRpcRequest {
@@ -470,8 +471,12 @@ export class RpcRouter {
 			throw new Error(`Pipeline not found: ${params.id}`);
 		}
 
-		// TODO: Implement pipeline execution
-		throw new Error('pipeline.run not yet implemented');
+		// Start pipeline execution - creates run and starts it
+		const run = this.pipelineEngine.startRun(params.id);
+
+		this.logger.info('rpc', `Started pipeline run ${run.id} for pipeline ${params.id}`);
+
+		return { runId: run.id };
 	}
 
 	private async pipelineGetStatus(params: { runId: string }): Promise<PipelineRun> {
@@ -488,18 +493,27 @@ export class RpcRouter {
 	}
 
 	private async pipelinePause(params: { runId: string }): Promise<void> {
-		// TODO: Implement pipeline pause
-		throw new Error('pipeline.pause not yet implemented');
+		await this.pipelineEngine.pauseRun(params.runId);
+		this.logger.info('rpc', `Paused pipeline run ${params.runId}`);
 	}
 
 	private async pipelineResume(params: { runId: string }): Promise<void> {
-		// TODO: Implement pipeline resume
-		throw new Error('pipeline.resume not yet implemented');
+		await this.pipelineEngine.resumeRun(params.runId);
+		this.logger.info('rpc', `Resumed pipeline run ${params.runId}`);
 	}
 
 	private async pipelineCancel(params: { runId: string }): Promise<void> {
-		// TODO: Implement pipeline cancel
-		throw new Error('pipeline.cancel not yet implemented');
+		const run = this.db.getPipelineRun(params.runId);
+		if (!run) {
+			throw new Error(`Pipeline run not found: ${params.runId}`);
+		}
+
+		// Update run status to failed (closest to cancelled)
+		run.status = PipelineStatus.FAILED;
+		run.completedAt = Date.now();
+		this.db.savePipelineRun(run);
+
+		this.logger.info('rpc', `Cancelled pipeline run ${params.runId}`);
 	}
 
 	// ─── Kanban Handlers ─────────────────────────────────────────────────────
