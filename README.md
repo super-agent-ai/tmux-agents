@@ -149,6 +149,10 @@ To launch AI agents:
 - **Pipe vs interactive**: The `command` setting launches interactive tmux sessions; `pipeCommand` is used for AI Chat, AI Generate, and summaries. Set them independently per provider if needed.
 - **Default prompts**: Run "List Default Prompts" from the command palette to see built-in templates (test plans, auto-pass tests, install plugins). Disable with `defaultPromptsEnabled: false`.
 - **Session sync**: When a swim lane's tmux session is actively attached, in-progress tasks automatically bind to matching windows — no manual attachment needed.
+- **Auto-pilot flags**: Each provider has its own `autoPilotFlags` (e.g. `--dangerously-skip-permissions` for Claude, `--yolo` for Gemini). These flags are appended automatically when the Pilot toggle is enabled on a task — no need to type them.
+- **CLI launch delay**: If AI agents fail to receive their prompt on slower machines, increase `tmuxAgents.cliLaunchDelayMs` (default 3000ms) to give the tmux window more time to initialize before the command is sent.
+- **Close window from board**: In-progress and in-review tasks show a power-off button directly on the Kanban card to close the tmux window without leaving the board.
+- **Debugging AI Chat**: Check the "Tmux Agents" Output panel (`View > Output`) for trace messages showing exact CLI commands and arguments used for each AI Chat interaction.
 
 ## Keyboard shortcuts
 
@@ -240,6 +244,8 @@ All settings live under `tmuxAgents.*` and support nested objects:
 | `orchestrator.enabled` | `true` | Enable agent orchestrator |
 | `orchestrator.pollingInterval` | `5000` | Agent polling interval (ms) |
 | `orchestrator.autoDispatch` | `true` | Auto-dispatch tasks to idle agents |
+| `agentTemplates` | `[]` | Custom agent templates for quick spawning |
+| `cliLaunchDelayMs` | `3000` | Milliseconds to wait after creating a tmux window before sending the AI CLI command (500-30000) |
 
 ### AI provider settings
 
@@ -252,6 +258,7 @@ Each provider (claude, gemini, codex, opencode, cursor, copilot, aider, amp, cli
 | `args` | `[]` | Extra arguments for launch |
 | `forkArgs` | `["--continue"]` (claude) | Arguments for fork/continue (no session ID) |
 | `resumeFlag` | `"--resume"` | Flag to resume a specific session by ID (`command <resumeFlag> <sessionId>`) |
+| `autoPilotFlags` | varies | CLI flags appended when the Pilot toggle is enabled (e.g. `--dangerously-skip-permissions` for Claude, `--yolo` for Gemini) |
 | `env` | `{}` | Environment variables |
 | `defaultWorkingDirectory` | workspace folder | Working directory for pipe mode operations |
 | `shell` | `false` | Run pipe commands through the system shell (enable for shell scripts) |
@@ -301,6 +308,7 @@ Static `servers` take precedence. The script runs as a background daemon and onl
 extension.ts          Main entry, command registration, webview handlers
 tmuxService.ts        Tmux command execution (local + SSH)
 serviceManager.ts     Multi-server service registry + SSH script daemon
+treeProvider.ts       VS Code tree view (Server → Session → Window → Pane)
 aiAssistant.ts        AI provider detection, status parsing, spawn config
 aiModels.ts           Centralized model registry for all providers
 orchestrator.ts       Agent registry, task queue, dispatch loop
@@ -349,7 +357,7 @@ npm install
 
 **Watch mode:** `make watch` recompiles on file changes.
 
-**Run tests:** `make test` (550+ Vitest tests across 22 test files).
+**Run tests:** `make test` (498 Vitest tests across 21 test files).
 
 ### Makefile targets
 

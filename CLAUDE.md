@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**Tmux Agents** (`tmux-agents`) — a VS Code extension for AI agent orchestration via tmux. Manages 10-50 concurrent AI agents (Claude, Gemini, Codex) across local and remote servers. Built by super-agent.ai.
+**Tmux Agents** (`tmux-agents`) — a VS Code extension for AI agent orchestration via tmux. Manages 10-50 concurrent AI agents (Claude, Gemini, Codex, OpenCode, Cursor, Copilot, Aider, Amp, Cline, Kiro) across local and remote servers. Built by super-agent.ai.
 
 ## Build & Development
 
@@ -19,7 +19,7 @@ Package for marketplace: `vsce package`
 ## Testing
 
 ```bash
-npx vitest run              # Run all 133+ tests (Vitest)
+npx vitest run              # Run all 498 tests (Vitest)
 npx vitest run --no-coverage # Skip coverage
 ```
 
@@ -53,16 +53,28 @@ src/
   graphView.ts          # Pipeline graph visualization
   kanbanView.ts         # Kanban board webview
   aiAssistant.ts        # AI provider management — detection, launch commands, spawn config
-  apiCatalog.ts         # Action catalog — registers 60+ actions, parses AI JSON responses, executes
+  aiModels.ts           # Centralized model registry for all providers
+  apiCatalog.ts         # Action catalog — registers 100+ actions, parses AI JSON responses, executes
   tmuxContextProvider.ts # Context gathering for AI agent prompts
   promptBuilder.ts      # Prompt construction for task bundles
+  promptRegistry.ts     # Template registry for default prompts
+  promptExecutor.ts     # Prompt template execution engine
   processTracker.ts     # Process categorization (building/testing/idle)
   activityRollup.ts     # Activity aggregation
   smartAttachment.ts    # Terminal reuse strategies
   hotkeyManager.ts      # Hotkey binding system
   daemonRefresh.ts      # Background refresh daemon
+  memoryManager.ts      # Per-swimlane long-term memory file I/O
+  autoMonitor.ts        # Auto-pilot monitoring (auto-start, auto-respond)
+  autoCloseMonitor.ts   # Completion detection and tmux window cleanup
+  sessionSync.ts        # Task-to-tmux-window attachment reconciliation
+  swimlaneGrouping.ts   # Task grouping strategies (tags, dates, deps)
+  organizationManager.ts # Organization unit hierarchy
+  guildManager.ts       # Cross-org agent guilds
   commands/
     kanbanHandlers.ts   # Kanban webview message handlers (AI expand, summarize, scan)
+    sessionCommands.ts  # Session management commands
+    agentCommands.ts    # Agent orchestration commands
 out/                    # Compiled JS + source maps + sql-wasm binaries
 resources/              # Icons & assets
 ```
@@ -96,7 +108,7 @@ The AI Chat (`chatView.ts`) spawns CLI tools (`claude`, `gemini`, `codex`) as ch
 
 **Key patterns:** Event emitters for state changes, daemon polling (light 10s / full 60s), async/await throughout, service pattern for stateful classes.
 
-**AI Providers:** Configured via `tmuxAgents.aiProviders` settings. Each provider has: `command`, `pipeCommand`, `args`, `forkArgs`, `env`, `defaultWorkingDirectory`. `getSpawnConfig()` returns exec-ready config. Default/fallback providers configurable per swim lane.
+**AI Providers:** Configured via `tmuxAgents.aiProviders` settings. Each provider has: `command`, `pipeCommand`, `args`, `forkArgs`, `autoPilotFlags`, `resumeFlag`, `env`, `defaultWorkingDirectory`, `shell`. `getSpawnConfig()` returns exec-ready config. Default/fallback providers configurable per swim lane.
 
 ## Coding Conventions
 
