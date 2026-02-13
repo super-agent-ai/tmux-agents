@@ -29,17 +29,19 @@ describe('Swimlane Default Toggles', () => {
     // ─── Types ────────────────────────────────────────────────────────────
 
     describe('type definitions', () => {
-        it('SwimLaneDefaultToggles supports all four toggle flags', () => {
+        it('SwimLaneDefaultToggles supports all five toggle flags', () => {
             const toggles: SwimLaneDefaultToggles = {
                 autoStart: true,
                 autoPilot: false,
                 autoClose: true,
                 useWorktree: false,
+                useMemory: true,
             };
             expect(toggles.autoStart).toBe(true);
             expect(toggles.autoPilot).toBe(false);
             expect(toggles.autoClose).toBe(true);
             expect(toggles.useWorktree).toBe(false);
+            expect(toggles.useMemory).toBe(true);
         });
 
         it('KanbanSwimLane accepts optional defaultToggles', () => {
@@ -119,6 +121,16 @@ describe('Swimlane Default Toggles', () => {
             expect(html).toContain('id="el-dt-worktree"');
             expect(html).toContain('data-toggle="useWorktree"');
         });
+
+        it('includes Memory toggle chip', () => {
+            expect(html).toContain('id="el-dt-memory"');
+            expect(html).toContain('data-toggle="useMemory"');
+        });
+
+        it('includes memory path input field', () => {
+            expect(html).toContain('id="el-memory-path"');
+            expect(html).toContain('id="el-memory-path-field"');
+        });
     });
 
     // ─── JavaScript Logic ─────────────────────────────────────────────────
@@ -129,6 +141,7 @@ describe('Swimlane Default Toggles', () => {
             expect(html).toContain("document.getElementById('el-dt-pilot')");
             expect(html).toContain("document.getElementById('el-dt-close')");
             expect(html).toContain("document.getElementById('el-dt-worktree')");
+            expect(html).toContain("document.getElementById('el-dt-memory')");
         });
 
         it('toggles active class on chip click', () => {
@@ -145,6 +158,7 @@ describe('Swimlane Default Toggles', () => {
             expect(openFn).toContain("elDtPilot.classList.toggle('active'");
             expect(openFn).toContain("elDtClose.classList.toggle('active'");
             expect(openFn).toContain("elDtWorktree.classList.toggle('active'");
+            expect(openFn).toContain("elDtMemory.classList.toggle('active'");
         });
 
         it('builds defaultToggles object in save handler', () => {
@@ -152,6 +166,7 @@ describe('Swimlane Default Toggles', () => {
             expect(html).toContain("elDtPilot.classList.contains('active')");
             expect(html).toContain("elDtClose.classList.contains('active')");
             expect(html).toContain("elDtWorktree.classList.contains('active')");
+            expect(html).toContain("elDtMemory.classList.contains('active')");
         });
 
         it('sends defaultToggles in editSwimLane message', () => {
@@ -183,6 +198,7 @@ describe('Swimlane Default Toggles', () => {
             expect(buildFn).toContain('dt.autoPilot');
             expect(buildFn).toContain('dt.autoClose');
             expect(buildFn).toContain('dt.useWorktree');
+            expect(buildFn).toContain('dt.useMemory');
         });
 
         it('uses default-toggles-badge class for the badge', () => {

@@ -80,10 +80,10 @@ describe('resolveToggle', () => {
             expect(resolveToggle(task, 'autoStart', lane)).toBe(false);
         });
 
-        it('handles all four toggle keys correctly', () => {
+        it('handles all five toggle keys correctly', () => {
             const task = makeTask();
             const lane = makeLane('lane-1', 'Lane', {
-                defaultToggles: { autoStart: true, autoPilot: true, autoClose: true, useWorktree: true },
+                defaultToggles: { autoStart: true, autoPilot: true, autoClose: true, useWorktree: true, useMemory: true },
             });
             for (const key of TOGGLE_KEYS) {
                 expect(resolveToggle(task, key, lane)).toBe(true);
@@ -122,16 +122,16 @@ describe('resolveAllToggles', () => {
     it('returns all false for empty task and no lane', () => {
         const task = makeTask();
         const result = resolveAllToggles(task);
-        expect(result).toEqual({ autoStart: false, autoPilot: false, autoClose: false, useWorktree: false });
+        expect(result).toEqual({ autoStart: false, autoPilot: false, autoClose: false, useWorktree: false, useMemory: false });
     });
 
     it('inherits all lane defaults', () => {
         const task = makeTask();
         const lane = makeLane('l', 'L', {
-            defaultToggles: { autoStart: true, autoPilot: true, autoClose: true, useWorktree: true },
+            defaultToggles: { autoStart: true, autoPilot: true, autoClose: true, useWorktree: true, useMemory: true },
         });
         const result = resolveAllToggles(task, lane);
-        expect(result).toEqual({ autoStart: true, autoPilot: true, autoClose: true, useWorktree: true });
+        expect(result).toEqual({ autoStart: true, autoPilot: true, autoClose: true, useWorktree: true, useMemory: true });
     });
 
     it('mixes task overrides with lane defaults', () => {
@@ -145,6 +145,7 @@ describe('resolveAllToggles', () => {
             autoPilot: true,    // inherits from lane
             autoClose: true,    // task override
             useWorktree: false, // not set anywhere
+            useMemory: false,   // not set anywhere
         });
     });
 });
@@ -310,8 +311,8 @@ describe('task moved between swim lanes', () => {
 // ─── TOGGLE_KEYS constant ─────────────────────────────────────────────────────
 
 describe('TOGGLE_KEYS', () => {
-    it('contains all four toggle keys', () => {
-        expect(TOGGLE_KEYS).toEqual(['autoStart', 'autoPilot', 'autoClose', 'useWorktree']);
+    it('contains all five toggle keys', () => {
+        expect(TOGGLE_KEYS).toEqual(['autoStart', 'autoPilot', 'autoClose', 'useWorktree', 'useMemory']);
     });
 
     it('is readonly', () => {

@@ -24,6 +24,7 @@ import { checkAutoCompletions, checkAutoPilot } from './autoMonitor';
 import { checkAutoCloseTimers, markDoneTimestamp, AutoCloseMonitorContext } from './autoCloseMonitor';
 import { syncTaskListAttachments, SessionSyncContext } from './sessionSync';
 import { buildSingleTaskPrompt, buildTaskBoxPrompt, appendPromptTail, buildPersonaContext } from './promptBuilder';
+import { ensureMemoryDir, readMemoryFile, getMemoryFilePath, buildMemoryLoadPrompt, buildMemorySavePrompt } from './memoryManager';
 import { OrganizationManager } from './organizationManager';
 import { GuildManager } from './guildManager';
 import { PromptRegistry } from './promptRegistry';
@@ -567,6 +568,21 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
                     }
                 }
 
+                // Build memory context if enabled
+                let memoryLoadContext: string | undefined;
+                let memorySaveContext: string | undefined;
+                if (resolveToggle(t, 'useMemory', lane) && lane.memoryFileId) {
+                    try {
+                        await ensureMemoryDir(service, lane);
+                        const memoryContent = await readMemoryFile(service, lane);
+                        const memoryFilePath = getMemoryFilePath(lane)!;
+                        memoryLoadContext = buildMemoryLoadPrompt(memoryContent, memoryFilePath);
+                        memorySaveContext = buildMemorySavePrompt(memoryFilePath);
+                    } catch (err) {
+                        console.warn('[Memory] Failed to load memory:', err);
+                    }
+                }
+
                 prompt = appendPromptTail(prompt, {
                     additionalInstructions: options?.additionalInstructions,
                     askForContext: options?.askForContext,
@@ -574,6 +590,8 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
                     signalId: t.autoClose ? t.id.slice(-8) : undefined,
                     personaContext,
                     guildContext,
+                    memoryLoadContext,
+                    memorySaveContext,
                 });
 
                 const resolvedProvider = aiManager.resolveProvider(t.aiProvider, lane?.aiProvider);

@@ -424,6 +424,8 @@ export interface OrchestratorTask {
     useWorktree?: boolean;
     /** Path to the created git worktree (for cleanup) */
     worktreePath?: string;
+    /** Use long-term memory file for cross-task context */
+    useMemory?: boolean;
     /** AI provider override for this task (uses swim lane → global fallback when unset) */
     aiProvider?: AIProvider;
     /** AI model override for this task (uses swim lane → global fallback when unset) */
@@ -471,13 +473,14 @@ export interface SwimLaneDefaultToggles {
     autoPilot?: boolean;
     autoClose?: boolean;
     useWorktree?: boolean;
+    useMemory?: boolean;
 }
 
 /** Toggle key names shared between tasks and swim lane defaults */
 export type ToggleKey = keyof SwimLaneDefaultToggles;
 
 /** All toggle keys for iteration */
-export const TOGGLE_KEYS: readonly ToggleKey[] = ['autoStart', 'autoPilot', 'autoClose', 'useWorktree'] as const;
+export const TOGGLE_KEYS: readonly ToggleKey[] = ['autoStart', 'autoPilot', 'autoClose', 'useWorktree', 'useMemory'] as const;
 
 /**
  * Resolve a single toggle value following the priority chain:
@@ -511,6 +514,7 @@ export function resolveAllToggles(
         autoPilot: resolveToggle(task, 'autoPilot', lane),
         autoClose: resolveToggle(task, 'autoClose', lane),
         useWorktree: resolveToggle(task, 'useWorktree', lane),
+        useMemory: resolveToggle(task, 'useMemory', lane),
     };
 }
 
@@ -548,6 +552,10 @@ export interface KanbanSwimLane {
     aiModel?: string;
     /** Default toggle statuses applied to newly created tasks in this lane */
     defaultToggles?: SwimLaneDefaultToggles;
+    /** Unique ID for the memory file (used as filename: {memoryFileId}.md) */
+    memoryFileId?: string;
+    /** Custom path for memory file directory (defaults to {workingDirectory}/memory) */
+    memoryPath?: string;
 }
 
 // ─── Pipeline Engine ─────────────────────────────────────────────────────────
