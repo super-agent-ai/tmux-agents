@@ -151,6 +151,8 @@ To launch AI agents:
 - **Session sync**: When a swim lane's tmux session is actively attached, in-progress tasks automatically bind to matching windows — no manual attachment needed.
 - **Auto-pilot flags**: Each provider has its own `autoPilotFlags` (e.g. `--dangerously-skip-permissions` for Claude, `--yolo` for Gemini). These flags are appended automatically when the Pilot toggle is enabled on a task — no need to type them.
 - **CLI launch delay**: If AI agents fail to receive their prompt on slower machines, increase `tmuxAgents.cliLaunchDelayMs` (default 3000ms) to give the tmux window more time to initialize before the command is sent.
+- **Close window from board**: In-progress and in-review tasks show a power-off button directly on the Kanban card to close the tmux window without leaving the board.
+- **Debugging AI Chat**: Check the "Tmux Agents" Output panel (`View > Output`) for trace messages showing exact CLI commands and arguments used for each AI Chat interaction.
 
 ## Keyboard shortcuts
 

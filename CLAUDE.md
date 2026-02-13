@@ -54,7 +54,7 @@ src/
   kanbanView.ts         # Kanban board webview
   aiAssistant.ts        # AI provider management — detection, launch commands, spawn config
   aiModels.ts           # Centralized model registry for all providers
-  apiCatalog.ts         # Action catalog — registers 60+ actions, parses AI JSON responses, executes
+  apiCatalog.ts         # Action catalog — registers 100+ actions, parses AI JSON responses, executes
   tmuxContextProvider.ts # Context gathering for AI agent prompts
   promptBuilder.ts      # Prompt construction for task bundles
   promptRegistry.ts     # Template registry for default prompts
