@@ -1166,12 +1166,12 @@ ${content.slice(-3000)}`;
             try {
                 const genResult = await new Promise<string>((resolve) => {
                     const validProviders = ['claude', 'gemini', 'codex', 'opencode', 'cursor', 'copilot', 'aider', 'amp', 'cline', 'kiro'];
-                    let prompt = `You are a task generator for a software development team. Given a brief task description, generate a fully specified task with all configuration fields.
+                    let prompt = `You are a task generator for a software development team. Given a brief task description, generate a fully specified task with all configuration fields. The description MUST be detailed enough for an AI coding agent to complete the task autonomously in a single session.
 
 Respond ONLY with valid JSON (no markdown, no code fences) — a single JSON object with ALL of these fields:
 {
   "title": "Clear action-oriented title",
-  "description": "Detailed description with acceptance criteria",
+  "description": "Structured task description (see format below)",
   "role": "coder",
   "priority": 5,
   "tags": ["feature"],
@@ -1183,9 +1183,47 @@ Respond ONLY with valid JSON (no markdown, no code fences) — a single JSON obj
   "aiModel": ""
 }
 
+## Description Format (REQUIRED — include ALL four sections as plain text with section headers)
+
+The "description" field MUST contain these four sections separated by blank lines:
+
+### 1. Problem Statement
+One or two sentences explaining WHAT needs to change and WHY. State the current behavior or gap and the desired outcome.
+
+### 2. Feature/Bug Requirements
+A bullet list of specific functional requirements (for features) or reproduction steps (for bugs). Each bullet should be a concrete, actionable item — not vague guidance.
+
+### 3. Definition of Done
+Explicit acceptance criteria that can be objectively verified. Use checkable statements like "X returns Y when given Z" or "Error message appears when input is empty". An outside reviewer should be able to confirm each criterion with a yes/no answer.
+
+### 4. Test Plan
+Concrete steps to validate the implementation. Include what to run (commands, manual steps, or scenarios), expected outputs, and edge cases to check.
+
+## Description Example
+
+Problem Statement:
+The /api/users endpoint returns a 500 error when the email query parameter contains a plus sign, because the parameter is not URL-decoded before the database lookup.
+
+Feature/Bug Requirements:
+- URL-decode the email query parameter before passing it to the database query in src/routes/users.ts
+- Ensure plus signs, spaces, and other encoded characters are handled correctly
+- Return 400 with a clear error message if the decoded email is not a valid email format
+
+Definition of Done:
+- GET /api/users?email=user%2Btest@example.com returns the correct user record
+- GET /api/users?email=invalid returns 400 with error body { "error": "Invalid email format" }
+- Existing tests in users.test.ts continue to pass
+- A new test covers the plus-sign encoding case
+
+Test Plan:
+- Run the existing test suite: npm test -- --grep users
+- Manually test with curl: curl 'localhost:3000/api/users?email=user%2Btest@example.com'
+- Verify 400 response: curl 'localhost:3000/api/users?email=not-an-email'
+- Check edge case: curl 'localhost:3000/api/users?email=user%40example.com' (encoded @)
+
 ## Field Rules
 - title: string, under 60 chars, starts with an action verb (e.g. "Implement", "Fix", "Add", "Refactor", "Write")
-- description: string, 2-4 sentences with specific details and acceptance criteria. Include what to do and how to verify it's done. An AI coding agent should be able to complete the task from this description alone.
+- description: string, structured with all four sections above. An AI coding agent should be able to complete the task from this description alone.
 - role: one of "coder", "reviewer", "tester", "devops", "researcher", or "" (empty string if unclear). Choose based on what the task involves.
 - priority: integer 1-10. 1-3 for nice-to-haves, 4-6 for normal tasks, 7-8 for important/bugs, 9-10 for critical/urgent.
 - tags: array of 1-3 relevant tags from: "bug", "feature", "refactor", "test", "docs", "urgent", "blocked"
@@ -1278,19 +1316,27 @@ Respond ONLY with valid JSON (no markdown, no code fences) — a single JSON obj
 
             try {
                 const planResult = await new Promise<string>((resolve) => {
-                    let prompt = `You are a task planner for a software development team. Given a high-level goal, break it down into a dependency-aware set of tasks.
+                    let prompt = `You are a task planner for a software development team. Given a high-level goal, break it down into a dependency-aware set of tasks. Each task description MUST be detailed enough for an AI coding agent to complete autonomously in a single session.
 
 Respond ONLY with valid JSON (no markdown, no code fences) — a JSON array of task objects:
-[{"title": "Short title", "description": "Details", "role": "coder", "dependsOn": []}]
+[{"title": "Short title", "description": "Structured description (see format below)", "role": "coder", "dependsOn": []}]
 
 ## Rules
-- Each task has: title (string, under 60 chars, starts with action verb), description (string), role (string), dependsOn (array of 0-based indices referencing earlier tasks in the array)
+- Each task has: title (string, under 60 chars, starts with action verb), description (string, structured per format below), role (string), dependsOn (array of 0-based indices referencing earlier tasks in the array)
 - dependsOn indices must reference tasks earlier in the array (lower index). A task cannot depend on itself or on later tasks.
 - Order tasks so dependencies come first. Tasks with no dependencies should come first.
 - Role options: coder, reviewer, tester, devops, researcher (or empty string)
 - Generate 2-10 tasks depending on complexity
 - Tasks should be specific, actionable, and completable by an AI coding agent in a single session
-- Description should include what to do and acceptance criteria`;
+
+## Description Format (REQUIRED — each task description MUST include ALL four sections)
+
+Each task's "description" field must contain these four sections as plain text with section headers:
+
+1. Problem Statement — one or two sentences: WHAT needs to change and WHY.
+2. Feature/Bug Requirements — bullet list of specific, actionable requirements or reproduction steps.
+3. Definition of Done — explicit acceptance criteria verifiable with yes/no answers.
+4. Test Plan — concrete validation steps: commands to run, expected outputs, edge cases to check.`;
 
                     if (planLane) {
                         prompt += `\n\n## Context\n- Swim lane: ${planLane.name}\n- Working directory: ${planLane.workingDirectory}`;
