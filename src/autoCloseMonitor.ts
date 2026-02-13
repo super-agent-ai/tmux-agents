@@ -44,48 +44,39 @@ export function summarisePaneOutput(raw: string): string {
     const lines = raw.split('\n').map(l => l.trimEnd()).filter(l => l.length > 0);
     if (lines.length === 0) { return '(no output captured)'; }
 
-    const keyLines: string[] = [];
     const errorLines: string[] = [];
     const resultLines: string[] = [];
 
     for (const line of lines) {
-        const lower = line.toLowerCase();
         // Capture errors, failures, warnings
         if (/\b(error|err!|fail(ed|ure)?|exception|panic|abort|fatal|warn(ing)?)\b/i.test(line)) {
-            errorLines.push(line.trim());
+            errorLines.push(line.trim().slice(0, 100));
         }
         // Capture result/success indicators
         if (/\b(pass(ed)?|success(ful)?|complete[d]?|done|finish(ed)?|built|created|merged|deployed)\b/i.test(line)) {
-            resultLines.push(line.trim());
-        }
-        // Capture commands that were run (typical shell prompt patterns)
-        if (/^\$\s+|^>\s+|^#\s+/.test(line) || lower.startsWith('running ') || lower.startsWith('executing ')) {
-            keyLines.push(line.trim());
+            resultLines.push(line.trim().slice(0, 100));
         }
     }
 
-    const sections: string[] = [];
+    const parts: string[] = [];
 
-    if (keyLines.length > 0) {
-        const capped = keyLines.slice(-10);
-        sections.push('**Commands/Actions:**\n' + capped.map(l => `- ${l}`).join('\n'));
-    }
+    // DoD status — what succeeded
     if (resultLines.length > 0) {
-        const capped = resultLines.slice(-5);
-        sections.push('**Outcomes:**\n' + capped.map(l => `- ${l}`).join('\n'));
+        parts.push(resultLines.slice(-3).map(l => `- ${l}`).join('\n'));
     }
+
+    // Issues — only if present
     if (errorLines.length > 0) {
-        const capped = errorLines.slice(-5);
-        sections.push('**Errors/Warnings:**\n' + capped.map(l => `- ${l}`).join('\n'));
+        parts.push('Issues: ' + errorLines.slice(-2).map(l => l.slice(0, 80)).join('; '));
     }
 
-    if (sections.length === 0) {
-        // Fallback: just grab the last few meaningful lines
-        const tail = lines.slice(-8);
-        sections.push('**Session tail:**\n' + tail.map(l => `- ${l}`).join('\n'));
+    if (parts.length === 0) {
+        // Fallback: last 3 lines
+        const tail = lines.slice(-3);
+        parts.push(tail.map(l => `- ${l.slice(0, 100)}`).join('\n'));
     }
 
-    return sections.join('\n\n');
+    return parts.join('\n');
 }
 
 // ─── Core Check ────────────────────────────────────────────────────────
@@ -158,9 +149,9 @@ async function closeTaskWindow(
     // 2. Summarise the captured output
     const summary = summarisePaneOutput(paneContent);
 
-    // 3. Append summary to the task description
-    const separator = task.description ? '\n\n---\n' : '';
-    task.description = (task.description || '') + separator + '**Auto-close session summary:**\n' + summary;
+    // 3. Append summary to the task input (description detail), not the title
+    const separator = task.input ? '\n\n---\n' : '';
+    task.input = (task.input || '') + separator + '**Session Summary**\n' + summary;
 
     // 4. Kill the tmux window gracefully
     try {

@@ -75,34 +75,23 @@ describe('summarisePaneOutput', () => {
         expect(summarisePaneOutput('   ')).toBe('(no output captured)');
     });
 
-    it('captures error lines', () => {
+    it('captures error lines as issues', () => {
         const output = 'Starting build\nError: Module not found\nBuild failed';
         const summary = summarisePaneOutput(output);
-        expect(summary).toContain('**Errors/Warnings:**');
+        expect(summary).toContain('Issues:');
         expect(summary).toContain('Error: Module not found');
-        expect(summary).toContain('Build failed');
     });
 
     it('captures result/success lines', () => {
         const output = 'Compiling...\nBuild successful\n5 tests passed';
         const summary = summarisePaneOutput(output);
-        expect(summary).toContain('**Outcomes:**');
         expect(summary).toContain('Build successful');
         expect(summary).toContain('5 tests passed');
-    });
-
-    it('captures shell commands', () => {
-        const output = '$ npm install\ninstalling...\n$ npm test\nall good';
-        const summary = summarisePaneOutput(output);
-        expect(summary).toContain('**Commands/Actions:**');
-        expect(summary).toContain('$ npm install');
-        expect(summary).toContain('$ npm test');
     });
 
     it('falls back to tail when no patterns match', () => {
         const output = 'line one\nline two\nline three';
         const summary = summarisePaneOutput(output);
-        expect(summary).toContain('**Session tail:**');
         expect(summary).toContain('line one');
     });
 });
@@ -203,9 +192,10 @@ describe('checkAutoCloseTimers', () => {
         expect(ctx.killWindowCalls).toHaveLength(1);
         expect(ctx.killWindowCalls[0]).toEqual({ session: 'my-session', window: '2' });
 
-        // Task should have summary appended to description
-        expect(task.description).toContain('Original description');
-        expect(task.description).toContain('**Auto-close session summary:**');
+        // Task title should remain unchanged
+        expect(task.description).toBe('Original description');
+        // Summary should be appended to input (description detail)
+        expect(task.input).toContain('**Session Summary**');
 
         // Tmux references should be cleared
         expect(task.tmuxSessionName).toBeUndefined();
@@ -294,7 +284,7 @@ describe('checkAutoCloseTimers', () => {
 
         // Task references should still be cleaned up
         expect(task.tmuxSessionName).toBeUndefined();
-        expect(task.description).toContain('**Auto-close session summary:**');
+        expect(task.input).toContain('**Session Summary**');
     });
 
     it('uses custom delay parameter', async () => {
