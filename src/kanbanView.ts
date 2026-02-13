@@ -1735,9 +1735,9 @@ html, body {
         if (task.tmuxSessionName && (colId === 'in_progress' || colId === 'in_review' || colId === 'done')) {
             html += '<button class="card-action-btn" data-act="attach" data-tid="' + esc(task.id) + '" data-tip="Attach" style="color:#4ec9b0">&#x25B6;</button>';
         }
-        // Close window icon for done tasks
-        if (task.tmuxSessionName && colId === 'done') {
-            html += '<button class="card-action-btn danger" data-act="close-window" data-tid="' + esc(task.id) + '" data-tip="Close">&#x23FB;</button>';
+        // Close window icon for tasks with a tmux window
+        if (task.tmuxSessionName && (colId === 'in_progress' || colId === 'in_review' || colId === 'done')) {
+            html += '<button class="card-action-btn danger" data-act="close-window" data-tid="' + esc(task.id) + '" data-tip="Close Window">&#x23FB;</button>';
         }
         html += '<button class="card-action-btn" data-act="edit" data-tid="' + esc(task.id) + '" data-tip="Edit">&#x270E;</button>';
         html += '<button class="card-action-btn danger" data-act="delete" data-tid="' + esc(task.id) + '" data-tip="Delete">&#x2716;</button>';
