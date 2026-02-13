@@ -287,7 +287,7 @@ html, body {
 .card.dragging { opacity: 0.4; transform: scale(0.97); }
 .card-top-row {
     display: flex; align-items: flex-start; justify-content: space-between;
-    margin-bottom: 3px;
+    margin-bottom: 3px; gap: 4px;
 }
 .card-id {
     font-family: var(--vscode-editor-font-family, 'Menlo', 'Consolas', monospace);
@@ -295,7 +295,7 @@ html, body {
     white-space: nowrap;
 }
 .card-actions {
-    display: none; gap: 3px; flex-shrink: 0;
+    display: none; gap: 3px; flex-shrink: 1; flex-wrap: wrap; justify-content: flex-end;
 }
 .card:hover .card-actions { display: flex; }
 .card-action-btn {
