@@ -1254,6 +1254,19 @@ html, body {
             <select id="tm-lane"></select>
         </div>
         <div class="field">
+            <label>Server Override <span style="opacity:0.5;font-weight:normal">(optional)</span></label>
+            <select id="tm-server-override">
+                <option value="">(Use swim lane default)</option>
+            </select>
+        </div>
+        <div class="field">
+            <label>Working Directory Override <span style="opacity:0.5;font-weight:normal">(optional)</span></label>
+            <div class="dir-field-row">
+                <input type="text" id="tm-dir-override" placeholder="(Use swim lane default)" />
+                <button class="browse-btn" id="tm-dir-browse">Browse</button>
+            </div>
+        </div>
+        <div class="field">
             <label>AI Provider</label>
             <select id="tm-provider">
                 <option value="">(Use default)</option>
@@ -1576,6 +1589,9 @@ html, body {
     var tmPriority = document.getElementById('tm-priority');
     var tmPriorityVal = document.getElementById('tm-priority-val');
     var tmLane = document.getElementById('tm-lane');
+    var tmServerOverride = document.getElementById('tm-server-override');
+    var tmDirOverride = document.getElementById('tm-dir-override');
+    var tmDirBrowse = document.getElementById('tm-dir-browse');
     var tmAutoStart = document.getElementById('tm-auto-start');
     var tmAutoPilot = document.getElementById('tm-auto-pilot');
     var tmAutoClose = document.getElementById('tm-auto-close');
@@ -2619,6 +2635,7 @@ html, body {
         var html = buildServerOptionsHtml();
         slServer.innerHTML = html;
         favServer.innerHTML = html;
+        tmServerOverride.innerHTML = '<option value="">(Use swim lane default)</option>' + html;
     }
 
     function openLaneModal(prefill) {
@@ -2899,6 +2916,17 @@ html, body {
         vscode.postMessage({ type: 'browseDir', target: 'el-dir', serverId: elServer.value || 'local', currentPath: elDir.value || '~/' });
     });
 
+    tmDirBrowse.addEventListener('click', function() {
+        var serverId = tmServerOverride.value || '';
+        if (!serverId) {
+            // Fall back to the selected swim lane's server
+            var laneId = tmLane.value || '';
+            var lane = laneId ? findSwimLane(laneId) : null;
+            serverId = (lane && lane.serverId) || 'local';
+        }
+        vscode.postMessage({ type: 'browseDir', target: 'tm-dir-override', serverId: serverId, currentPath: tmDirOverride.value || '~/' });
+    });
+
     /* ── Task Modal ──────────────────────────────────────────────────────── */
 
     function populateLaneDropdown(selectedLaneId) {
@@ -2924,6 +2952,9 @@ html, body {
         tmPriorityVal.textContent = tmPriority.value;
         updatePriorityColor();
         populateLaneDropdown(task ? (task.swimLaneId || '') : (laneId || ''));
+        populateServerDropdown();
+        tmServerOverride.value = task ? (task.serverOverride || '') : '';
+        tmDirOverride.value = task ? (task.workingDirectoryOverride || '') : '';
         tmProvider.value = task ? (task.aiProvider || '') : '';
         populateModelDropdown(tmModel, task ? (task.aiProvider || '') : '', task ? (task.aiModel || '') : '');
         // Resolve toggle values: for existing tasks use task > lane default > false;
@@ -3059,6 +3090,8 @@ html, body {
         var useWorktree = tmWorktree.classList.contains('active');
         var taskProvider = tmProvider.value || undefined;
         var taskModel = tmModel.value || undefined;
+        var serverOverride = tmServerOverride.value || undefined;
+        var workingDirectoryOverride = tmDirOverride.value.trim() || undefined;
         var selectedDeps = [];
         for (var oi = 0; oi < tmDeps.options.length; oi++) {
             if (tmDeps.options[oi].selected) selectedDeps.push(tmDeps.options[oi].value);
@@ -3081,6 +3114,8 @@ html, body {
                     useWorktree: useWorktree,
                     aiProvider: taskProvider,
                     aiModel: taskModel,
+                    serverOverride: serverOverride || '',
+                    workingDirectoryOverride: workingDirectoryOverride || '',
                     dependsOn: dependsOn || []
                 }
             });
@@ -3097,6 +3132,8 @@ html, body {
                 t.useWorktree = useWorktree;
                 t.aiProvider = taskProvider;
                 t.aiModel = taskModel;
+                t.serverOverride = serverOverride;
+                t.workingDirectoryOverride = workingDirectoryOverride;
                 t.dependsOn = dependsOn;
             }
         } else {
@@ -3114,6 +3151,8 @@ html, body {
                 useWorktree: useWorktree,
                 aiProvider: taskProvider,
                 aiModel: taskModel,
+                serverOverride: serverOverride,
+                workingDirectoryOverride: workingDirectoryOverride,
                 dependsOn: dependsOn,
                 tags: modalTags.length > 0 ? modalTags : undefined
             });

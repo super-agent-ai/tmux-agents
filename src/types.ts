@@ -430,6 +430,10 @@ export interface OrchestratorTask {
     aiProvider?: AIProvider;
     /** AI model override for this task (uses swim lane → global fallback when unset) */
     aiModel?: string;
+    /** Server override for this task (uses swim lane server when unset) */
+    serverOverride?: string;
+    /** Working directory override for this task (uses swim lane directory when unset) */
+    workingDirectoryOverride?: string;
     /** Status change history entries */
     statusHistory?: TaskStatusHistoryEntry[];
     /** Comments on this task */
