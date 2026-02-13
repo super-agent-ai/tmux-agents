@@ -715,14 +715,13 @@ section {
     background: none;
     border: 1px solid var(--vscode-button-secondaryBackground, #333);
     color: var(--vscode-button-secondaryForeground, #ccc);
-    padding: 2px 8px;
+    padding: 4px 6px;
     border-radius: 3px;
     font-size: 11px;
     cursor: pointer;
     white-space: nowrap;
     display: inline-flex;
     align-items: center;
-    gap: 4px;
 }
 .btn-attach:hover, .btn-detach:hover {
     background: var(--vscode-button-secondaryHoverBackground, #444);
@@ -1501,9 +1500,9 @@ section {
             if (hasTmux) {
                 var tmuxTarget = escapeHtml(task.tmuxSessionName + ':' + (task.tmuxWindowIndex || '0') + '.' + (task.tmuxPaneIndex || '0'));
                 if (isAttached) {
-                    attachBtn = '<button class="btn-detach" data-detach-task="' + escapeHtml(task.id) + '" title="Detach from ' + tmuxTarget + '"><svg class="detach-icon" viewBox="0 0 16 16" fill="currentColor"><rect x="3" y="3" width="10" height="10" rx="1"/></svg> Detach</button>';
+                    attachBtn = '<button class="btn-detach" data-detach-task="' + escapeHtml(task.id) + '" title="Detach from ' + tmuxTarget + '"><svg class="detach-icon" viewBox="0 0 16 16" fill="currentColor"><rect x="3" y="3" width="10" height="10" rx="1"/></svg></button>';
                 } else {
-                    attachBtn = '<button class="btn-attach" data-attach-task="' + escapeHtml(task.id) + '" title="Attach to ' + tmuxTarget + '"><svg class="attach-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M4 2 L4 14 L13 8 Z"/></svg> Attach</button>';
+                    attachBtn = '<button class="btn-attach" data-attach-task="' + escapeHtml(task.id) + '" title="Attach to ' + tmuxTarget + '"><svg class="attach-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M4 2 L4 14 L13 8 Z"/></svg></button>';
                 }
             }
 
