@@ -168,6 +168,37 @@ export class Database {
                 this.db.run(`ALTER TABLE swim_lanes ADD COLUMN ${col} TEXT`);
             } catch { /* column already exists */ }
         }
+        // Migrate: move auto-close summary from description to input
+        this.migrateAutoCloseSummary();
+    }
+
+    /** Move old **Auto-close session summary:** from task description to input. */
+    private migrateAutoCloseSummary(): void {
+        if (!this.db) { return; }
+        const marker = '**Auto-close session summary:**';
+        try {
+            const res = this.db.exec(`SELECT id, description, input FROM tasks WHERE description LIKE '%${marker}%'`);
+            if (res.length === 0) { return; }
+            const { columns, values } = res[0];
+            for (const vals of values) {
+                const row: Record<string, any> = {};
+                columns.forEach((c: string, i: number) => { row[c] = vals[i]; });
+                const desc: string = row.description || '';
+                const idx = desc.indexOf('\n\n---\n' + marker);
+                if (idx === -1) { continue; }
+                const cleanDesc = desc.slice(0, idx);
+                const summaryBlock = desc.slice(idx + '\n\n---\n'.length);
+                // Re-label header and append to input
+                const relabelled = summaryBlock.replace(marker, '**Session Summary**');
+                const existingInput: string = row.input || '';
+                const sep = existingInput ? '\n\n---\n' : '';
+                const newInput = existingInput + sep + relabelled;
+                this.db.run('UPDATE tasks SET description=?, input=? WHERE id=?', [cleanDesc, newInput, row.id]);
+            }
+            this.scheduleSave();
+        } catch (err) {
+            console.warn('[Database] migrateAutoCloseSummary:', err);
+        }
     }
 
     // ─── Helpers ────────────────────────────────────────────────────────────

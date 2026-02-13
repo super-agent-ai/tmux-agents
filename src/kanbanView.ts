@@ -1045,6 +1045,60 @@ html, body {
 }
 .plan-cancel-btn:hover { opacity: 1; }
 
+/* ── AI Generate Task ─────────────────────────────────────────────── */
+.tm-title-row {
+    display: flex; align-items: center; gap: 8px;
+}
+.tm-ai-generate-btn {
+    height: 26px; padding: 0 10px; border: 1px solid rgba(78,201,176,0.35);
+    border-radius: 4px; background: rgba(78,201,176,0.10); color: #4ec9b0;
+    font-size: 11px; font-family: inherit; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 4px;
+    opacity: 0.85; transition: opacity 0.15s, background 0.15s, border-color 0.15s;
+    white-space: nowrap; margin-left: auto;
+}
+.tm-ai-generate-btn:hover { opacity: 1; background: rgba(78,201,176,0.22); border-color: #4ec9b0; }
+.tm-ai-generate-btn:disabled { opacity: 0.4; cursor: default; }
+.tm-ai-generate-btn .spinner-sm {
+    display: inline-block; width: 10px; height: 10px;
+    border: 1.5px solid rgba(78,201,176,0.3); border-top-color: #4ec9b0;
+    border-radius: 50%; animation: spin 0.8s linear infinite;
+}
+.tm-ai-prompt-section {
+    border: 1px solid rgba(78,201,176,0.25); border-radius: 6px;
+    background: rgba(78,201,176,0.04); padding: 10px 12px; margin-bottom: 4px;
+}
+.tm-ai-prompt-section.hidden { display: none; }
+.tm-ai-prompt-label {
+    font-size: 11px; font-weight: 600; color: #4ec9b0; margin-bottom: 6px;
+    display: flex; align-items: center; gap: 4px;
+}
+.tm-ai-prompt-row {
+    display: flex; gap: 8px; align-items: flex-end;
+}
+.tm-ai-prompt-row textarea {
+    flex: 1; padding: 6px 8px; border-radius: 4px; resize: none;
+    border: 1px solid var(--vscode-panel-border);
+    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+    font-family: inherit; font-size: 12px; outline: none;
+    min-height: 36px; max-height: 80px;
+}
+.tm-ai-prompt-row textarea:focus { border-color: var(--vscode-focusBorder); }
+.tm-ai-prompt-row textarea::placeholder { opacity: 0.45; }
+.tm-ai-prompt-send {
+    padding: 6px 14px; border: 1px solid rgba(78,201,176,0.4);
+    border-radius: 4px; font-size: 11px; font-family: inherit; cursor: pointer;
+    background: rgba(78,201,176,0.12); color: #4ec9b0;
+    white-space: nowrap; flex-shrink: 0; transition: background 0.15s;
+}
+.tm-ai-prompt-send:hover { background: rgba(78,201,176,0.25); }
+.tm-ai-prompt-send:disabled { opacity: 0.4; cursor: default; }
+.tm-ai-prompt-send .spinner-sm {
+    display: inline-block; width: 10px; height: 10px;
+    border: 1.5px solid rgba(78,201,176,0.3); border-top-color: #4ec9b0;
+    border-radius: 50%; animation: spin 0.8s linear infinite;
+}
+
 </style>
 </head>
 <body>
@@ -1053,6 +1107,7 @@ html, body {
     <div class="header">
         <span class="header-title">Kanban Board</span>
         <div class="header-right">
+            <button class="btn" id="btn-copy-md" title="Copy task table as Markdown">&#x1F4CB; Copy MD</button>
             <button class="btn" id="btn-import-tmux">&#x2B07; Import from Tmux</button>
             <button class="btn" id="btn-new-lane">+ New Swim Lane</button>
             <button class="btn" id="btn-refresh">&#x21BB; Refresh</button>
@@ -1142,7 +1197,17 @@ html, body {
 <!-- Task Modal -->
 <div class="modal-overlay" id="task-modal-overlay">
     <div class="modal" style="position:relative;">
-        <div class="modal-title" id="tm-title">New Task</div>
+        <div class="tm-title-row">
+            <div class="modal-title" id="tm-title">New Task</div>
+            <button class="tm-ai-generate-btn" id="tm-ai-generate" title="Generate task details with AI">&#x2728; AI Generate</button>
+        </div>
+        <div class="tm-ai-prompt-section hidden" id="tm-ai-prompt-section">
+            <div class="tm-ai-prompt-label">&#x2728; Describe what you need — AI will fill all fields</div>
+            <div class="tm-ai-prompt-row">
+                <textarea id="tm-ai-prompt" rows="2" placeholder="e.g. Fix the login timeout bug, Add dark mode support, Write unit tests for auth module..."></textarea>
+                <button class="tm-ai-prompt-send" id="tm-ai-prompt-send">Generate</button>
+            </div>
+        </div>
         <div class="field">
             <label>Title</label>
             <input type="text" id="tm-desc" placeholder="Task title" />
@@ -1534,6 +1599,42 @@ html, body {
     // Task modal AI provider/model refs
     var tmProvider = document.getElementById('tm-provider');
     var tmModel = document.getElementById('tm-model');
+
+    // AI Generate Task
+    var tmAiGenerate = document.getElementById('tm-ai-generate');
+    var tmAiPromptSection = document.getElementById('tm-ai-prompt-section');
+    var tmAiPrompt = document.getElementById('tm-ai-prompt');
+    var tmAiPromptSend = document.getElementById('tm-ai-prompt-send');
+    var aiGenerating = false;
+
+    tmAiGenerate.addEventListener('click', function() {
+        tmAiPromptSection.classList.toggle('hidden');
+        if (!tmAiPromptSection.classList.contains('hidden')) {
+            tmAiPrompt.focus();
+        }
+    });
+
+    function submitAiGenerate() {
+        var text = tmAiPrompt.value.trim();
+        if (!text || aiGenerating) return;
+        aiGenerating = true;
+        tmAiPromptSend.disabled = true;
+        tmAiPromptSend.innerHTML = '<span class="spinner-sm"></span> Generating...';
+        var laneId = tmLane.value || modalSwimLaneId || '';
+        vscode.postMessage({
+            type: 'generateTask',
+            text: text,
+            swimLaneId: laneId
+        });
+    }
+
+    tmAiPromptSend.addEventListener('click', submitAiGenerate);
+    tmAiPrompt.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            submitAiGenerate();
+        }
+    });
 
     /* ── Provider → Model Map (injected from TypeScript via updateState) ── */
     var PROVIDER_MODELS = {};
@@ -2872,6 +2973,13 @@ html, body {
             tmTaskActions.classList.remove('active');
         }
 
+        // Reset AI Generate state
+        aiGenerating = false;
+        tmAiPromptSection.classList.add('hidden');
+        tmAiPrompt.value = '';
+        tmAiPromptSend.disabled = false;
+        tmAiPromptSend.textContent = 'Generate';
+
         taskOverlay.classList.add('active');
         tmDesc.focus();
     }
@@ -3159,6 +3267,55 @@ html, body {
         vscode.postMessage({ type: 'refresh' });
     });
 
+    /* ── Copy as Markdown ────────────────────────────────────────────────── */
+
+    function tasksToMarkdown() {
+        var laneLookup = {};
+        for (var li = 0; li < swimLanes.length; li++) {
+            laneLookup[swimLanes[li].id] = swimLanes[li].name;
+        }
+
+        var colLabel = { backlog: 'Backlog', todo: 'Todo', in_progress: 'In Progress', in_review: 'In Review', done: 'Done' };
+
+        // Sort: by column order, then priority desc
+        var colOrder = { backlog: 0, todo: 1, in_progress: 2, in_review: 3, done: 4 };
+        var visible = tasks.filter(function(t) { return !t.parentTaskId; });
+        visible.sort(function(a, b) {
+            var ca = colOrder[getCol(a)] || 0;
+            var cb = colOrder[getCol(b)] || 0;
+            if (ca !== cb) return ca - cb;
+            return (b.priority || 0) - (a.priority || 0);
+        });
+
+        var lines = [];
+        lines.push('| ID | Title | Column | Pri | Role | Lane | Tags |');
+        lines.push('|----|-------|--------|-----|------|------|------|');
+
+        for (var i = 0; i < visible.length; i++) {
+            var t = visible[i];
+            var id = shortId(t.id);
+            var title = (t.description || 'Untitled').split('|').join('\\\\|');
+            var col = colLabel[getCol(t)] || getCol(t);
+            var pri = t.priority || 5;
+            var role = t.targetRole || '-';
+            var lane = (t.swimLaneId && laneLookup[t.swimLaneId]) ? laneLookup[t.swimLaneId] : '-';
+            var tags = (t.tags && t.tags.length > 0) ? t.tags.join(', ') : '-';
+            lines.push('| ' + id + ' | ' + title + ' | ' + col + ' | ' + pri + ' | ' + role + ' | ' + lane + ' | ' + tags + ' |');
+        }
+
+        return lines.join('\\n');
+    }
+
+    document.getElementById('btn-copy-md').addEventListener('click', function() {
+        var md = tasksToMarkdown();
+        navigator.clipboard.writeText(md).then(function() {
+            var btn = document.getElementById('btn-copy-md');
+            var orig = btn.innerHTML;
+            btn.innerHTML = '&#x2705; Copied';
+            setTimeout(function() { btn.innerHTML = orig; }, 1500);
+        });
+    });
+
     /* ── Import from Tmux ────────────────────────────────────────────────── */
 
     var importOverlay = document.getElementById('import-modal-overlay');
@@ -3327,6 +3484,61 @@ html, body {
                 // Refresh the modal input with updated description
                 var t = findTask(msg.taskId);
                 if (t) { tmInput.value = t.input || ''; }
+            }
+        }
+        if (msg.type === 'generateTaskResult') {
+            aiGenerating = false;
+            tmAiPromptSend.disabled = false;
+            tmAiPromptSend.textContent = 'Generate';
+            if (msg.error) {
+                tmAiPromptSend.textContent = 'Failed — retry';
+                setTimeout(function() { tmAiPromptSend.textContent = 'Generate'; }, 2000);
+            } else if (msg.task) {
+                var gt = msg.task;
+                // Title & description
+                if (gt.title) tmDesc.value = gt.title;
+                if (gt.description) tmInput.value = gt.description;
+                // Role
+                if (gt.role) tmRole.value = gt.role;
+                // Priority
+                if (gt.priority) {
+                    tmPriority.value = gt.priority;
+                    tmPriorityVal.textContent = gt.priority;
+                    updatePriorityColor();
+                }
+                // Toggles
+                if (gt.autoStart !== undefined) {
+                    gt.autoStart ? tmAutoStart.classList.add('active') : tmAutoStart.classList.remove('active');
+                }
+                if (gt.autoPilot !== undefined) {
+                    gt.autoPilot ? tmAutoPilot.classList.add('active') : tmAutoPilot.classList.remove('active');
+                }
+                if (gt.autoClose !== undefined) {
+                    gt.autoClose ? tmAutoClose.classList.add('active') : tmAutoClose.classList.remove('active');
+                }
+                if (gt.useWorktree !== undefined) {
+                    gt.useWorktree ? tmWorktree.classList.add('active') : tmWorktree.classList.remove('active');
+                }
+                // AI Provider & Model
+                if (gt.aiProvider !== undefined) {
+                    tmProvider.value = gt.aiProvider || '';
+                    populateModelDropdown(tmModel, gt.aiProvider || '', gt.aiModel || '');
+                }
+                if (gt.aiModel !== undefined && !gt.aiProvider) {
+                    tmModel.value = gt.aiModel || '';
+                }
+                // Tags
+                if (gt.tags && gt.tags.length > 0) {
+                    modalTags = [];
+                    for (var tgi = 0; tgi < gt.tags.length; tgi++) {
+                        if (modalTags.indexOf(gt.tags[tgi]) === -1) {
+                            modalTags.push(gt.tags[tgi]);
+                        }
+                    }
+                    renderModalTags();
+                }
+                // Collapse AI prompt section after successful generation
+                tmAiPromptSection.classList.add('hidden');
             }
         }
         if (msg.type === 'generatePlanResult') {

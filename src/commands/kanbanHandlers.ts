@@ -1050,6 +1050,118 @@ ${content.slice(-3000)}`;
             }
             break;
         }
+        case 'generateTask': {
+            const genLaneId = payload.swimLaneId || '';
+            const genLane = genLaneId ? ctx.swimLanes.find(l => l.id === genLaneId) : undefined;
+            const genText = payload.text || '';
+            if (!genText) { break; }
+
+            const genProvider = genLane?.aiProvider || ctx.aiManager.getDefaultProvider();
+            const genSpawnCfg = ctx.aiManager.getSpawnConfig(genProvider);
+
+            try {
+                const genResult = await new Promise<string>((resolve) => {
+                    const validProviders = ['claude', 'gemini', 'codex', 'opencode', 'cursor', 'copilot', 'aider', 'amp', 'cline', 'kiro'];
+                    let prompt = `You are a task generator for a software development team. Given a brief task description, generate a fully specified task with all configuration fields.
+
+Respond ONLY with valid JSON (no markdown, no code fences) — a single JSON object with ALL of these fields:
+{
+  "title": "Clear action-oriented title",
+  "description": "Detailed description with acceptance criteria",
+  "role": "coder",
+  "priority": 5,
+  "tags": ["feature"],
+  "autoStart": true,
+  "autoPilot": true,
+  "autoClose": false,
+  "useWorktree": false,
+  "aiProvider": "",
+  "aiModel": ""
+}
+
+## Field Rules
+- title: string, under 60 chars, starts with an action verb (e.g. "Implement", "Fix", "Add", "Refactor", "Write")
+- description: string, 2-4 sentences with specific details and acceptance criteria. Include what to do and how to verify it's done. An AI coding agent should be able to complete the task from this description alone.
+- role: one of "coder", "reviewer", "tester", "devops", "researcher", or "" (empty string if unclear). Choose based on what the task involves.
+- priority: integer 1-10. 1-3 for nice-to-haves, 4-6 for normal tasks, 7-8 for important/bugs, 9-10 for critical/urgent.
+- tags: array of 1-3 relevant tags from: "bug", "feature", "refactor", "test", "docs", "urgent", "blocked"
+- autoStart: boolean — true to auto-launch the task immediately upon creation. Default true for most tasks.
+- autoPilot: boolean — true to let the AI agent work without requiring manual confirmations. Default true for well-defined tasks.
+- autoClose: boolean — true to automatically close the tmux window when the task completes. Default false unless the task is simple and self-contained.
+- useWorktree: boolean — true to run the task in a dedicated git worktree for isolation. Default false, set true for tasks that modify many files or could conflict with other work.
+- aiProvider: one of ${JSON.stringify(validProviders)} or "" to use the default provider. Only set if the user specifies a particular tool.
+- aiModel: string model name or "" to use the default. Only set if the user specifies a model.`;
+
+                    if (genLane) {
+                        prompt += `\n\n## Context\n- Swim lane: ${genLane.name}\n- Working directory: ${genLane.workingDirectory}`;
+                        if (genLane.contextInstructions) { prompt += `\n- Lane instructions: ${genLane.contextInstructions}`; }
+                        if (genLane.aiProvider) { prompt += `\n- Lane default AI provider: ${genLane.aiProvider}`; }
+                        if (genLane.aiModel) { prompt += `\n- Lane default AI model: ${genLane.aiModel}`; }
+                        const dt = genLane.defaultToggles;
+                        if (dt) {
+                            const toggleDefaults: string[] = [];
+                            if (dt.autoStart) { toggleDefaults.push('autoStart=on'); }
+                            if (dt.autoPilot) { toggleDefaults.push('autoPilot=on'); }
+                            if (dt.autoClose) { toggleDefaults.push('autoClose=on'); }
+                            if (dt.useWorktree) { toggleDefaults.push('useWorktree=on'); }
+                            if (toggleDefaults.length > 0) {
+                                prompt += `\n- Lane default toggles: ${toggleDefaults.join(', ')}. Use these defaults unless the task requires different settings.`;
+                            }
+                        }
+                    }
+
+                    prompt += `\n\nUser's task description: ${genText}`;
+
+                    const cmdStr = [genSpawnCfg.command, ...genSpawnCfg.args].join(' ');
+                    const proc = cp.exec(cmdStr, {
+                        env: { ...process.env, ...genSpawnCfg.env },
+                        cwd: safeCwd(genSpawnCfg.cwd),
+                        maxBuffer: 10 * 1024 * 1024,
+                        timeout: 30000
+                    }, (error, stdout, stderr) => {
+                        if (error) {
+                            console.warn(`[generateTask] Error: ${error.message}. stderr: ${(stderr || '').slice(0, 500)}`);
+                        }
+                        resolve(error ? '' : stdout.trim());
+                    });
+                    proc.stdin!.on('error', () => {});
+                    process.nextTick(() => { if (proc.stdin && proc.stdin.writable && !proc.killed) { proc.stdin.write(prompt); proc.stdin.end(); } });
+                });
+
+                if (genResult) {
+                    let json = genResult;
+                    const fenceMatch = genResult.match(/```(?:json)?\s*([\s\S]*?)```/);
+                    if (fenceMatch) { json = fenceMatch[1].trim(); }
+                    try {
+                        const parsed = JSON.parse(json);
+                        const validProviders = ['claude', 'gemini', 'codex', 'opencode', 'cursor', 'copilot', 'aider', 'amp', 'cline', 'kiro'];
+                        // Sanitize and validate all fields
+                        const task: Record<string, unknown> = {
+                            title: typeof parsed.title === 'string' ? parsed.title.slice(0, 60) : '',
+                            description: typeof parsed.description === 'string' ? parsed.description : '',
+                            role: ['coder', 'reviewer', 'tester', 'devops', 'researcher'].includes(parsed.role) ? parsed.role : '',
+                            priority: typeof parsed.priority === 'number' ? Math.max(1, Math.min(10, Math.round(parsed.priority))) : 5,
+                            tags: Array.isArray(parsed.tags) ? parsed.tags.filter((t: unknown) => typeof t === 'string').slice(0, 5) : [],
+                            autoStart: typeof parsed.autoStart === 'boolean' ? parsed.autoStart : undefined,
+                            autoPilot: typeof parsed.autoPilot === 'boolean' ? parsed.autoPilot : undefined,
+                            autoClose: typeof parsed.autoClose === 'boolean' ? parsed.autoClose : undefined,
+                            useWorktree: typeof parsed.useWorktree === 'boolean' ? parsed.useWorktree : undefined,
+                            aiProvider: validProviders.includes(parsed.aiProvider) ? parsed.aiProvider : '',
+                            aiModel: typeof parsed.aiModel === 'string' ? parsed.aiModel : '',
+                        };
+                        ctx.kanbanView.sendMessage({ type: 'generateTaskResult', task });
+                    } catch {
+                        ctx.kanbanView.sendMessage({ type: 'generateTaskResult', error: 'Failed to parse AI response. Try again with a clearer description.' });
+                    }
+                } else {
+                    ctx.kanbanView.sendMessage({ type: 'generateTaskResult', error: `AI command failed. Check Output panel "Tmux Agents" for details.` });
+                }
+            } catch (err) {
+                console.error(`[generateTask] Unexpected error: ${err}`);
+                ctx.kanbanView.sendMessage({ type: 'generateTaskResult', error: String(err) });
+            }
+            break;
+        }
         case 'generatePlan': {
             const planLaneId = payload.swimLaneId || '';
             const planLane = planLaneId ? ctx.swimLanes.find(l => l.id === planLaneId) : undefined;
