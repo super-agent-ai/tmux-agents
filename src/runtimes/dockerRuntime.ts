@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import Dockerode from 'dockerode';
 import { TmuxService } from '../core/tmuxService';
 import { EventBus } from '../core/eventBus';
-import { ServerIdentity } from '../core/types';
+import { ServerIdentity, AIProvider } from '../core/types';
 import {
     AgentRuntime,
     AgentConfig,
@@ -372,7 +372,7 @@ export class DockerRuntime implements AgentRuntime {
      */
     private getProviderCommand(config: AgentConfig): string {
         // Basic command construction
-        let cmd = config.aiProvider;
+        let cmd: string = config.aiProvider;
 
         if (config.aiModel) {
             cmd += ` --model ${config.aiModel}`;
@@ -381,10 +381,10 @@ export class DockerRuntime implements AgentRuntime {
         if (config.autoPilot) {
             // Add auto-pilot flags (simplified)
             switch (config.aiProvider) {
-                case 'claude':
+                case AIProvider.CLAUDE:
                     cmd += ' --dangerously-skip-permissions';
                     break;
-                case 'gemini':
+                case AIProvider.GEMINI:
                     cmd += ' --yolo';
                     break;
             }
