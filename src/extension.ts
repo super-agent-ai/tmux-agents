@@ -490,7 +490,11 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
             const ready = await ensureLaneSession(lane);
             if (!ready) return;
 
-            const service = serviceManager.getService(lane.serverId);
+            // Resolve effective server and working directory (task overrides → lane defaults)
+            const effectiveServerId = t.serverOverride || lane.serverId;
+            const effectiveWorkingDir = t.workingDirectoryOverride || lane.workingDirectory;
+
+            const service = serviceManager.getService(effectiveServerId);
             if (!service) return;
 
             try {
@@ -504,12 +508,12 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
                 const winIndex = win?.index || '0';
                 const paneIndex = win?.panes[0]?.index || '0';
 
-                if (resolveToggle(t, 'useWorktree', lane) && lane.workingDirectory) {
+                if (resolveToggle(t, 'useWorktree', lane) && effectiveWorkingDir) {
                     const shortId = t.id.slice(-8);
                     const branchName = `task-${shortId}`;
                     try {
                         // Resolve ~ on the target server (local or remote) via shell
-                        const resolvedDir = (await service.execCommand(`cd ${lane.workingDirectory} && pwd`)).trim();
+                        const resolvedDir = (await service.execCommand(`cd ${effectiveWorkingDir} && pwd`)).trim();
                         const parentDir = resolvedDir.substring(0, resolvedDir.lastIndexOf('/'));
                         const worktreeDir = `${parentDir}/.worktrees`;
                         const worktreePath = `${worktreeDir}/${branchName}`;
@@ -531,10 +535,10 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
                         await service.sendKeys(lane.sessionName, winIndex, paneIndex, `cd ${worktreePath}`);
                     } catch (err) {
                         vscode.window.showWarningMessage(`[Worktree] Failed to create worktree: ${err}`);
-                        await service.sendKeys(lane.sessionName, winIndex, paneIndex, `cd ${lane.workingDirectory}`);
+                        await service.sendKeys(lane.sessionName, winIndex, paneIndex, `cd ${effectiveWorkingDir}`);
                     }
-                } else if (lane.workingDirectory) {
-                    await service.sendKeys(lane.sessionName, winIndex, paneIndex, `cd ${lane.workingDirectory}`);
+                } else if (effectiveWorkingDir) {
+                    await service.sendKeys(lane.sessionName, winIndex, paneIndex, `cd ${effectiveWorkingDir}`);
                 }
 
                 let prompt = '';
@@ -617,7 +621,7 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
                 t.tmuxSessionName = lane.sessionName;
                 t.tmuxWindowIndex = winIndex;
                 t.tmuxPaneIndex = paneIndex;
-                t.tmuxServerId = lane.serverId;
+                t.tmuxServerId = effectiveServerId;
                 t.kanbanColumn = 'in_progress';
                 t.status = TaskStatus.IN_PROGRESS;
                 t.startedAt = Date.now();

@@ -385,6 +385,8 @@ export async function handleKanbanMessage(
                 createdAt: Date.now(),
                 aiProvider: payload.aiProvider || undefined,
                 aiModel: payload.aiModel || undefined,
+                serverOverride: payload.serverOverride || undefined,
+                workingDirectoryOverride: payload.workingDirectoryOverride || undefined,
             };
             // Apply explicit payload overrides first (so they take priority)
             if (payload.autoStart !== undefined) { task.autoStart = !!payload.autoStart; }
@@ -538,6 +540,8 @@ export async function handleKanbanMessage(
                 if (payload.updates.useWorktree !== undefined) t.useWorktree = !!payload.updates.useWorktree;
                 if (payload.updates.aiProvider !== undefined) t.aiProvider = payload.updates.aiProvider || undefined;
                 if (payload.updates.aiModel !== undefined) t.aiModel = payload.updates.aiModel || undefined;
+                if (payload.updates.serverOverride !== undefined) t.serverOverride = payload.updates.serverOverride || undefined;
+                if (payload.updates.workingDirectoryOverride !== undefined) t.workingDirectoryOverride = payload.updates.workingDirectoryOverride || undefined;
                 if (payload.updates.dependsOn !== undefined) t.dependsOn = payload.updates.dependsOn;
             }
             if (t) { ctx.database.saveTask(t); }

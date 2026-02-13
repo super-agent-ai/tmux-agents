@@ -26,7 +26,9 @@ export function buildSingleTaskPrompt(t: OrchestratorTask, lane?: KanbanSwimLane
         sections.push(``);
         sections.push(`--- Project Context ---`);
         sections.push(`Project: ${lane.name}`);
-        if (lane.workingDirectory) { sections.push(`Working Directory: ${lane.workingDirectory}`); }
+        const effectiveDir = t.workingDirectoryOverride || lane.workingDirectory;
+        if (effectiveDir) { sections.push(`Working Directory: ${effectiveDir}`); }
+        if (t.serverOverride) { sections.push(`Server: ${t.serverOverride}`); }
         if (lane.contextInstructions) {
             sections.push(`\nContext / Instructions:\n${lane.contextInstructions}`);
         }
@@ -73,7 +75,9 @@ export function buildTaskBoxPrompt(parent: OrchestratorTask, subtasks: Orchestra
         sections.push(``);
         sections.push(`--- Project Context ---`);
         sections.push(`Project: ${lane.name}`);
-        if (lane.workingDirectory) { sections.push(`Working Directory: ${lane.workingDirectory}`); }
+        const effectiveDir = parent.workingDirectoryOverride || lane.workingDirectory;
+        if (effectiveDir) { sections.push(`Working Directory: ${effectiveDir}`); }
+        if (parent.serverOverride) { sections.push(`Server: ${parent.serverOverride}`); }
         if (lane.contextInstructions) {
             sections.push(`\nContext / Instructions:\n${lane.contextInstructions}`);
         }
@@ -117,7 +121,9 @@ export function buildBundleTaskPrompt(t: OrchestratorTask, otherTasks: Orchestra
         sections.push(``);
         sections.push(`--- Project Context ---`);
         sections.push(`Project: ${lane.name}`);
-        if (lane.workingDirectory) { sections.push(`Working Directory: ${lane.workingDirectory}`); }
+        const effectiveDir = t.workingDirectoryOverride || lane.workingDirectory;
+        if (effectiveDir) { sections.push(`Working Directory: ${effectiveDir}`); }
+        if (t.serverOverride) { sections.push(`Server: ${t.serverOverride}`); }
         if (lane.contextInstructions) {
             sections.push(`\nContext / Instructions:\n${lane.contextInstructions}`);
         }

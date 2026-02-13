@@ -156,7 +156,7 @@ export class Database {
     private migrate(): void {
         if (!this.db) { return; }
         // Add tmux columns to tasks table if missing
-        const cols = ['tmuxSessionName', 'tmuxWindowIndex', 'tmuxPaneIndex', 'tmuxServerId', 'autoMode', 'autoStart', 'autoPilot', 'autoClose', 'aiProvider', 'aiModel', 'useWorktree', 'worktreePath', 'doneAt', 'useMemory'];
+        const cols = ['tmuxSessionName', 'tmuxWindowIndex', 'tmuxPaneIndex', 'tmuxServerId', 'autoMode', 'autoStart', 'autoPilot', 'autoClose', 'aiProvider', 'aiModel', 'useWorktree', 'worktreePath', 'doneAt', 'useMemory', 'serverOverride', 'workingDirectoryOverride'];
         for (const col of cols) {
             try {
                 this.db.run(`ALTER TABLE tasks ADD COLUMN ${col} TEXT`);
@@ -328,8 +328,8 @@ export class Database {
                   pipelineStageId,createdAt,startedAt,completedAt,errorMessage,kanbanColumn,
                   swimLaneId,parentTaskId,verificationStatus,
                   tmuxSessionName,tmuxWindowIndex,tmuxPaneIndex,tmuxServerId,autoStart,autoPilot,autoClose,
-                  aiProvider,aiModel,useWorktree,worktreePath,doneAt)
-                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+                  aiProvider,aiModel,useWorktree,worktreePath,doneAt,serverOverride,workingDirectoryOverride)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
                 [task.id, task.description, task.targetRole ?? null,
                  task.assignedAgentId ?? null, task.status, task.priority,
                  task.input ?? null, task.output ?? null,
@@ -346,7 +346,9 @@ export class Database {
                  task.aiProvider ?? null, task.aiModel ?? null,
                  task.useWorktree === undefined ? null : task.useWorktree ? 1 : 0,
                  task.worktreePath ?? null,
-                 task.doneAt ?? null]
+                 task.doneAt ?? null,
+                 task.serverOverride ?? null,
+                 task.workingDirectoryOverride ?? null]
             );
             // Rebuild subtask relations
             this.run('DELETE FROM subtask_relations WHERE parentId=?', [task.id]);
@@ -450,6 +452,8 @@ export class Database {
         if (r.useWorktree != null) { t.useWorktree = r.useWorktree === 1 || r.useWorktree === '1'; }
         if (r.worktreePath != null) { t.worktreePath = r.worktreePath; }
         if (r.doneAt != null) { t.doneAt = r.doneAt; }
+        if (r.serverOverride != null) { t.serverOverride = r.serverOverride; }
+        if (r.workingDirectoryOverride != null) { t.workingDirectoryOverride = r.workingDirectoryOverride; }
         const subs = this.getSubtaskIds(t.id);
         if (subs.length > 0) { t.subtaskIds = subs; }
         const deps = this.getDependsOnIds(t.id);
