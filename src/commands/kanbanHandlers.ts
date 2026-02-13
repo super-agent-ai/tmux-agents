@@ -1043,59 +1043,59 @@ ${content.slice(-3000)}`;
             }
             break;
         }
-        case 'aiCreateTask': {
-            const laneId = payload.swimLaneId || '';
-            const lane = laneId ? ctx.swimLanes.find(l => l.id === laneId) : undefined;
+        case 'generatePlan': {
+            const planLaneId = payload.swimLaneId || '';
+            const planLane = planLaneId ? ctx.swimLanes.find(l => l.id === planLaneId) : undefined;
+            const planText = payload.text || '';
+            if (!planText) { break; }
 
-            // Create the task first with placeholder values
-            const newTask: OrchestratorTask = {
-                id: 'task-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
-                description: 'New AI task',
-                status: TaskStatus.PENDING,
-                priority: 5,
-                kanbanColumn: 'backlog',
-                swimLaneId: laneId || undefined,
-                createdAt: Date.now(),
-            };
-            if (lane) { applySwimLaneDefaults(newTask, lane); }
-            ctx.orchestrator.submitTask(newTask);
-            ctx.database.saveTask(newTask);
-
-            // Spawn AI to generate task details
-            const aiSpawnCfg = ctx.aiManager.getSpawnConfig(ctx.aiManager.getDefaultProvider());
-            console.log(`[aiCreateTask] Spawning: ${aiSpawnCfg.command} ${aiSpawnCfg.args.join(' ')}`);
+            const planProvider = planLane?.aiProvider || ctx.aiManager.getDefaultProvider();
+            const planSpawnCfg = ctx.aiManager.getSpawnConfig(planProvider);
+            console.log(`[generatePlan] Spawning: ${planSpawnCfg.command} ${planSpawnCfg.args.join(' ')}`);
 
             try {
-                const aiResult = await new Promise<string>((resolve) => {
-                    const prompt = `You are a task planner for a software development team. Generate a new task specification for an agent to work on.
+                const planResult = await new Promise<string>((resolve) => {
+                    let prompt = `You are a task planner for a software development team. Given a high-level goal, break it down into a dependency-aware set of tasks.
 
-Respond ONLY with valid JSON (no markdown, no code fences), in this exact format:
-{"title": "Short task title (under 60 chars)", "description": "Detailed description", "role": "coder"}
+Respond ONLY with valid JSON (no markdown, no code fences) — a JSON array of task objects:
+[{"title": "Short title", "description": "Details", "role": "coder", "dependsOn": []}]
 
-## Title Rules
-- Start with an action verb: Add, Fix, Refactor, Update, Implement, Write, Configure, Remove
-- Keep under 60 characters
-- Be specific and actionable
+## Rules
+- Each task has: title (string, under 60 chars, starts with action verb), description (string), role (string), dependsOn (array of 0-based indices referencing earlier tasks in the array)
+- dependsOn indices must reference tasks earlier in the array (lower index). A task cannot depend on itself or on later tasks.
+- Order tasks so dependencies come first. Tasks with no dependencies should come first.
+- Role options: coder, reviewer, tester, devops, researcher (or empty string)
+- Generate 2-10 tasks depending on complexity
+- Tasks should be specific, actionable, and completable by an AI coding agent in a single session
+- Description should include what to do and acceptance criteria`;
 
-## Description Structure
-Write the description with three sections separated by newlines:
-- **What**: What to build, change, or fix (1-2 sentences)
-- **Acceptance Criteria**: Bulleted list of done-when conditions
-- **Implementation Notes**: Technical hints — files to touch, patterns to follow, dependencies to consider
+                    if (planLane) {
+                        prompt += `\n\n## Context\n- Swim lane: ${planLane.name}\n- Working directory: ${planLane.workingDirectory}`;
+                        if (planLane.contextInstructions) { prompt += `\n- Lane instructions: ${planLane.contextInstructions}`; }
+                    }
 
-## Role Selection
-- coder: Implementation, bug fixes, refactoring, scripting
-- reviewer: Code review, security audit, architecture assessment
-- tester: Writing tests, improving coverage, test infrastructure
-- devops: CI/CD, Docker, deployment, infrastructure
-- researcher: Investigation, comparison, analysis, documentation
+                    // Include conversation history for iterative refinement
+                    const convHistory = payload.conversation || [];
+                    if (convHistory.length > 1) {
+                        prompt += `\n\n## Conversation History`;
+                        for (const entry of convHistory) {
+                            if (entry.role === 'user') { prompt += `\n\nUser: ${entry.text}`; }
+                            if (entry.role === 'assistant') { prompt += `\n\nPrevious plan: ${entry.text}`; }
+                        }
+                        prompt += `\n\nThe user wants to refine the plan. Consider their latest message and update the plan accordingly.`;
+                    }
 
-Generate a useful, well-structured development task.`;
+                    prompt += `\n\nUser's goal: ${planText}`;
 
-                    const cmdStr = [aiSpawnCfg.command, ...aiSpawnCfg.args].join(' ');
-                    const proc = cp.exec(cmdStr, { env: { ...process.env, ...aiSpawnCfg.env }, cwd: safeCwd(aiSpawnCfg.cwd), maxBuffer: 10 * 1024 * 1024, timeout: 30000 }, (error, stdout, stderr) => {
+                    const cmdStr = [planSpawnCfg.command, ...planSpawnCfg.args].join(' ');
+                    const proc = cp.exec(cmdStr, {
+                        env: { ...process.env, ...planSpawnCfg.env },
+                        cwd: safeCwd(planSpawnCfg.cwd),
+                        maxBuffer: 10 * 1024 * 1024,
+                        timeout: 60000
+                    }, (error, stdout, stderr) => {
                         if (error) {
-                            console.warn(`[aiCreateTask] Error: ${error.message}. stderr: ${(stderr || '').slice(0, 500)}`);
+                            console.warn(`[generatePlan] Error: ${error.message}. stderr: ${(stderr || '').slice(0, 500)}`);
                         }
                         resolve(error ? '' : stdout.trim());
                     });
@@ -1103,126 +1103,104 @@ Generate a useful, well-structured development task.`;
                     process.nextTick(() => { if (proc.stdin && proc.stdin.writable && !proc.killed) { proc.stdin.write(prompt); proc.stdin.end(); } });
                 });
 
-                if (aiResult) {
-                    let json = aiResult;
-                    const fenceMatch = aiResult.match(/```(?:json)?\s*([\s\S]*?)```/);
+                if (planResult) {
+                    let json = planResult;
+                    const fenceMatch = planResult.match(/```(?:json)?\s*([\s\S]*?)```/);
                     if (fenceMatch) { json = fenceMatch[1].trim(); }
                     try {
                         const parsed = JSON.parse(json);
-                        if (parsed.title) { newTask.description = parsed.title; }
-                        if (parsed.description) { newTask.input = parsed.description; }
-                        if (parsed.role) { newTask.targetRole = parsed.role; }
-                        ctx.database.saveTask(newTask);
-                    } catch {
-                        console.warn('[aiCreateTask] Failed to parse AI response as JSON');
-                    }
-                }
-            } catch (err) {
-                console.error(`[aiCreateTask] Unexpected error: ${err}`);
-            }
-
-            ctx.updateKanban();
-            ctx.kanbanView.sendMessage({ type: 'aiTaskCreated', taskId: newTask.id });
-            break;
-        }
-        case 'aiExpandTask': {
-            const text = payload.text || '';
-            if (!text) break;
-            const spawnCfg = ctx.aiManager.getSpawnConfig(ctx.aiManager.getDefaultProvider());
-            console.log(`[aiExpandTask] Spawning: ${spawnCfg.command} ${spawnCfg.args.join(' ')}`);
-
-            // Read current toggle states from the webview
-            const currentToggles = {
-                autoStart: !!payload.autoStart,
-                autoPilot: !!payload.autoPilot,
-                autoClose: !!payload.autoClose,
-                useWorktree: !!payload.useWorktree,
-            };
-
-            try {
-                const result = await new Promise<string>((resolve) => {
-                    let prompt = `You are a task planner for a software development team. Given a rough description, generate a detailed task specification.
-
-Respond ONLY with valid JSON (no markdown, no code fences), in this exact format:
-{"title": "Short task title (under 60 chars)", "description": "Detailed description", "role": "coder", "autoStart": true, "autoPilot": true, "autoClose": false, "useWorktree": false}
-
-## Title Rules
-- Start with an action verb: Add, Fix, Refactor, Update, Implement, Write, Configure, Remove
-- Keep under 60 characters
-
-## Description Structure
-Write the description with three sections separated by newlines:
-- **What**: What to build, change, or fix (1-2 sentences)
-- **Acceptance Criteria**: Bulleted list of done-when conditions (e.g., "- API returns 200 on valid input", "- Unit tests cover edge cases")
-- **Implementation Notes**: Technical hints — files to touch, patterns to follow, dependencies to consider
-
-## Role Selection
-- coder: Implementation, bug fixes, refactoring, scripting
-- reviewer: Code review, security audit, architecture assessment
-- tester: Writing tests, improving coverage, test infrastructure
-- devops: CI/CD, Docker, deployment, infrastructure
-- researcher: Investigation, comparison, analysis, documentation
-- Empty string if unclear
-
-## Toggle Control
-You may optionally set these boolean toggles. Only include a toggle in your response if you have a reason to change it. Omitted toggles keep their current value.
-- autoStart (currently ${currentToggles.autoStart}): Automatically launch implementation in tmux. Set true for tasks ready to run immediately.
-- autoPilot (currently ${currentToggles.autoPilot}): Automatically answer agent questions. Set true for well-specified tasks that need no human input.
-- autoClose (currently ${currentToggles.autoClose}): Auto-close tmux window on completion. Set true for self-contained tasks.
-- useWorktree (currently ${currentToggles.useWorktree}): Run in a dedicated git worktree for isolation. Set true for tasks that modify code and benefit from branch isolation.`;
-
-                    if (payload.currentTitle || payload.currentInput) {
-                        prompt += `\n\nExisting task context:`;
-                        if (payload.currentTitle) { prompt += `\nCurrent title: ${payload.currentTitle}`; }
-                        if (payload.currentInput) { prompt += `\nCurrent description: ${payload.currentInput}`; }
-                        prompt += `\n\nRefine and expand based on the user's new input below. Preserve user-provided details and do not overwrite them — integrate new information with existing context.`;
-                    }
-
-                    prompt += `\n\nUser's input: ${text}`;
-                    const cmdStr2 = [spawnCfg.command, ...spawnCfg.args].join(' ');
-                    const proc = cp.exec(cmdStr2, { env: { ...process.env, ...spawnCfg.env }, cwd: safeCwd(spawnCfg.cwd), maxBuffer: 10 * 1024 * 1024, timeout: 30000 }, (error, stdout, stderr) => {
-                        if (error) {
-                            console.warn(`[aiExpandTask] Error: ${error.message}. stderr: ${(stderr || '').slice(0, 500)}`);
+                        const tasks = Array.isArray(parsed) ? parsed : [];
+                        // Validate and sanitize dependsOn
+                        for (let i = 0; i < tasks.length; i++) {
+                            if (!tasks[i].dependsOn) { tasks[i].dependsOn = []; }
+                            tasks[i].dependsOn = tasks[i].dependsOn.filter(
+                                (d: number) => typeof d === 'number' && d >= 0 && d < i
+                            );
                         }
-                        resolve(error ? '' : stdout.trim());
-                    });
-                    proc.stdin!.on('error', () => {});
-                    process.nextTick(() => { if (proc.stdin && proc.stdin.writable && !proc.killed) { proc.stdin.write(prompt); proc.stdin.end(); } });
-                });
-                if (result) {
-                    let json = result;
-                    const fenceMatch = result.match(/```(?:json)?\s*([\s\S]*?)```/);
-                    if (fenceMatch) { json = fenceMatch[1].trim(); }
-                    try {
-                        const parsed = JSON.parse(json);
-                        // Build toggle result — only include toggles the AI explicitly set
-                        const toggleResult: Record<string, boolean> = {};
-                        if (typeof parsed.autoStart === 'boolean') { toggleResult.autoStart = parsed.autoStart; }
-                        if (typeof parsed.autoPilot === 'boolean') { toggleResult.autoPilot = parsed.autoPilot; }
-                        if (typeof parsed.autoClose === 'boolean') { toggleResult.autoClose = parsed.autoClose; }
-                        if (typeof parsed.useWorktree === 'boolean') { toggleResult.useWorktree = parsed.useWorktree; }
-                        ctx.kanbanView.sendMessage({
-                            type: 'aiExpandResult',
-                            title: parsed.title || '',
-                            description: parsed.description || '',
-                            role: parsed.role || '',
-                            toggles: toggleResult,
-                        });
+                        ctx.kanbanView.sendMessage({ type: 'generatePlanResult', tasks });
                     } catch {
-                        ctx.kanbanView.sendMessage({
-                            type: 'aiExpandResult',
-                            title: payload.currentTitle || '',
-                            description: result,
-                            role: ''
-                        });
+                        ctx.kanbanView.sendMessage({ type: 'generatePlanResult', error: 'Failed to parse AI response as a task plan. Try again with a clearer description.' });
                     }
                 } else {
-                    console.warn('[aiExpandTask] Empty result from AI provider');
-                    ctx.kanbanView.sendMessage({ type: 'aiExpandResult', error: `AI command failed. Check Output panel "Tmux Agents" for details. Command: ${spawnCfg.command}` });
+                    ctx.kanbanView.sendMessage({ type: 'generatePlanResult', error: `AI command failed. Check Output panel "Tmux Agents" for details. Command: ${planSpawnCfg.command}` });
                 }
             } catch (err) {
-                console.error(`[aiExpandTask] Unexpected error: ${err}`);
-                ctx.kanbanView.sendMessage({ type: 'aiExpandResult', error: String(err) });
+                console.error(`[generatePlan] Unexpected error: ${err}`);
+                ctx.kanbanView.sendMessage({ type: 'generatePlanResult', error: String(err) });
+            }
+            break;
+        }
+        case 'approvePlan': {
+            const approveLaneId = payload.swimLaneId || '';
+            const approveLane = approveLaneId ? ctx.swimLanes.find(l => l.id === approveLaneId) : undefined;
+            const planTasks: Array<{title: string; description: string; role: string; dependsOn: number[]}> = payload.tasks || [];
+
+            try {
+                // Phase 1: Create all tasks, collect IDs
+                const idMap: string[] = [];
+                const createdTasks: OrchestratorTask[] = [];
+                for (let i = 0; i < planTasks.length; i++) {
+                    const pt = planTasks[i];
+                    const task: OrchestratorTask = {
+                        id: 'task-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '-' + i,
+                        description: pt.title || `Plan task ${i + 1}`,
+                        input: pt.description || undefined,
+                        targetRole: (pt.role || undefined) as OrchestratorTask['targetRole'],
+                        status: TaskStatus.PENDING,
+                        priority: 5,
+                        kanbanColumn: 'todo',
+                        swimLaneId: approveLaneId || undefined,
+                        createdAt: Date.now() + i,
+                    };
+                    if (approveLane) { applySwimLaneDefaults(task, approveLane); }
+                    idMap.push(task.id);
+                    createdTasks.push(task);
+                }
+
+                // Phase 2: Map index-based dependsOn to actual task IDs
+                for (let i = 0; i < planTasks.length; i++) {
+                    const deps = planTasks[i].dependsOn || [];
+                    if (deps.length > 0) {
+                        createdTasks[i].dependsOn = deps
+                            .filter((d: number) => d >= 0 && d < idMap.length && d !== i)
+                            .map((d: number) => idMap[d]);
+                    }
+                }
+
+                // Phase 3: Submit and save all tasks
+                for (const task of createdTasks) {
+                    ctx.orchestrator.submitTask(task);
+                    ctx.database.saveTask(task);
+                }
+
+                // Phase 4: Auto-start cascade — if task has autoStart + deps, force deps to autoStart/autoPilot/autoClose
+                for (const task of createdTasks) {
+                    if (task.autoStart && task.dependsOn && task.dependsOn.length > 0) {
+                        for (const depId of task.dependsOn) {
+                            const dep = ctx.orchestrator.getTask(depId);
+                            if (dep) {
+                                dep.autoStart = true;
+                                dep.autoPilot = true;
+                                dep.autoClose = true;
+                                ctx.database.saveTask(dep);
+                            }
+                        }
+                    }
+                }
+
+                // Phase 5: Start Wave 1 tasks (no deps, autoStart on, in todo, has lane)
+                for (const task of createdTasks) {
+                    const effectiveAutoStart = resolveToggle(task, 'autoStart', approveLane);
+                    if (effectiveAutoStart && (!task.dependsOn || task.dependsOn.length === 0) && task.kanbanColumn === 'todo' && task.swimLaneId) {
+                        await ctx.startTaskFlow(task);
+                    }
+                }
+
+                ctx.updateKanban();
+                ctx.kanbanView.sendMessage({ type: 'approvePlanResult', success: true });
+            } catch (err) {
+                console.error(`[approvePlan] Unexpected error: ${err}`);
+                ctx.kanbanView.sendMessage({ type: 'approvePlanResult', success: false, error: String(err) });
             }
             break;
         }
