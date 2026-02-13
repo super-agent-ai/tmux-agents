@@ -3,6 +3,9 @@
 import { EventBus } from './eventBus';
 import { Disposable } from './disposable';
 
+// Re-export Disposable for convenience
+export type { Disposable };
+
 /**
  * Event callback type
  */
