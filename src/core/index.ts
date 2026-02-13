@@ -24,8 +24,10 @@ export * from './promptRegistry';
 export * from './promptExecutor';
 export * from './tmuxService';
 export * from './database';
-export * from './orchestrator';
 export * from './memoryManager';
+export * from './runtimeManager';
+export * from './organizationManager';
+export * from './guildManager';
 
 // Note: Additional exports will be added as we move more files to core/
 // - TmuxService
