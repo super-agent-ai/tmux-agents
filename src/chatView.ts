@@ -892,7 +892,7 @@ ${this.apiCatalog.getCatalogText()}
 
             // Trace: show the command being executed
             const cmdPreview = cmdStr.length > 200 ? cmdStr.slice(0, 200) + '…' : cmdStr;
-            this.postMessage({ type: 'addMessage', role: 'trace', text: `$ ${cmdPreview}\ncwd: ${execCwd || '(none)'} | stdin: ${useStdin ? 'pipe' : 'no'} | timeout: ${(timeoutMs / 1000).toFixed(0)}s` });
+            console.log('[chat]', `$ ${cmdPreview}\ncwd: ${execCwd || '(none)'} | stdin: ${useStdin ? 'pipe' : 'no'} | timeout: ${(timeoutMs / 1000).toFixed(0)}s`);
             const spawnTime = Date.now();
 
             let fullOutput = '';
@@ -912,7 +912,7 @@ ${this.apiCatalog.getCatalogText()}
                 timedOut = true;
                 proc.kill();
                 const elapsed = ((Date.now() - spawnTime) / 1000).toFixed(1);
-                this.postMessage({ type: 'addMessage', role: 'trace', text: `Timed out after ${elapsed}s (pid ${pid})` });
+                console.log('[chat]', `Timed out after ${elapsed}s (pid ${pid})`);
                 reject(new Error('Command timed out'));
             }, timeoutMs);
 
@@ -926,7 +926,7 @@ ${this.apiCatalog.getCatalogText()}
                 clearTimeout(timer);
                 this.currentProc = null;
                 const elapsed = ((Date.now() - spawnTime) / 1000).toFixed(1);
-                this.postMessage({ type: 'addMessage', role: 'trace', text: `Exit ${code} in ${elapsed}s (pid ${pid}) | ${fullOutput.length} bytes` });
+                console.log('[chat]', `Exit ${code} in ${elapsed}s (pid ${pid}) | ${fullOutput.length} bytes`);
                 if (timedOut) { return; }
                 if (this.abortRequested) {
                     reject(new Error('Stopped by user'));
@@ -941,7 +941,7 @@ ${this.apiCatalog.getCatalogText()}
                 clearTimeout(timer);
                 this.currentProc = null;
                 const elapsed = ((Date.now() - spawnTime) / 1000).toFixed(1);
-                this.postMessage({ type: 'addMessage', role: 'trace', text: `Spawn error after ${elapsed}s: ${err.message}` });
+                console.log('[chat]', `Spawn error after ${elapsed}s: ${err.message}`);
                 reject(err);
             });
 
