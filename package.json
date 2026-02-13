@@ -2,7 +2,7 @@
   "name": "tmux-agents",
   "displayName": "tmux-agents",
   "description": "AI Agent orchestration platform for tmux — monitor, route, pipeline, and control 10-50 concurrent AI agents across local and remote servers.",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "author": "super-agent.ai",
   "publisher": "super-agent",
   "repository": {
