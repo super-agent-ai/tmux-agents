@@ -3,6 +3,9 @@ import { DaemonClient } from '../../client';
 import { output, error } from '../util/output';
 import { formatTable } from '../formatters/table';
 import { statusIcon, colorize, colors } from '../formatters/icons';
+import * as cp from 'child_process';
+import * as path from 'path';
+import * as fs from 'fs';
 
 export function registerDaemonCommands(program: Command, client: DaemonClient): void {
     const daemon = program
@@ -12,10 +15,83 @@ export function registerDaemonCommands(program: Command, client: DaemonClient): 
     daemon
         .command('start')
         .description('Start daemon (detached)')
-        .action(async () => {
+        .option('--foreground', 'Run in foreground (do not detach)')
+        .action(async (options) => {
             try {
-                // TODO: Implement daemon spawn
-                error('Daemon start not yet implemented');
+                // Check if already running
+                try {
+                    const health = await client.health();
+                    output('Daemon is already running');
+                    return;
+                } catch (e) {
+                    // Not running, continue with start
+                }
+
+                // Find the supervisor script
+                // Try multiple possible locations
+                const possiblePaths = [
+                    // From installed global location
+                    path.join(__dirname, '../../../out/daemon/supervisor.js'),
+                    // From development location
+                    path.join(__dirname, '../../../../../out/daemon/supervisor.js'),
+                    // From repo root
+                    path.join(process.cwd(), 'out/daemon/supervisor.js'),
+                ];
+
+                let supervisorPath: string | undefined;
+                for (const p of possiblePaths) {
+                    if (fs.existsSync(p)) {
+                        supervisorPath = p;
+                        break;
+                    }
+                }
+
+                if (!supervisorPath) {
+                    error('Could not find daemon supervisor. Make sure tmux-agents is built (npm run compile)');
+                    return;
+                }
+
+                const args = ['start'];
+                const env = {
+                    ...process.env,
+                    DAEMON_FOREGROUND: options.foreground ? '1' : '0'
+                };
+
+                if (options.foreground) {
+                    // Run in foreground
+                    const proc = cp.spawn('node', [supervisorPath, ...args], {
+                        stdio: 'inherit',
+                        env
+                    });
+
+                    proc.on('error', (err) => {
+                        error(`Failed to start daemon: ${err.message}`);
+                    });
+
+                    // Keep process alive
+                    process.on('SIGINT', () => {
+                        proc.kill('SIGTERM');
+                    });
+                } else {
+                    // Run in background (detached)
+                    const proc = cp.spawn('node', [supervisorPath, ...args], {
+                        detached: true,
+                        stdio: 'ignore',
+                        env
+                    });
+
+                    proc.unref();
+
+                    // Wait a bit and check if it started
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+
+                    try {
+                        const health = await client.health();
+                        output('Daemon started successfully');
+                    } catch (e) {
+                        error('Daemon started but is not responding yet. Check logs for details.');
+                    }
+                }
             } catch (err: any) {
                 error(err.message);
             }

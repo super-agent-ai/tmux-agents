@@ -151,8 +151,8 @@ export class Config {
 			},
 			daemon: {
 				unixSocket: path.join(os.homedir(), '.tmux-agents', 'daemon.sock'),
-				httpPort: 3737,
-				wsPort: 3738,
+				httpPort: 3456,
+				wsPort: 3457,
 				logFile: path.join(os.homedir(), '.tmux-agents', 'daemon.log'),
 				logLevel: 'info',
 			},

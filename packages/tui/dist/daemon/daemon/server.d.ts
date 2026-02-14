@@ -1,0 +1,34 @@
+export declare class DaemonServer {
+    private config;
+    private logger;
+    private eventBus;
+    private healthChecker;
+    private reconciler;
+    private rpcRouter;
+    private apiHandler;
+    private db;
+    private orchestrator;
+    private pipelineEngine;
+    private teamManager;
+    private kanbanManager;
+    private runtimeManager;
+    startTime: number;
+    unixSocketListening: boolean;
+    httpListening: boolean;
+    wsListening: boolean;
+    constructor(configPath?: string);
+    start(): Promise<void>;
+    shutdown(): Promise<void>;
+    reloadConfig(): Promise<void>;
+    private initializeDatabase;
+    private initializeServices;
+    private initializeRpcRouter;
+    private startApiServers;
+    private runReconciliation;
+    private startMonitoring;
+    private createMockOrchestrator;
+    private createMockPipelineEngine;
+    private createMockTeamManager;
+    private createMockKanbanManager;
+}
+export declare function runDaemon(configPath?: string): Promise<void>;

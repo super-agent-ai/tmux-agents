@@ -65,8 +65,8 @@ describe('RpcRouter', () => {
 		};
 
 		mockConfig = {
-			httpPort: 3737,
-			wsPort: 3738,
+			httpPort: 3456,
+			wsPort: 3457,
 			runtimes: [],
 		} as any;
 

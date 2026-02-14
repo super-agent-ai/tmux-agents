@@ -20,7 +20,7 @@ export class DaemonClient {
 
     constructor(options: DaemonClientOptions = {}) {
         this.socketPath = options.socketPath || path.join(os.homedir(), '.tmux-agents', 'daemon.sock');
-        this.httpUrl = options.httpUrl || 'http://127.0.0.1:3737';
+        this.httpUrl = options.httpUrl || 'http://127.0.0.1:3456';
         this.timeout = options.timeout || 30000;
     }
 

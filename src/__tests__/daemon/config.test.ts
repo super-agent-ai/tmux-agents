@@ -26,7 +26,7 @@ describe('Config', () => {
 	it('should load default config when file does not exist', () => {
 		const config = loadConfig('/nonexistent/path/config.toml');
 		expect(config).toBeDefined();
-		expect(config.httpPort).toBe(3737);
+		expect(config.httpPort).toBe(3456);
 		expect(config.logLevel).toBe('info');
 		expect(config.runtimes).toHaveLength(1);
 		expect(config.runtimes[0].type).toBe('local-tmux');

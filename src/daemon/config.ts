@@ -41,8 +41,8 @@ export interface DaemonConfig {
 
 const DEFAULT_CONFIG: DaemonConfig = {
 	unixSocket: path.join(os.homedir(), '.tmux-agents', 'daemon.sock'),
-	httpPort: 3737,
-	wsPort: 3738,
+	httpPort: 3456,
+	wsPort: 3457,
 	logLevel: 'info',
 	logFile: path.join(os.homedir(), '.tmux-agents', 'daemon.log'),
 	pidFile: path.join(os.homedir(), '.tmux-agents', 'daemon.pid'),
