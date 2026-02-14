@@ -74,7 +74,7 @@ program
             const path = require('path');
 
             // Find the TUI launcher script
-            const tuiLauncher = path.join(__dirname, '../../../tui/tui.cjs');
+            const tuiLauncher = path.join(__dirname, '../../../../tui/tui.cjs');
 
             const args: string[] = [];
             if (options.socket) {

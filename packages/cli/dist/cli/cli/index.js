@@ -68,7 +68,7 @@ program
         const { spawn } = require('child_process');
         const path = require('path');
         // Find the TUI launcher script
-        const tuiLauncher = path.join(__dirname, '../../../tui/tui.cjs');
+        const tuiLauncher = path.join(__dirname, '../../../../tui/tui.cjs');
         const args = [];
         if (options.socket) {
             args.push('--socket', options.socket);
