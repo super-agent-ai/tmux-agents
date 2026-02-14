@@ -2,7 +2,7 @@
 
 **AI agent orchestration across tmux, Docker, and Kubernetes**
 
-Tmux Agents is a multi-client AI agent management system that lets you orchestrate 10-50+ concurrent AI agents (Claude, Gemini, Codex, OpenCode, Cursor, Copilot, Aider, Amp, Cline, Kiro) across local tmux sessions, remote SSH servers, Docker containers, and Kubernetes pods.
+Tmux Agents is a daemon-based AI agent orchestration platform that lets you manage 10-50+ concurrent AI agents (Claude, Gemini, Codex, OpenCode, Cursor, Copilot, Aider, Amp, Cline, Kiro) across local tmux sessions, remote SSH servers, Docker containers, and Kubernetes pods.
 
 Built by [super-agent.ai](https://super-agent.ai)
 
@@ -11,14 +11,15 @@ Built by [super-agent.ai](https://super-agent.ai)
 ## Features
 
 - **Multi-Runtime Execution**: Run agents in tmux (local/SSH), Docker containers, or Kubernetes pods
-- **Unified Management**: Control all agents through CLI, TUI, VS Code extension, or MCP server
-- **Real-Time Monitoring**: WebSocket/Unix socket events for live updates
-- **Agent Teams**: Define teams with specialized roles and task routing
+- **Multiple Clients**: CLI, TUI, VS Code extension, or MCP server (for Claude Desktop)
+- **Daemon Architecture**: Central orchestration daemon with JSON-RPC 2.0 API
+- **Real-Time Updates**: WebSocket events for live monitoring
+- **Agent Teams**: Coordinate multiple agents with specialized roles
 - **Pipeline Orchestration**: Multi-stage DAG pipelines with dependency resolution
-- **Task Management**: Priority-based routing with Kanban board visualization
+- **Task Management**: Kanban board with priority-based routing
 - **Memory System**: Per-agent long-term memory with context management
-- **Auto-Pilot Mode**: Autonomous agent monitoring and intervention
-- **Session Persistence**: SQLite-backed state with cross-session continuity
+- **Auto-Pilot Mode**: Autonomous monitoring and intervention
+- **Session Persistence**: SQLite-backed state with crash recovery
 
 ---
 
@@ -29,20 +30,22 @@ Built by [super-agent.ai](https://super-agent.ai)
 │                      Clients                            │
 ├──────────────┬──────────────┬──────────────┬───────────┤
 │  VS Code     │     CLI      │     TUI      │    MCP    │
-│  Extension   │  (Commands)  │  (Terminal)  │  (Claude) │
+│  Extension   │  (Commands)  │  (Dashboard) │  (Claude) │
 └──────┬───────┴──────┬───────┴──────┬───────┴─────┬─────┘
        │              │              │             │
+       │         Unix Socket / HTTP / WebSocket    │
        └──────────────┴──────────────┴─────────────┘
                       │
                  JSON-RPC 2.0
                       │
        ┌──────────────▼──────────────┐
-       │      Tmux Agents Daemon     │
-       │  (Central orchestration)    │
-       │  - Agent state management   │
-       │  - Task routing             │
-       │  - Pipeline execution       │
-       │  - Multi-runtime support    │
+       │   Tmux Agents Daemon        │
+       │   (Background server)       │
+       │  • Agent orchestration      │
+       │  • Task routing             │
+       │  • Pipeline execution       │
+       │  • Multi-runtime support    │
+       │  • SQLite persistence       │
        └──────────────┬──────────────┘
                       │
        ┌──────────────┴──────────────┐
@@ -66,113 +69,259 @@ Built by [super-agent.ai](https://super-agent.ai)
 - Docker (optional, for container runtime)
 - kubectl (optional, for Kubernetes runtime)
 
-### 1. Install from npm
+### Install from npm
 
 ```bash
 npm install -g tmux-agents
 ```
 
-### 2. Build from source
+### Build from source
 
 ```bash
 git clone https://github.com/super-agent-ai/tmux-agents
 cd tmux-agents
 npm install
-npm run compile
 
-# Optional: Build clients in worktrees
-npm run compile:cli
-npm run compile:tui
-npm run compile:mcp
+# Build all packages
+npm run compile
+npm run compile --workspaces
+
+# Or build specific packages
+npm run build -w packages/cli
+npm run build -w packages/tui
+npm run build -w packages/mcp
 ```
 
 ---
 
 ## Quick Start
 
-### Start the Daemon
+### 1. Start the Daemon
 
 ```bash
 # Start daemon (runs in background)
-tmux-agents-daemon start
+npx tmux-agents daemon start
 
 # Check daemon status
-tmux-agents-daemon status
+npx tmux-agents daemon status
 
-# View daemon logs
-tail -f ~/.tmux-agents/daemon.log
+# View daemon health
+npx tmux-agents health
 ```
 
-### CLI Usage
+### 2. Spawn Your First Agent
 
 ```bash
-# Create an agent
-tmux-agents create-agent "Code reviewer" --provider claude --model opus
+# Spawn a coder agent
+npx tmux-agents agent spawn -r coder "Fix the login bug"
 
-# List agents
-tmux-agents list-agents
+# Spawn with specific provider
+npx tmux-agents agent spawn -r coder -p claude "Add dark mode"
 
-# Assign task to agent
-tmux-agents assign-task <agent-id> <task-id>
+# List all agents
+npx tmux-agents agent list
 
-# Start agent
-tmux-agents start-agent <agent-id>
-
-# Monitor agent
-tmux-agents show-agent <agent-id>
-
-# Stop agent
-tmux-agents stop-agent <agent-id>
+# Get agent output (follow mode)
+npx tmux-agents agent output <agent-id> -f
 ```
 
-### TUI (Terminal UI)
+### 3. Choose Your Interface
+
+#### CLI (Command Line)
 
 ```bash
-# Launch TUI
-tmux-agents-tui
+# All commands available
+npx tmux-agents --help
 
-# Keyboard shortcuts:
-# Tab/Shift+Tab - Navigate sections
-# j/k - Move up/down
-# Enter - Select/activate
-# s - Start agent
-# x - Stop agent
-# d - Delete agent
-# t - Assign task
-# m - View memory
-# / - Search
-# ? - Help
-# q - Quit
+# Agent management
+npx tmux-agents agent spawn -r coder "task description"
+npx tmux-agents agent list
+npx tmux-agents agent output <id> -f
+npx tmux-agents agent kill <id>
+
+# Task management
+npx tmux-agents task submit "task description" --priority high
+npx tmux-agents task list
+npx tmux-agents task move <id> doing
+
+# Team collaboration
+npx tmux-agents team create "team-name"
+npx tmux-agents agent spawn -t team-name -r coder "task"
+
+# Pipeline orchestration
+npx tmux-agents pipeline run --stages @pipeline.json
 ```
 
-### VS Code Extension
+#### TUI (Terminal UI Dashboard)
 
-1. Install "Tmux Agents" from VS Code marketplace
-2. Open Command Palette (`Cmd+Shift+P`)
-3. Run "Tmux Agents: Connect to Daemon"
-4. Use sidebar tree view to manage agents
+```bash
+# Launch interactive dashboard
+npx tmux-agents tui
 
-### MCP Server (for Claude Desktop)
+# Or directly
+node packages/tui/dist/tui/index.js
+```
 
-Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+**Keyboard shortcuts:**
+- `F1` - Agents view
+- `F2` - Tasks view
+- `F3` - Pipelines view
+- `F4` - Settings
+- `Enter` - Preview agent
+- `a` - Attach to agent
+- `q` - Quit
+
+#### VS Code Extension
+
+1. Open VS Code
+2. The extension auto-connects to the daemon
+3. Use Command Palette: `Tmux Agents: ...`
+4. Or use the sidebar tree view
+
+#### MCP Server (for Claude Desktop)
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
     "tmux-agents": {
       "command": "node",
-      "args": ["/path/to/tmux-agents/out-mcp/index.js"]
+      "args": ["/absolute/path/to/tmux-agents/packages/mcp/dist/server.js"]
     }
   }
 }
 ```
 
-Claude can now control your agents via MCP tools:
-- `tmux_agents_list` - List all agents
-- `tmux_agents_create` - Create new agent
-- `tmux_agents_assign_task` - Assign task
-- `tmux_agents_get_status` - Get agent status
-- And 50+ more tools...
+Then in Claude Desktop:
+- "List all my agents"
+- "Spawn a coder agent to implement feature X"
+- "Get output from agent abc123"
+- "Show me the task board"
+
+---
+
+## Common Workflows
+
+### Single Agent Task
+
+```bash
+# 1. Spawn agent
+AGENT_ID=$(npx tmux-agents agent spawn -r coder "Implement auth" --json | jq -r '.id')
+
+# 2. Watch output
+npx tmux-agents agent output $AGENT_ID -f
+
+# 3. Send follow-up prompt
+npx tmux-agents agent prompt $AGENT_ID "Add tests for the auth flow"
+
+# 4. Kill when done
+npx tmux-agents agent kill $AGENT_ID
+```
+
+### Team Collaboration
+
+```bash
+# 1. Create team
+npx tmux-agents team create "auth-team"
+
+# 2. Spawn team members
+npx tmux-agents agent spawn -r coder -t auth-team "Implement login"
+npx tmux-agents agent spawn -r tester -t auth-team "Write auth tests"
+npx tmux-agents agent spawn -r reviewer -t auth-team "Review auth code"
+
+# 3. Monitor team
+npx tmux-agents agent list --team auth-team
+```
+
+### Pipeline Execution
+
+```bash
+# 1. Define pipeline
+cat > pipeline.json <<'EOF'
+{
+  "name": "CI Pipeline",
+  "stages": [
+    {
+      "name": "build",
+      "role": "coder",
+      "prompt": "Build the project"
+    },
+    {
+      "name": "test",
+      "role": "tester",
+      "prompt": "Run all tests",
+      "dependencies": ["build"]
+    },
+    {
+      "name": "review",
+      "role": "reviewer",
+      "prompt": "Review the changes",
+      "dependencies": ["test"]
+    }
+  ]
+}
+EOF
+
+# 2. Run pipeline
+npx tmux-agents pipeline run --stages @pipeline.json
+```
+
+### Fan-Out (Parallel Execution)
+
+```bash
+# Execute same prompt across N agents
+npx tmux-agents fan-out "Run benchmark suite" --count 5
+
+# With specific runtime
+npx tmux-agents fan-out "Test on different configs" --count 3 --runtime docker
+```
+
+### Task Board Management
+
+```bash
+# Submit tasks
+npx tmux-agents task submit "Fix login bug" --priority high
+npx tmux-agents task submit "Add dark mode" --priority medium
+
+# View board
+npx tmux-agents task list
+
+# Move tasks through columns
+npx tmux-agents task move <task-id> todo
+npx tmux-agents task move <task-id> doing
+npx tmux-agents task move <task-id> review
+npx tmux-agents task move <task-id> done
+```
+
+---
+
+## Multi-Runtime Support
+
+### Local Tmux (Default)
+
+```bash
+npx tmux-agents agent spawn -r coder "task"
+```
+
+### Docker Containers
+
+```bash
+npx tmux-agents agent spawn -r coder "task" \
+  --runtime docker \
+  --image ubuntu:22.04 \
+  --memory 2g
+```
+
+### Kubernetes Pods
+
+```bash
+npx tmux-agents agent spawn -r coder "task" \
+  --runtime k8s \
+  --namespace agents \
+  --memory 2Gi \
+  --cpus 2
+```
 
 ---
 
@@ -180,38 +329,24 @@ Claude can now control your agents via MCP tools:
 
 ### Daemon Configuration
 
-Create `~/.tmux-agents/config.toml`:
+The daemon stores data in `~/.tmux-agents/`:
+- `daemon.sock` - Unix socket (primary transport)
+- `tmux-agents.db` - SQLite database (persistence)
+- `daemon.log` - Daemon logs
 
-```toml
-[daemon]
-host = "localhost"
-port = 8765
-log_level = "info"
-log_file = "~/.tmux-agents/daemon.log"
-
-[database]
-path = "~/.tmux-agents/agents.db"
-backup_interval = 3600
-
-[orchestration]
-max_concurrent_agents = 50
-task_queue_size = 1000
-default_timeout = 300
-
-[tmux]
-socket_path = "/tmp/tmux-agents"
-session_prefix = "agent-"
-default_shell = "/bin/bash"
-```
+Default ports:
+- HTTP: `3456` (fallback transport)
+- WebSocket: `3457` (event subscriptions)
 
 ### TUI Settings
 
-Launch TUI and press `,` to open settings, or edit `~/.tmux-agents/tui-settings.json`:
+Launch TUI and press `F4` for settings, or edit `~/.tmux-agents/tui-settings.json`:
 
 ```json
 {
   "daemon.host": "localhost",
-  "daemon.port": 8765,
+  "daemon.port": 3456,
+  "daemon.autoConnect": true,
   "display.theme": "dark",
   "display.refreshRate": 1000,
   "shortcuts.vim": true,
@@ -219,350 +354,161 @@ Launch TUI and press `,` to open settings, or edit `~/.tmux-agents/tui-settings.
 }
 ```
 
-### AI Provider Configuration
-
-Configure AI providers in daemon settings or per-agent:
-
-```javascript
-{
-  "claude": {
-    "command": "claude",
-    "args": ["--print", "--model", "opus"],
-    "defaultModel": "opus"
-  },
-  "gemini": {
-    "command": "gemini",
-    "args": ["--format", "json"],
-    "defaultModel": "pro"
-  }
-}
-```
-
----
-
-## Core Concepts
-
-### Agents
-
-Agents are autonomous AI workers with:
-- **Provider**: AI backend (Claude, Gemini, etc.)
-- **Model**: Specific model (opus, sonnet, pro, etc.)
-- **State**: IDLE, WORKING, PAUSED, ERROR, COMPLETED
-- **Runtime**: tmux, docker, kubernetes
-- **Memory**: Long-term context storage
-- **Tasks**: Queue of assigned work
-
-### Tasks
-
-Tasks represent work units:
-- **Priority**: 1-10 (1 = highest)
-- **Status**: PENDING, IN_PROGRESS, COMPLETED, FAILED
-- **Dependencies**: Task graph with blocked/blocking relationships
-- **Routing**: Automatic assignment based on agent capabilities
-
-### Teams
-
-Teams group agents for coordinated work:
-- **Roles**: lead, worker, reviewer, tester
-- **Skills**: Tags like "frontend", "backend", "security"
-- **Routing**: Tasks route to team members by role/skill match
-
-### Pipelines
-
-Multi-stage workflows with:
-- **Stages**: Sequential or parallel execution
-- **Dependencies**: DAG-based stage ordering
-- **Rollback**: Automatic rollback on stage failure
-- **Artifacts**: Stage outputs passed to next stage
-
----
-
-## Key Features
-
-### Multi-Runtime Support
-
-Run agents anywhere:
-
-```bash
-# Local tmux
-tmux-agents create-agent "Local worker" --runtime tmux
-
-# Remote SSH
-tmux-agents create-agent "Remote worker" \
-  --runtime tmux \
-  --server user@remote.example.com
-
-# Docker container
-tmux-agents create-agent "Container worker" \
-  --runtime docker \
-  --image ubuntu:22.04
-
-# Kubernetes pod
-tmux-agents create-agent "K8s worker" \
-  --runtime kubernetes \
-  --namespace agents \
-  --pod-spec pod-config.yaml
-```
-
-### Auto-Pilot Mode
-
-Autonomous monitoring and intervention:
-
-```bash
-# Enable auto-pilot for an agent
-tmux-agents config-agent <agent-id> --auto-pilot true
-
-# Auto-pilot will:
-# - Monitor agent output
-# - Detect errors/blocks
-# - Auto-restart failed agents
-# - Inject prompts when stuck
-# - Report completion
-```
-
-### Agent Memory
-
-Persistent context across sessions:
-
-```bash
-# View agent memory
-tmux-agents show-memory <agent-id>
-
-# Add memory entry
-tmux-agents add-memory <agent-id> "Remember: use TypeScript strict mode"
-
-# Clear old memories
-tmux-agents clear-memory <agent-id> --before 30d
-```
-
-### Pipeline Orchestration
-
-Complex multi-stage workflows:
-
-```javascript
-{
-  "id": "build-test-deploy",
-  "stages": [
-    {
-      "id": "build",
-      "tasks": ["compile", "bundle"],
-      "parallel": true
-    },
-    {
-      "id": "test",
-      "tasks": ["unit-tests", "integration-tests"],
-      "dependsOn": ["build"]
-    },
-    {
-      "id": "deploy",
-      "tasks": ["deploy-staging"],
-      "dependsOn": ["test"],
-      "requiresApproval": true
-    }
-  ]
-}
-```
-
----
-
-## Advanced Usage
-
-### Custom Agent Templates
-
-Define reusable agent configurations:
-
-```javascript
-{
-  "name": "code-reviewer",
-  "provider": "claude",
-  "model": "opus",
-  "systemPrompt": "You are a code reviewer...",
-  "skills": ["code-review", "security-audit"],
-  "autoMonitor": true,
-  "memory": {
-    "maxSize": 10000,
-    "retentionDays": 30
-  }
-}
-```
-
-### Task Routing Rules
-
-Configure intelligent task assignment:
-
-```javascript
-{
-  "rules": [
-    {
-      "condition": { "tags": ["urgent"], "priority": [1, 3] },
-      "assignTo": { "team": "on-call", "role": "lead" }
-    },
-    {
-      "condition": { "tags": ["frontend"] },
-      "assignTo": { "skills": ["react", "typescript"] }
-    }
-  ]
-}
-```
-
-### Event Subscriptions
-
-Listen to real-time events:
-
-```javascript
-const client = new TmuxAgentsClient('ws://localhost:8765');
-
-client.on('agent.state_changed', (event) => {
-  console.log(`Agent ${event.agentId} → ${event.newState}`);
-});
-
-client.on('task.completed', (event) => {
-  console.log(`Task ${event.taskId} completed in ${event.duration}ms`);
-});
-```
-
 ---
 
 ## JSON-RPC API
 
-The daemon exposes 40+ methods via JSON-RPC 2.0:
+The daemon exposes 50+ methods via JSON-RPC 2.0:
 
-### Agent Management (10 methods)
-- `agent.create` - Create new agent
-- `agent.list` - List all agents
-- `agent.get` - Get agent details
-- `agent.update` - Update agent config
-- `agent.delete` - Delete agent
-- `agent.start` - Start agent
-- `agent.stop` - Stop agent
-- `agent.pause` - Pause agent
-- `agent.resume` - Resume agent
-- `agent.getOutput` - Get agent output
+### Agent Management
+- `agent.list`, `agent.spawn`, `agent.kill`, `agent.getOutput`, `agent.sendPrompt`, `agent.fanOut`
 
-### Task Management (8 methods)
-- `task.create` - Create task
-- `task.list` - List tasks
-- `task.get` - Get task details
-- `task.assign` - Assign to agent
-- `task.unassign` - Unassign from agent
-- `task.setPriority` - Update priority
-- `task.addDependency` - Add dependency
-- `task.complete` - Mark complete
+### Task Management
+- `task.list`, `task.submit`, `task.move`, `task.get`, `task.update`, `task.delete`
 
-### Team Management (6 methods)
-- `team.create`, `team.list`, `team.get`, `team.addMember`, `team.removeMember`, `team.delete`
+### Team Management
+- `team.list`, `team.create`, `team.delete`, `team.addAgent`, `team.removeAgent`
 
-### Pipeline Management (8 methods)
-- `pipeline.create`, `pipeline.list`, `pipeline.get`, `pipeline.run`, `pipeline.pause`, `pipeline.resume`, `pipeline.cancel`, `pipeline.delete`
+### Pipeline Management
+- `pipeline.list`, `pipeline.run`, `pipeline.get`, `pipeline.pause`, `pipeline.resume`, `pipeline.cancel`
 
-### Memory Management (4 methods)
-- `memory.read`, `memory.write`, `memory.append`, `memory.clear`
+### Runtime Management
+- `runtime.list`, `runtime.getCapabilities`, `runtime.execute`, `runtime.getStatus`
 
-### Runtime Management (6 methods)
-- `runtime.list`, `runtime.getCapabilities`, `runtime.execute`, `runtime.cleanup`, `runtime.getStatus`, `runtime.configure`
+### System Management
+- `dashboard.get`, `health.check`, `daemon.status`, `daemon.shutdown`, `daemon.restart`
 
-### System Management (8 methods)
-- `system.ping`, `system.getStatus`, `system.getMetrics`, `system.shutdown`, `system.restart`, `system.getConfig`, `system.updateConfig`, `system.getLogs`
-
-See `CLAUDE.md` for full API documentation.
+See full API documentation in `CLAUDE.md`.
 
 ---
 
 ## Development
 
+### Project Structure
+
+```
+tmux-agents/                    # Monorepo root
+├── src/                        # Main VS Code extension
+│   ├── extension.ts            # Extension entry point
+│   ├── core/                   # Core business logic
+│   ├── orchestrator.ts         # Agent orchestration
+│   ├── pipelineEngine.ts       # Pipeline execution
+│   └── __tests__/              # Test suites (653 tests)
+├── packages/                   # Client packages
+│   ├── cli/                    # CLI client
+│   │   ├── src/cli/            # CLI implementation
+│   │   ├── dist/               # Compiled output
+│   │   └── __tests__/          # CLI tests (15 tests)
+│   ├── tui/                    # Terminal UI
+│   │   ├── src/tui/            # React + Ink UI
+│   │   ├── dist/               # Compiled output
+│   │   └── __tests__/          # TUI tests (31 tests)
+│   ├── mcp/                    # MCP server
+│   │   ├── src/                # MCP implementation
+│   │   ├── dist/               # Compiled output
+│   │   └── __tests__/          # MCP tests (55 tests)
+│   └── k8s-runtime/            # Kubernetes runtime
+│       ├── src/runtimes/       # K8s runtime implementation
+│       └── dist/               # Compiled output
+└── out/                        # Main extension compiled output
+```
+
 ### Build
 
 ```bash
-# Compile all components
-npm run compile
+# Build all
+npm run compile                 # Main extension
+npm run compile --workspaces    # All packages
+
+# Build specific package
+npm run build -w packages/cli
+npm run build -w packages/tui
+npm run build -w packages/mcp
+npm run build -w packages/k8s-runtime
 
 # Watch mode (auto-rebuild)
 npm run watch
-
-# Build specific component
-npm run compile:daemon
-npm run compile:cli
-npm run compile:tui
-npm run compile:mcp
+npm run watch -w packages/cli
 ```
 
 ### Test
 
 ```bash
 # Run all tests
-npx vitest run
+npm test                        # Main extension tests
+npm test --workspaces           # All package tests
 
-# Run with coverage
-npx vitest run --coverage
+# Run specific package tests
+npm test -w packages/cli        # 15/15 tests
+npm test -w packages/tui        # 31/31 tests
+npm test -w packages/mcp        # 55/55 tests
 
-# Run specific test suite
-npx vitest run src/__tests__/daemon
-npx vitest run src/__tests__/cli
+# With coverage
+npm test -- --coverage
 ```
 
-Current test coverage: **653/661 tests passing (98.8%)**
+**Current test status: 754/762 tests passing (98.9%)**
 
 ### Debug
 
 ```bash
-# Debug daemon with inspector
+# Debug daemon
 node --inspect out/daemon/index.js
 
 # Verbose logging
-DEBUG=tmux-agents:* tmux-agents-daemon start
+DEBUG=tmux-agents:* npx tmux-agents daemon start
 
-# Tail all logs
-tail -f ~/.tmux-agents/*.log
+# Check logs
+tail -f ~/.tmux-agents/daemon.log
 ```
 
 ---
 
 ## Troubleshooting
 
-### Daemon won't start
+### Daemon Issues
 
 ```bash
-# Check if already running
-ps aux | grep tmux-agents-daemon
+# Check status
+npx tmux-agents daemon status
 
-# Kill existing daemon
-pkill -f tmux-agents-daemon
+# Restart daemon
+npx tmux-agents daemon restart
 
-# Check port availability
-lsof -i :8765
+# Check health
+npx tmux-agents health --json
 
-# Start with verbose logging
-DEBUG=* tmux-agents-daemon start
+# View logs
+tail -f ~/.tmux-agents/daemon.log
 ```
 
-### Agent stuck in WORKING state
+### Agent Issues
 
 ```bash
 # Check agent output
-tmux-agents show-agent <agent-id> --output
+npx tmux-agents agent output <agent-id>
 
-# Restart agent
-tmux-agents stop-agent <agent-id>
-tmux-agents start-agent <agent-id>
+# Check tmux session
+tmux ls | grep tmux-agents
 
-# Check tmux session exists
-tmux ls | grep agent-
+# Kill stuck agent
+npx tmux-agents agent kill <agent-id>
 ```
 
-### Can't connect from client
+### Connection Issues
 
 ```bash
-# Verify daemon is running
-tmux-agents-daemon status
+# Test socket connection
+ls -la ~/.tmux-agents/daemon.sock
 
-# Test connection
-curl http://localhost:8765/health
+# Test HTTP fallback
+curl http://localhost:3456/health
 
-# Check firewall rules
-sudo lsof -i :8765
+# Check if daemon is running
+ps aux | grep "tmux-agents daemon"
 ```
 
-### TUI display issues
+### TUI Display Issues
 
 ```bash
 # Reset terminal
@@ -571,32 +517,8 @@ reset
 # Force 256 color mode
 export TERM=xterm-256color
 
-# Clear TUI cache
-rm -rf ~/.tmux-agents/tui-cache
-```
-
----
-
-## Project Structure
-
-```
-tmux-agents/
-├── src/                    # Main daemon and VS Code extension
-│   ├── daemon/             # Central daemon server
-│   ├── core/               # Shared core logic
-│   ├── adapters/           # Phase 1 adapters
-│   ├── extension.ts        # VS Code extension entry
-│   └── __tests__/          # Test suites (498 tests)
-├── tmux-agents-cli/        # CLI client (git worktree)
-│   ├── src/                # CLI implementation
-│   └── __tests__/          # CLI tests (544 tests)
-├── tmux-agents-tui/        # TUI client (git worktree)
-│   ├── src/                # React + Ink UI
-│   └── __tests__/          # TUI tests (19 tests)
-├── tmux-agents-mcp/        # MCP server (git worktree)
-│   ├── src/                # MCP implementation
-│   └── __tests__/          # MCP tests (55 tests)
-└── docs/                   # Documentation
+# Reinstall dependencies
+cd packages/tui && npm install
 ```
 
 ---
@@ -610,26 +532,26 @@ We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 1. Fork the repo
 2. Create feature branch: `git checkout -b feature/my-feature`
 3. Make changes with tests
-4. Run tests: `npx vitest run`
+4. Run tests: `npm test && npm test --workspaces`
 5. Commit: `git commit -m "feat: add my feature"`
-6. Push: `git push origin feature/my-feature`
-7. Create Pull Request
+6. Push and create Pull Request
 
 ### Code Style
 
 - TypeScript strict mode
 - ESLint + Prettier
-- Vitest for testing
+- Vitest for testing (not Jest)
 - Conventional commits
+- All imports must include `.js` extensions (ESM requirement)
 
 ---
 
 ## Resources
 
-- **Documentation**: [CLAUDE.md](CLAUDE.md) - Developer reference
+- **Developer Guide**: [CLAUDE.md](CLAUDE.md) - Architecture and API reference
+- **Completion Report**: [COMPLETION_REPORT.md](COMPLETION_REPORT.md) - Refactoring status
 - **Website**: https://super-agent.ai
 - **Issues**: https://github.com/super-agent-ai/tmux-agents/issues
-- **Discord**: https://discord.gg/super-agent-ai
 
 ---
 
@@ -648,8 +570,10 @@ Special thanks to:
 - tmux for terminal multiplexing
 - VS Code team for extension API
 - React and Ink for TUI framework
+- Model Context Protocol (MCP) team
 
 ---
 
 **Version**: 0.1.19
 **Last Updated**: 2026-02-13
+**Test Status**: 754/762 passing (98.9%)
