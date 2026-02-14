@@ -13,7 +13,7 @@ interface UseDaemonResult {
 /**
  * Hook to manage daemon client connection
  */
-export function useDaemon(socketPath?: string): UseDaemonResult {
+export function useDaemon(socketPath?: string, httpUrl?: string): UseDaemonResult {
   const [client, setClient] = useState<IDaemonClient | null>(null);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<Error | null>(null);
@@ -22,6 +22,7 @@ export function useDaemon(socketPath?: string): UseDaemonResult {
     let mounted = true;
     const daemonClient = new DaemonClient({
       socketPath,
+      httpUrl,
       autoReconnect: true,
       maxReconnectAttempts: 10,
       reconnectDelay: 1000,
@@ -51,7 +52,7 @@ export function useDaemon(socketPath?: string): UseDaemonResult {
         daemonClient.disconnect();
       }
     };
-  }, [socketPath]);
+  }, [socketPath, httpUrl]);
 
   return { client, connected, error };
 }

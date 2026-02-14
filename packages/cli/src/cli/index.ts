@@ -68,6 +68,7 @@ program
     .command('tui')
     .description('Launch Terminal UI dashboard')
     .option('--socket <path>', 'Daemon socket path')
+    .option('--ip <host:port>', 'Daemon HTTP address (e.g. localhost:3456 or 192.168.1.10:3456)')
     .action(async (options) => {
         try {
             const { spawn } = require('child_process');
@@ -79,6 +80,9 @@ program
             const args: string[] = [];
             if (options.socket) {
                 args.push('--socket', options.socket);
+            }
+            if (options.ip) {
+                args.push('--ip', options.ip);
             }
 
             const child = spawn('node', [tuiLauncher, ...args], {

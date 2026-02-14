@@ -4,7 +4,7 @@ import { DaemonClient } from '../../client/daemonClient.js';
 /**
  * Hook to manage daemon client connection
  */
-export function useDaemon(socketPath) {
+export function useDaemon(socketPath, httpUrl) {
     const [client, setClient] = useState(null);
     const [connected, setConnected] = useState(false);
     const [error, setError] = useState(null);
@@ -12,6 +12,7 @@ export function useDaemon(socketPath) {
         let mounted = true;
         const daemonClient = new DaemonClient({
             socketPath,
+            httpUrl,
             autoReconnect: true,
             maxReconnectAttempts: 10,
             reconnectDelay: 1000,
@@ -39,7 +40,7 @@ export function useDaemon(socketPath) {
                 daemonClient.disconnect();
             }
         };
-    }, [socketPath]);
+    }, [socketPath, httpUrl]);
     return { client, connected, error };
 }
 //# sourceMappingURL=useDaemon.js.map

@@ -23,12 +23,13 @@ import type { TabView } from '../types.js';
 
 interface AppProps {
   socketPath?: string;
+  httpUrl?: string;
 }
 
 /**
  * Main TUI application component
  */
-export function App({ socketPath }: AppProps) {
+export function App({ socketPath, httpUrl }: AppProps) {
   const { exit } = useApp();
   const [currentTab, setCurrentTab] = useState<TabView>('agents');
   const [selectedAgentIndex, setSelectedAgentIndex] = useState(0);
@@ -37,7 +38,7 @@ export function App({ socketPath }: AppProps) {
   const [previewingAgent, setPreviewingAgent] = useState<string | undefined>();
 
   // Daemon connection
-  const { client, connected, error: daemonError } = useDaemon(socketPath);
+  const { client, connected, error: daemonError } = useDaemon(socketPath, httpUrl);
 
   // Data hooks
   const { agents, loading: loadingAgents, error: agentsError, refresh: refreshAgents } = useAgents(client);

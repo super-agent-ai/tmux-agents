@@ -8,10 +8,14 @@ import { createElement } from 'react';
 // Parse command line arguments
 const args = process.argv.slice(2);
 let socketPath: string | undefined;
+let httpUrl: string | undefined;
 
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--socket' && i + 1 < args.length) {
     socketPath = args[i + 1];
+    i++;
+  } else if (args[i] === '--http-url' && i + 1 < args.length) {
+    httpUrl = args[i + 1];
     i++;
   } else if (args[i] === '--help' || args[i] === '-h') {
     console.log(`
@@ -21,8 +25,9 @@ Usage:
   tmux-agents tui [options]
 
 Options:
-  --socket <path>   Path to daemon Unix socket
-  --help, -h        Show this help message
+  --socket <path>      Path to daemon Unix socket
+  --http-url <url>     Daemon HTTP URL (e.g. http://localhost:3456)
+  --help, -h           Show this help message
 
 Keyboard Shortcuts:
   F1, F2, F3        Switch tabs (Agents, Tasks, Pipelines)
@@ -43,4 +48,4 @@ Keyboard Shortcuts:
 }
 
 // Render the app
-render(createElement(App, { socketPath }));
+render(createElement(App, { socketPath, httpUrl }));

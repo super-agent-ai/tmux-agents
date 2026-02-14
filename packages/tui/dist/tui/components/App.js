@@ -18,7 +18,7 @@ import { openSendPromptPopup, openSpawnAgentPopup, openSubmitTaskPopup, } from '
 /**
  * Main TUI application component
  */
-export function App({ socketPath }) {
+export function App({ socketPath, httpUrl }) {
     const { exit } = useApp();
     const [currentTab, setCurrentTab] = useState('agents');
     const [selectedAgentIndex, setSelectedAgentIndex] = useState(0);
@@ -26,7 +26,7 @@ export function App({ socketPath }) {
     const [selectedPipelineIndex, setSelectedPipelineIndex] = useState(0);
     const [previewingAgent, setPreviewingAgent] = useState();
     // Daemon connection
-    const { client, connected, error: daemonError } = useDaemon(socketPath);
+    const { client, connected, error: daemonError } = useDaemon(socketPath, httpUrl);
     // Data hooks
     const { agents, loading: loadingAgents, error: agentsError, refresh: refreshAgents } = useAgents(client);
     const { tasks, loading: loadingTasks, error: tasksError, refresh: refreshTasks } = useTasks(client);
