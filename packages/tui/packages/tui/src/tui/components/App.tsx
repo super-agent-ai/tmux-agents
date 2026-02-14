@@ -65,12 +65,24 @@ export function App({ socketPath, httpUrl }: AppProps) {
       return;
     }
 
-    // Tab switching (F1-F12 keys are passed as strings in key.meta)
-    if (input === '' && key.meta && key.shift === false) {
-      // Check for function keys via escape sequences
+    // Tab key - cycle through tabs
+    if (key.tab && !key.shift) {
+      const tabs: TabView[] = ['agents', 'tasks', 'pipelines', 'settings'];
+      const currentIndex = tabs.indexOf(currentTab);
+      const nextIndex = (currentIndex + 1) % tabs.length;
+      setCurrentTab(tabs[nextIndex]);
       return;
     }
-    // Fallback: use number keys 1-4 for tabs
+    // Shift+Tab - cycle backwards
+    if (key.tab && key.shift) {
+      const tabs: TabView[] = ['agents', 'tasks', 'pipelines', 'settings'];
+      const currentIndex = tabs.indexOf(currentTab);
+      const prevIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+      setCurrentTab(tabs[prevIndex]);
+      return;
+    }
+
+    // Number keys 1-4 for direct tab switching
     if (input === '1') {
       setCurrentTab('agents');
       return;

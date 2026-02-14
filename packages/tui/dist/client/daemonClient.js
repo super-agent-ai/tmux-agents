@@ -170,7 +170,9 @@ export class DaemonClient {
     }
     subscribe(handler) {
         if (!this.wsClient) {
-            throw new Error('WebSocket not connected - call connect() first');
+            // WebSocket not available - return no-op unsubscribe function
+            // TUI will still work via HTTP polling
+            return () => {};
         }
         return this.wsClient.subscribe(handler);
     }

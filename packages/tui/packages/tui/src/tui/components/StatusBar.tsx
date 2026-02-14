@@ -54,9 +54,10 @@ export function StatusBar({ agents, currentTab }: StatusBarProps) {
 
       {/* Tabs and shortcuts */}
       <Box marginTop={1}>
-        {tabIndicator('agents', 'Agents', 'F1')}
-        {tabIndicator('tasks', 'Tasks', 'F2')}
-        {tabIndicator('pipelines', 'Pipelines', 'F3')}
+        {tabIndicator('agents', 'Agents', '1')}
+        {tabIndicator('tasks', 'Tasks', '2')}
+        {tabIndicator('pipelines', 'Pipelines', '3')}
+        <Text dimColor>Tab: Next Tab │ </Text>
         <Text dimColor>
           Enter: Preview │ a: Attach │ s: Send │ n: New Agent │ t: New Task │ r: Refresh │ q:
           Quit
