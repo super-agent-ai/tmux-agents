@@ -34,8 +34,8 @@ export class DaemonClient {
 
     constructor(options: DaemonClientOptions = {}) {
         this.socketPath = options.socketPath || getSocketPath();
-        this.httpUrl = options.httpUrl || 'http://localhost:7777';
-        this.wsUrl = options.wsUrl || 'ws://localhost:7777/events';
+        this.httpUrl = options.httpUrl || 'http://localhost:3456';
+        this.wsUrl = options.wsUrl || 'ws://localhost:3457';
         this.timeout = options.timeout || 30000;
         this.autoReconnect = options.autoReconnect !== false;
         this.maxReconnectAttempts = options.maxReconnectAttempts || 5;
