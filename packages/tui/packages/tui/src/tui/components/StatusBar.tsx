@@ -57,10 +57,10 @@ export function StatusBar({ agents, currentTab }: StatusBarProps) {
         {tabIndicator('agents', 'Agents', '1')}
         {tabIndicator('tasks', 'Tasks', '2')}
         {tabIndicator('pipelines', 'Pipelines', '3')}
-        <Text dimColor>Tab: Next Tab │ </Text>
+        {tabIndicator('kanban', 'Kanban', '4')}
+        <Text dimColor>Tab: Next │ </Text>
         <Text dimColor>
-          Enter: Preview │ a: Attach │ s: Send │ n: New Agent │ t: New Task │ r: Refresh │ q:
-          Quit
+          Enter: Preview │ a: Attach │ s: Send │ n: New Agent │ r: Refresh │ q: Quit
         </Text>
       </Box>
     </Box>

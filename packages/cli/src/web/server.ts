@@ -27,6 +27,19 @@ export function startWebServer(port: number = 3000, host: string = '0.0.0.0'): h
       return;
     }
 
+    // Serve Kanban board
+    if (req.url === '/kanban') {
+      const kanbanPath = path.join(__dirname, 'kanban.html');
+      if (fs.existsSync(kanbanPath)) {
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end(fs.readFileSync(kanbanPath, 'utf-8'));
+      } else {
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        res.end('Kanban board not found');
+      }
+      return;
+    }
+
     // Health check
     if (req.url === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -72,6 +85,9 @@ function getDashboardHTML(): string {
       padding: 20px;
       border-radius: 8px;
       margin-bottom: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
     h1 { color: #4a9eff; margin-bottom: 10px; }
     .status { display: inline-block; padding: 5px 10px; border-radius: 4px; font-size: 14px; }
@@ -121,9 +137,14 @@ function getDashboardHTML(): string {
 </head>
 <body>
   <header>
-    <h1>🚀 tmux-agents Dashboard</h1>
-    <span id="daemonStatus" class="status">Connecting...</span>
-    <button class="refresh" onclick="refresh()">↻ Refresh</button>
+    <div>
+      <h1>🚀 tmux-agents Dashboard</h1>
+      <span id="daemonStatus" class="status">Connecting...</span>
+    </div>
+    <div style="display: flex; gap: 10px;">
+      <button class="refresh" onclick="window.location.href='/kanban'">📋 Kanban</button>
+      <button class="refresh" onclick="refresh()">↻ Refresh</button>
+    </div>
   </header>
 
   <div class="grid">

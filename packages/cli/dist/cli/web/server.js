@@ -39,6 +39,8 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.startWebServer = startWebServer;
 const http = __importStar(require("http"));
+const path = __importStar(require("path"));
+const fs = __importStar(require("fs"));
 function startWebServer(port = 3000, host = '0.0.0.0') {
     const server = http.createServer((req, res) => {
         // Enable CORS
@@ -54,6 +56,19 @@ function startWebServer(port = 3000, host = '0.0.0.0') {
         if (req.url === '/' || req.url === '/index.html') {
             res.writeHead(200, { 'Content-Type': 'text/html' });
             res.end(getDashboardHTML());
+            return;
+        }
+        // Serve Kanban board
+        if (req.url === '/kanban') {
+            const kanbanPath = path.join(__dirname, 'kanban.html');
+            if (fs.existsSync(kanbanPath)) {
+                res.writeHead(200, { 'Content-Type': 'text/html' });
+                res.end(fs.readFileSync(kanbanPath, 'utf-8'));
+            }
+            else {
+                res.writeHead(404, { 'Content-Type': 'text/plain' });
+                res.end('Kanban board not found');
+            }
             return;
         }
         // Health check
@@ -97,6 +112,9 @@ function getDashboardHTML() {
       padding: 20px;
       border-radius: 8px;
       margin-bottom: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
     h1 { color: #4a9eff; margin-bottom: 10px; }
     .status { display: inline-block; padding: 5px 10px; border-radius: 4px; font-size: 14px; }
@@ -146,9 +164,14 @@ function getDashboardHTML() {
 </head>
 <body>
   <header>
-    <h1>🚀 tmux-agents Dashboard</h1>
-    <span id="daemonStatus" class="status">Connecting...</span>
-    <button class="refresh" onclick="refresh()">↻ Refresh</button>
+    <div>
+      <h1>🚀 tmux-agents Dashboard</h1>
+      <span id="daemonStatus" class="status">Connecting...</span>
+    </div>
+    <div style="display: flex; gap: 10px;">
+      <button class="refresh" onclick="window.location.href='/kanban'">📋 Kanban</button>
+      <button class="refresh" onclick="refresh()">↻ Refresh</button>
+    </div>
   </header>
 
   <div class="grid">

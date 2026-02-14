@@ -58,7 +58,7 @@ export interface IDaemonClient {
 }
 
 // TUI-specific types
-export type TabView = 'agents' | 'tasks' | 'pipelines' | 'settings';
+export type TabView = 'agents' | 'tasks' | 'pipelines' | 'kanban' | 'settings';
 
 export interface TUIState {
   currentTab: TabView;

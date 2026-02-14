@@ -9,6 +9,7 @@ import { usePipelines } from '../hooks/usePipelines.js';
 import { AgentList } from './AgentList.js';
 import { TaskBoard } from './TaskBoard.js';
 import { PipelineView } from './PipelineView.js';
+import { KanbanBoard } from './KanbanBoard.js';
 import { SettingsPanel } from './SettingsPanel.js';
 import { StatusBar } from './StatusBar.js';
 import { PreviewHint } from './PreviewHint.js';
@@ -67,7 +68,7 @@ export function App({ socketPath, httpUrl }: AppProps) {
 
     // Tab key - cycle through tabs
     if (key.tab && !key.shift) {
-      const tabs: TabView[] = ['agents', 'tasks', 'pipelines', 'settings'];
+      const tabs: TabView[] = ['agents', 'tasks', 'pipelines', 'kanban', 'settings'];
       const currentIndex = tabs.indexOf(currentTab);
       const nextIndex = (currentIndex + 1) % tabs.length;
       setCurrentTab(tabs[nextIndex]);
@@ -75,14 +76,14 @@ export function App({ socketPath, httpUrl }: AppProps) {
     }
     // Shift+Tab - cycle backwards
     if (key.tab && key.shift) {
-      const tabs: TabView[] = ['agents', 'tasks', 'pipelines', 'settings'];
+      const tabs: TabView[] = ['agents', 'tasks', 'pipelines', 'kanban', 'settings'];
       const currentIndex = tabs.indexOf(currentTab);
       const prevIndex = (currentIndex - 1 + tabs.length) % tabs.length;
       setCurrentTab(tabs[prevIndex]);
       return;
     }
 
-    // Number keys 1-4 for direct tab switching
+    // Number keys 1-5 for direct tab switching
     if (input === '1') {
       setCurrentTab('agents');
       return;
@@ -96,6 +97,10 @@ export function App({ socketPath, httpUrl }: AppProps) {
       return;
     }
     if (input === '4') {
+      setCurrentTab('kanban');
+      return;
+    }
+    if (input === '5') {
       setCurrentTab('settings');
       return;
     }
@@ -255,6 +260,8 @@ export function App({ socketPath, httpUrl }: AppProps) {
             loading={loadingPipelines}
           />
         )}
+
+        {currentTab === 'kanban' && <KanbanBoard tasks={tasks} />}
 
         {currentTab === 'settings' && (
           <SettingsPanel

@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>tmux-agents Kanban Board</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a1a;
+      color: #e0e0e0;
+      padding: 20px;
+    }
+    header {
+      background: #2d2d2d;
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    h1 { color: #4a9eff; margin-bottom: 10px; }
+    .status { display: inline-block; padding: 5px 10px; border-radius: 4px; font-size: 14px; }
+    .status.healthy { background: #2d5f2f; color: #7fdf85; }
+    .status.unhealthy { background: #5f2d2d; color: #ff7f7f; }
+    .nav {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .nav button {
+      background: #2d2d2d;
+      color: #e0e0e0;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .nav button.active {
+      background: #4a9eff;
+      color: white;
+    }
+    .kanban-board {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 20px;
+      height: calc(100vh - 200px);
+    }
+    .kanban-column {
+      background: #2d2d2d;
+      border-radius: 8px;
+      padding: 15px;
+      display: flex;
+      flex-direction: column;
+    }
+    .kanban-column h2 {
+      font-size: 16px;
+      margin-bottom: 15px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .kanban-column.backlog h2 { color: #999; }
+    .kanban-column.todo h2 { color: #66c2ff; }
+    .kanban-column.in-progress h2 { color: #ffc966; }
+    .kanban-column.done h2 { color: #7fdf85; }
+    .kanban-cards {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .kanban-card {
+      background: #1a1a1a;
+      padding: 12px;
+      border-radius: 6px;
+      border-left: 3px solid #4a9eff;
+      cursor: pointer;
+      transition: transform 0.2s;
+    }
+    .kanban-card:hover {
+      transform: translateX(5px);
+    }
+    .kanban-card.priority-high { border-left-color: #ff6b6b; }
+    .kanban-card.priority-medium { border-left-color: #ffc966; }
+    .kanban-card.priority-low { border-left-color: #66c2ff; }
+    .kanban-card.priority-urgent { border-left-color: #ff3333; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+    .card-title {
+      font-weight: 600;
+      margin-bottom: 6px;
+      color: #e0e0e0;
+    }
+    .card-meta {
+      display: flex;
+      gap: 10px;
+      font-size: 12px;
+      color: #999;
+    }
+    .card-tag {
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 11px;
+    }
+    .card-tag.failed { background: #5f2d2d; color: #ff7f7f; }
+    .card-tag.blocked { background: #5f4f2d; color: #ffc966; }
+    .card-tag.review { background: #2d4f5f; color: #66c2ff; }
+    .refresh {
+      background: #4a9eff;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .refresh:hover { background: #3a8eef; }
+    .empty {
+      color: #666;
+      font-style: italic;
+      text-align: center;
+      padding: 20px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>📋 tmux-agents Kanban Board</h1>
+      <span id="daemonStatus" class="status">Connecting...</span>
+    </div>
+    <div style="display: flex; gap: 10px;">
+      <button class="refresh" onclick="window.location.href='/'">Dashboard</button>
+      <button class="refresh" onclick="refresh()">↻ Refresh</button>
+    </div>
+  </header>
+
+  <div class="kanban-board">
+    <div class="kanban-column backlog">
+      <h2>📥 Backlog <span id="backlogCount">(0)</span></h2>
+      <div id="backlogCards" class="kanban-cards">
+        <div class="empty">Loading...</div>
+      </div>
+    </div>
+
+    <div class="kanban-column todo">
+      <h2>📝 To Do <span id="todoCount">(0)</span></h2>
+      <div id="todoCards" class="kanban-cards">
+        <div class="empty">Loading...</div>
+      </div>
+    </div>
+
+    <div class="kanban-column in-progress">
+      <h2>🔨 In Progress <span id="inProgressCount">(0)</span></h2>
+      <div id="inProgressCards" class="kanban-cards">
+        <div class="empty">Loading...</div>
+      </div>
+    </div>
+
+    <div class="kanban-column done">
+      <h2>✅ Done <span id="doneCount">(0)</span></h2>
+      <div id="doneCards" class="kanban-cards">
+        <div class="empty">Loading...</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const DAEMON_API = 'http://localhost:3456';
+
+    async function callDaemon(method, params = {}) {
+      const response = await fetch(`${DAEMON_API}/rpc`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: Date.now(),
+          method,
+          params
+        })
+      });
+      const data = await response.json();
+      if (data.error) throw new Error(data.error.message);
+      return data.result;
+    }
+
+    function renderCard(task) {
+      const card = document.createElement('div');
+      card.className = `kanban-card priority-${task.priority || 'low'}`;
+
+      const title = document.createElement('div');
+      title.className = 'card-title';
+      title.textContent = task.title || task.description || `Task ${task.id.substring(0, 8)}`;
+      card.appendChild(title);
+
+      const meta = document.createElement('div');
+      meta.className = 'card-meta';
+
+      if (task.assignedTo) {
+        meta.innerHTML += `<span>👤 ${task.assignedTo}</span>`;
+      }
+
+      if (task.priority) {
+        meta.innerHTML += `<span style="color: ${
+          task.priority === 'urgent' ? '#ff3333' :
+          task.priority === 'high' ? '#ff6b6b' :
+          task.priority === 'medium' ? '#ffc966' : '#66c2ff'
+        }">● ${task.priority}</span>`;
+      }
+
+      card.appendChild(meta);
+
+      // Add status tags for special states
+      if (task.status === 'failed') {
+        const tag = document.createElement('span');
+        tag.className = 'card-tag failed';
+        tag.textContent = '✗ Failed';
+        card.appendChild(tag);
+      } else if (task.status === 'blocked') {
+        const tag = document.createElement('span');
+        tag.className = 'card-tag blocked';
+        tag.textContent = '⚠ Blocked';
+        card.appendChild(tag);
+      } else if (task.status === 'review') {
+        const tag = document.createElement('span');
+        tag.className = 'card-tag review';
+        tag.textContent = '👁 Review';
+        card.appendChild(tag);
+      }
+
+      return card;
+    }
+
+    async function refresh() {
+      try {
+        // Check daemon health
+        const health = await fetch(`${DAEMON_API}/health`).then(r => r.json());
+        document.getElementById('daemonStatus').className = 'status healthy';
+        document.getElementById('daemonStatus').textContent = '● Connected';
+
+        // Load tasks
+        const tasks = await callDaemon('task.list');
+
+        // Group tasks by column
+        const columns = {
+          backlog: tasks.filter(t => t.status === 'backlog'),
+          todo: tasks.filter(t => t.status === 'todo'),
+          inProgress: tasks.filter(t => t.status === 'in_progress' || t.status === 'blocked' || t.status === 'review'),
+          done: tasks.filter(t => t.status === 'done' || t.status === 'failed')
+        };
+
+        // Update counts
+        document.getElementById('backlogCount').textContent = `(${columns.backlog.length})`;
+        document.getElementById('todoCount').textContent = `(${columns.todo.length})`;
+        document.getElementById('inProgressCount').textContent = `(${columns.inProgress.length})`;
+        document.getElementById('doneCount').textContent = `(${columns.done.length})`;
+
+        // Render cards
+        const backlogEl = document.getElementById('backlogCards');
+        const todoEl = document.getElementById('todoCards');
+        const inProgressEl = document.getElementById('inProgressCards');
+        const doneEl = document.getElementById('doneCards');
+
+        backlogEl.innerHTML = columns.backlog.length === 0 ? '<div class="empty">No tasks</div>' : '';
+        todoEl.innerHTML = columns.todo.length === 0 ? '<div class="empty">No tasks</div>' : '';
+        inProgressEl.innerHTML = columns.inProgress.length === 0 ? '<div class="empty">No tasks</div>' : '';
+        doneEl.innerHTML = columns.done.length === 0 ? '<div class="empty">No tasks</div>' : '';
+
+        columns.backlog.forEach(task => backlogEl.appendChild(renderCard(task)));
+        columns.todo.forEach(task => todoEl.appendChild(renderCard(task)));
+        columns.inProgress.forEach(task => inProgressEl.appendChild(renderCard(task)));
+        columns.done.forEach(task => doneEl.appendChild(renderCard(task)));
+
+      } catch (error) {
+        console.error('Error refreshing:', error);
+        document.getElementById('daemonStatus').className = 'status unhealthy';
+        document.getElementById('daemonStatus').textContent = '● Disconnected';
+      }
+    }
+
+    // Initial load
+    refresh();
+
+    // Auto-refresh every 5 seconds
+    setInterval(refresh, 5000);
+  </script>
+</body>
+</html>
