@@ -11,7 +11,7 @@ import {
     GetPromptRequestSchema
 } from '@modelcontextprotocol/sdk/types.js';
 
-import { DaemonClient } from '../client/daemonClient.js';
+import { DaemonClient } from './client/daemonClient.js';
 import { tools, handleTool } from './tools.js';
 import { resources, handleResource } from './resources.js';
 import { prompts, handlePrompt } from './prompts.js';

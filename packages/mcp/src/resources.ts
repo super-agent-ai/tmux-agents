@@ -1,4 +1,4 @@
-import { DaemonClient } from '../client/daemonClient';
+import { DaemonClient } from './client/daemonClient.js';
 import { formatHealthReport } from './formatters.js';
 
 // ─── Resource Definitions ──────────────────────────────────────────────────

@@ -306,7 +306,7 @@ export function SettingsPanel({ onSave, onCancel }: SettingsPanelProps) {
                       <Text color="yellow">Value: </Text>
                       <TextInput
                         value={editMode.value}
-                        onChange={(val) => setEditMode({ ...editMode, value: val })}
+                        onChange={(val: string) => setEditMode({ ...editMode, value: val })}
                         onSubmit={handleEditSubmit}
                       />
                     </Box>

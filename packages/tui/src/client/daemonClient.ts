@@ -1,7 +1,7 @@
 import * as http from 'http';
 import * as net from 'net';
-import { WsClient } from './wsClient';
-import { getSocketPath, isDaemonRunning } from './discovery';
+import { WsClient } from './wsClient.js';
+import { getSocketPath, isDaemonRunning } from './discovery.js';
 import {
     JsonRpcRequest,
     JsonRpcResponse,
@@ -11,7 +11,7 @@ import {
     EventHandler,
     HealthReport,
     DaemonStats
-} from './types';
+} from './types.js';
 
 // ─── Daemon Client ─────────────────────────────────────────────────────────
 

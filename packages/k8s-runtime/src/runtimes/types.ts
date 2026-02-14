@@ -9,7 +9,7 @@
  * - k8s: "kubectl exec <pod> -n <ns> --"
  */
 
-import { TmuxService } from '../core/tmuxService';
+import { TmuxService } from '../core/tmuxService.js';
 
 // ─── Runtime Configuration ──────────────────────────────────────────────────
 

@@ -1,8 +1,8 @@
 import * as cp from 'child_process';
 import * as util from 'util';
 import * as os from 'os';
-import { TmuxSession, TmuxWindow, TmuxPane, ServerIdentity } from './types';
-import { EventBus } from './eventBus';
+import { TmuxSession, TmuxWindow, TmuxPane, ServerIdentity } from './types.js';
+import { EventBus } from './eventBus.js';
 
 const exec = util.promisify(cp.exec);
 

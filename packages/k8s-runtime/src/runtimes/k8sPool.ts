@@ -9,7 +9,7 @@
  */
 
 import * as k8s from '@kubernetes/client-node';
-import { TmuxService } from '../core/tmuxService';
+import { TmuxService } from '../core/tmuxService.js';
 
 export interface PoolConfig {
 	namespace: string;
@@ -71,18 +71,18 @@ export class K8sPool {
 
 		try {
 			// Try to update existing deployment
-			await this.appsApi.replaceNamespacedDeployment({
-				name: this.deploymentName,
-				namespace: this.namespace,
-				body: deploymentSpec,
-			});
+			await this.appsApi.replaceNamespacedDeployment(
+				this.deploymentName,
+				this.namespace,
+				deploymentSpec
+			);
 		} catch (err: any) {
 			if (err.response?.statusCode === 404) {
 				// Deployment doesn't exist, create it
-				await this.appsApi.createNamespacedDeployment({
-					namespace: this.namespace,
-					body: deploymentSpec,
-				});
+				await this.appsApi.createNamespacedDeployment(
+					this.namespace,
+					deploymentSpec
+				);
 			} else {
 				throw err;
 			}
@@ -102,10 +102,10 @@ export class K8sPool {
 
 		// Label the pod as claimed
 		try {
-			await this.k8sApi.patchNamespacedPod({
-				name: idlePod.name,
-				namespace: this.namespace,
-				body: {
+			await this.k8sApi.patchNamespacedPod(
+				idlePod.name,
+				this.namespace,
+				{
 					metadata: {
 						labels: {
 							'pool-claimed': 'true',
@@ -113,8 +113,8 @@ export class K8sPool {
 							'pool-claimed-at': new Date().toISOString(),
 						},
 					},
-				},
-			});
+				}
+			);
 
 			return idlePod.name;
 		} catch (err) {
@@ -128,10 +128,10 @@ export class K8sPool {
 	 */
 	async releasePod(podName: string): Promise<void> {
 		// Remove claim labels
-		await this.k8sApi.patchNamespacedPod({
-			name: podName,
-			namespace: this.namespace,
-			body: {
+		await this.k8sApi.patchNamespacedPod(
+			podName,
+			this.namespace,
+			{
 				metadata: {
 					labels: {
 						'pool-claimed': 'false',
@@ -139,8 +139,8 @@ export class K8sPool {
 						'pool-claimed-at': null,
 					},
 				},
-			},
-		});
+			}
+		);
 
 		// Reset tmux session (kill any running processes)
 		const tmux = this.getTmuxForPod(podName);
@@ -162,15 +162,15 @@ export class K8sPool {
 			Math.min(this.config.maxSize, replicas)
 		);
 
-		await this.appsApi.patchNamespacedDeploymentScale({
-			name: this.deploymentName,
-			namespace: this.namespace,
-			body: {
+		await this.appsApi.patchNamespacedDeploymentScale(
+			this.deploymentName,
+			this.namespace,
+			{
 				spec: {
 					replicas: clampedReplicas,
 				},
-			},
-		});
+			}
+		);
 	}
 
 	/**
@@ -196,10 +196,10 @@ export class K8sPool {
 	 */
 	async destroy(): Promise<void> {
 		try {
-			await this.appsApi.deleteNamespacedDeployment({
-				name: this.deploymentName,
-				namespace: this.namespace,
-			});
+			await this.appsApi.deleteNamespacedDeployment(
+				this.deploymentName,
+				this.namespace
+			);
 		} catch (err: any) {
 			if (err.response?.statusCode !== 404) {
 				throw err;
@@ -211,12 +211,16 @@ export class K8sPool {
 
 	private async listPoolPods(): Promise<PoolPod[]> {
 		const labelSelector = 'app=tmux-agents,pool=true';
-		const response = await this.k8sApi.listNamespacedPod({
-			namespace: this.namespace,
-			labelSelector,
-		});
+		const response = await this.k8sApi.listNamespacedPod(
+			this.namespace,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			labelSelector
+		);
 
-		return response.items.map(pod => {
+		return response.body.items.map((pod: any) => {
 			const labels = pod.metadata!.labels || {};
 			const claimed = labels['pool-claimed'] === 'true';
 

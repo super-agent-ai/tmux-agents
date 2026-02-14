@@ -1,5 +1,5 @@
 import WebSocket from 'ws';
-import { EventHandler, DaemonEvent, ConnectionState } from './types';
+import { EventHandler, DaemonEvent, ConnectionState } from './types.js';
 
 // ─── WebSocket Client ──────────────────────────────────────────────────────
 

@@ -2,6 +2,7 @@
   "name": "@tmux-agents/tui",
   "version": "0.1.19",
   "description": "Terminal UI for tmux-agents daemon",
+  "type": "module",
   "main": "dist/index.js",
   "bin": {
     "tmux-agents-tui": "./dist/tui/index.js"
@@ -24,6 +25,7 @@
   "license": "MIT",
   "dependencies": {
     "ink": "^6.0.0",
+    "ink-text-input": "^6.0.0",
     "react": "^19.0.0",
     "sql.js": "^1.14.0"
   },
@@ -32,6 +34,7 @@
     "@types/node": "^20.10.0",
     "@types/react": "^19.0.0",
     "happy-dom": "^15.0.0",
+    "ink-testing-library": "^4.0.0",
     "typescript": "^5.8.0",
     "vitest": "^2.0.0"
   }

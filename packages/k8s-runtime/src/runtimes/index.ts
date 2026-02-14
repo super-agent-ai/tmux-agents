@@ -2,7 +2,7 @@
  * Runtime module exports
  */
 
-export * from './types';
-export * from './k8sRuntime';
-export * from './k8sWatcher';
-export * from './k8sPool';
+export * from './types.js';
+export * from './k8sRuntime.js';
+export * from './k8sWatcher.js';
+export * from './k8sPool.js';

@@ -1,5 +1,5 @@
 // Client Library Barrel Export
-export * from './types';
-export * from './discovery';
-export * from './wsClient';
-export * from './daemonClient';
+export * from './types.js';
+export * from './discovery.js';
+export * from './wsClient.js';
+export * from './daemonClient.js';

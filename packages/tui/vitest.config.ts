@@ -6,7 +6,12 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     root: './src',
-    exclude: ['test/integration/**'],
+    include: [
+      'tui/**/*.test.ts',
+      'tui/**/*.test.tsx',
+      'client/**/*.test.ts'
+    ],
+    exclude: ['test/integration/**', 'node_modules/**', '**/*.js', '../dist/**', 'dist/**'],
     alias: {
       'vscode': path.resolve(__dirname, 'src/__tests__/__mocks__/vscode.ts'),
     },

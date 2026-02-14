@@ -6,14 +6,14 @@
  */
 
 import * as k8s from '@kubernetes/client-node';
-import { TmuxService } from '../core/tmuxService';
+import { TmuxService } from '../core/tmuxService.js';
 import {
 	AgentRuntime,
 	AgentConfig,
 	AgentHandle,
 	AgentInfo,
 	K8sRuntimeConfig,
-} from './types';
+} from './types.js';
 
 export class K8sRuntime implements AgentRuntime {
 	readonly type = 'kubernetes';
@@ -53,7 +53,7 @@ export class K8sRuntime implements AgentRuntime {
 		const podSpec = this.buildPodSpec(podName, config);
 
 		// 2. Create pod
-		await this.k8sApi.createNamespacedPod({ namespace: this.namespace, body: podSpec });
+		await this.k8sApi.createNamespacedPod(this.namespace, podSpec);
 
 		// 3. Wait for pod to be running
 		await this.waitForPodRunning(podName);
@@ -90,11 +90,7 @@ export class K8sRuntime implements AgentRuntime {
 		}
 
 		try {
-			await this.k8sApi.deleteNamespacedPod({
-				name: handle.podName,
-				namespace: this.namespace,
-				gracePeriodSeconds: 0,
-			});
+			await this.k8sApi.deleteNamespacedPod(handle.podName, this.namespace);
 		} catch (err: any) {
 			if (err.response?.statusCode === 404) {
 				// Pod already deleted
@@ -106,12 +102,16 @@ export class K8sRuntime implements AgentRuntime {
 
 	async listAgents(): Promise<AgentInfo[]> {
 		const labelSelector = 'app=tmux-agents';
-		const response = await this.k8sApi.listNamespacedPod({
-			namespace: this.namespace,
-			labelSelector,
-		});
+		const response = await this.k8sApi.listNamespacedPod(
+			this.namespace,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			labelSelector
+		);
 
-		return response.items.map(pod => {
+		return response.body.items.map((pod: any) => {
 			const podName = pod.metadata!.name!;
 			const labels = pod.metadata!.labels || {};
 			const phase = pod.status!.phase!;
@@ -164,10 +164,7 @@ export class K8sRuntime implements AgentRuntime {
 
 	async ping(): Promise<void> {
 		// Try to list pods in the namespace to verify API access
-		await this.k8sApi.listNamespacedPod({
-			namespace: this.namespace,
-			limit: 1,
-		});
+		await this.k8sApi.listNamespacedPod(this.namespace);
 	}
 
 	async reconcile(): Promise<AgentHandle[]> {
@@ -331,8 +328,8 @@ export class K8sRuntime implements AgentRuntime {
 
 		while (Date.now() - startTime < timeoutMs) {
 			try {
-				const pod = await this.k8sApi.readNamespacedPod({ name: podName, namespace: this.namespace });
-				const phase = pod.status?.phase;
+				const response = await this.k8sApi.readNamespacedPod(podName, this.namespace);
+				const phase = response.body.status?.phase;
 
 				if (phase === 'Running') {
 					return;
