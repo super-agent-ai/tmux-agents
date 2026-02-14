@@ -67,12 +67,34 @@ program
 program
     .command('tui')
     .description('Launch Terminal UI dashboard')
-    .action(async () => {
+    .option('--socket <path>', 'Daemon socket path')
+    .action(async (options) => {
         try {
-            // TODO: Launch TUI
-            error('TUI not yet implemented');
+            const { spawn } = require('child_process');
+            const path = require('path');
+
+            // Find the TUI launcher script
+            const tuiLauncher = path.join(__dirname, '../../../tui/tui.cjs');
+
+            const args: string[] = [];
+            if (options.socket) {
+                args.push('--socket', options.socket);
+            }
+
+            const child = spawn('node', [tuiLauncher, ...args], {
+                stdio: 'inherit',
+                env: process.env
+            });
+
+            child.on('error', (err: Error) => {
+                error(`Failed to launch TUI: ${err.message}`);
+            });
+
+            child.on('exit', (code: number | null) => {
+                process.exit(code || 0);
+            });
         } catch (err: any) {
-            error(err.message);
+            error(`Failed to launch TUI: ${err.message}`);
         }
     });
 
@@ -80,13 +102,30 @@ program
 program
     .command('web')
     .description('Launch web UI')
-    .option('-p, --port <port>', 'Port number', parseInt, 3000)
+    .option('-p, --port <port>', 'Port number', '3000')
+    .option('--host <host>', 'Host to bind to', '0.0.0.0')
     .action(async (options) => {
         try {
-            // TODO: Launch web UI
-            error('Web UI not yet implemented');
+            const { startWebServer } = await import('../web/server.js');
+            const port = parseInt(options.port) || 3000;
+            const server = startWebServer(port, options.host);
+
+            // Handle shutdown
+            process.on('SIGINT', () => {
+                console.log('\n\nShutting down web server...');
+                server.close(() => {
+                    console.log('Web server stopped');
+                    process.exit(0);
+                });
+            });
+
+            process.on('SIGTERM', () => {
+                server.close(() => {
+                    process.exit(0);
+                });
+            });
         } catch (err: any) {
-            error(err.message);
+            error(`Failed to start web server: ${err.message}`);
         }
     });
 

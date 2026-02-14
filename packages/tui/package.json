@@ -3,9 +3,9 @@
   "version": "0.1.19",
   "description": "Terminal UI for tmux-agents daemon",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "tui.cjs",
   "bin": {
-    "tmux-agents-tui": "./dist/tui/index.js"
+    "tmux-agents-tui": "./tui.cjs"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && mkdir -p dist/core && cp ../../node_modules/sql.js/dist/sql-wasm.wasm dist/core/ && cp ../../node_modules/sql.js/dist/sql-wasm.js dist/core/",
