@@ -275,3 +275,57 @@ export class Supervisor {
 		});
 	}
 }
+
+// ─── CLI Entry Point ─────────────────────────────────────────────────────
+
+/**
+ * Main entry point when running supervisor directly from command line
+ */
+async function main() {
+	const command = process.argv[2] || 'start';
+	const configPath = process.argv[3];
+
+	const supervisor = new Supervisor(configPath);
+
+	try {
+		switch (command) {
+			case 'start':
+				await supervisor.start();
+				break;
+
+			case 'stop':
+				await supervisor.stop();
+				process.exit(0);
+				break;
+
+			case 'reload':
+				await supervisor.reload();
+				process.exit(0);
+				break;
+
+			case 'status':
+				if (supervisor.isRunning()) {
+					const pid = supervisor.getPid();
+					console.log(`Daemon is running (PID: ${pid})`);
+					process.exit(0);
+				} else {
+					console.log('Daemon is not running');
+					process.exit(1);
+				}
+				break;
+
+			default:
+				console.error(`Unknown command: ${command}`);
+				console.error('Usage: supervisor [start|stop|reload|status] [config-path]');
+				process.exit(1);
+		}
+	} catch (error: any) {
+		console.error(`[Supervisor] Error: ${error.message}`);
+		process.exit(1);
+	}
+}
+
+// Run main if this file is executed directly
+if (require.main === module) {
+	main();
+}
