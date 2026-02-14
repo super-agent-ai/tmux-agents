@@ -44,8 +44,8 @@ Keyboard Shortcuts:
   }
 }
 
-// Find the TUI index script from the main extension
-const tuiScript = path.join(__dirname, '../../out/tui/index.js');
+// Find the TUI index script from the packages/tui/dist directory
+const tuiScript = path.join(__dirname, 'dist/tui/index.js');
 
 const tuiArgs = [];
 if (socketPath) {
