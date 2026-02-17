@@ -923,193 +923,9 @@ html, body {
     flex: 0 0 240px; max-width: 320px;
 }
 
-/* ── Swim Lane Plan Button ──────────────────────────────────────────── */
-.swim-lane-plan-btn {
-    height: 24px; padding: 0 10px; border: 1px solid rgba(180,130,255,0.35);
-    border-radius: 4px; background: rgba(180,130,255,0.10); color: #b482ff;
-    font-size: 11px; font-family: inherit; cursor: pointer;
-    display: inline-flex; align-items: center; gap: 4px;
-    opacity: 0.85; transition: opacity 0.15s, background 0.15s, border-color 0.15s;
-    white-space: nowrap;
-}
-.swim-lane-plan-btn:hover { opacity: 1; background: rgba(180,130,255,0.22); border-color: #b482ff; }
-.swim-lane-plan-btn:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 1px; }
-
-/* ── Plan Modal ────────────────────────────────────────────────────── */
-.plan-modal-overlay {
-    display: none; position: fixed; inset: 0; z-index: 1000;
-    background: rgba(0,0,0,0.5); backdrop-filter: blur(2px);
-    align-items: center; justify-content: center;
-}
-.plan-modal-overlay.active { display: flex; }
-.plan-modal {
-    width: 560px; max-height: 85vh; display: flex; flex-direction: column;
-    background: var(--vscode-editor-background); border: 1px solid var(--vscode-panel-border);
-    border-radius: 8px; box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-    overflow: hidden;
-}
-.plan-modal-header {
-    padding: 16px 20px 12px; border-bottom: 1px solid var(--vscode-panel-border);
-}
-.plan-modal-title {
-    font-size: 16px; font-weight: 600; color: var(--vscode-foreground);
-}
-.plan-modal-subtitle {
-    font-size: 11px; opacity: 0.55; margin-top: 2px;
-}
-.plan-chat {
-    flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px;
-    min-height: 180px;
-}
-.plan-msg {
-    padding: 10px 14px; border-radius: 8px; font-size: 12px; line-height: 1.5;
-    max-width: 92%; word-break: break-word; white-space: pre-wrap;
-}
-.plan-msg.user {
-    align-self: flex-end; background: rgba(180,130,255,0.15); color: var(--vscode-foreground);
-    border: 1px solid rgba(180,130,255,0.25);
-}
-.plan-msg.ai {
-    align-self: flex-start; background: var(--vscode-input-background);
-    border: 1px solid var(--vscode-panel-border);
-}
-.plan-msg.error {
-    align-self: flex-start; background: rgba(244,71,71,0.1); color: #f44747;
-    border: 1px solid rgba(244,71,71,0.25);
-}
-.plan-msg.thinking {
-    align-self: flex-start; background: var(--vscode-input-background);
-    border: 1px solid var(--vscode-panel-border); opacity: 0.7;
-}
-.plan-tasks-display {
-    padding: 12px 0;
-}
-.plan-wave-header {
-    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
-    color: #b482ff; margin: 12px 0 6px; padding-bottom: 4px;
-    border-bottom: 1px solid rgba(180,130,255,0.2);
-}
-.plan-wave-header:first-child { margin-top: 0; }
-.plan-task-item {
-    display: flex; gap: 8px; padding: 8px 10px; margin: 4px 0;
-    border-radius: 6px; background: rgba(255,255,255,0.03);
-    border: 1px solid var(--vscode-panel-border); align-items: flex-start;
-}
-.plan-task-index {
-    flex-shrink: 0; width: 22px; height: 22px; border-radius: 50%;
-    background: rgba(180,130,255,0.15); color: #b482ff;
-    font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center;
-}
-.plan-task-body { flex: 1; min-width: 0; }
-.plan-task-title { font-size: 12px; font-weight: 600; color: var(--vscode-foreground); }
-.plan-task-desc { font-size: 11px; opacity: 0.6; margin-top: 2px; }
-.plan-task-meta { display: flex; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
-.plan-task-deps {
-    font-size: 9px; padding: 1px 6px; border-radius: 3px;
-    background: rgba(78,201,176,0.15); color: #4ec9b0;
-}
-.plan-task-role {
-    font-size: 9px; padding: 1px 6px; border-radius: 3px;
-    background: rgba(180,130,255,0.15); color: #b482ff;
-}
-.plan-input-row {
-    display: flex; gap: 8px; padding: 12px 20px;
-    border-top: 1px solid var(--vscode-panel-border); align-items: flex-end;
-}
-.plan-input-row textarea {
-    flex: 1; padding: 8px 10px; border-radius: 6px; resize: none;
-    border: 1px solid var(--vscode-panel-border);
-    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
-    font-family: inherit; font-size: 12px; outline: none;
-    min-height: 38px; max-height: 120px;
-}
-.plan-input-row textarea:focus { border-color: var(--vscode-focusBorder); }
-.plan-input-row textarea::placeholder { opacity: 0.45; }
-.plan-generate-btn {
-    padding: 8px 16px; border: 1px solid rgba(180,130,255,0.4);
-    border-radius: 6px; font-size: 12px; font-family: inherit; cursor: pointer;
-    background: rgba(180,130,255,0.12); color: #b482ff;
-    white-space: nowrap; transition: background 0.15s, border-color 0.15s;
-    flex-shrink: 0;
-}
-.plan-generate-btn:hover { background: rgba(180,130,255,0.25); border-color: #b482ff; }
-.plan-generate-btn:disabled { opacity: 0.4; cursor: default; }
-.plan-generate-btn .spinner-sm {
-    display: inline-block; width: 10px; height: 10px;
-    border: 1.5px solid rgba(180,130,255,0.3); border-top-color: #b482ff;
-    border-radius: 50%; animation: spin 0.8s linear infinite;
-}
-.plan-actions {
-    display: flex; gap: 8px; padding: 0 20px 16px; justify-content: flex-end;
-}
-.plan-approve-btn {
-    padding: 8px 20px; border: none; border-radius: 6px;
-    background: var(--vscode-button-background); color: var(--vscode-button-foreground);
-    font-size: 12px; font-family: inherit; cursor: pointer;
-    transition: background 0.15s;
-}
-.plan-approve-btn:hover { background: var(--vscode-button-hoverBackground); }
-.plan-approve-btn:disabled { opacity: 0.4; cursor: default; }
-.plan-cancel-btn {
-    padding: 8px 16px; border: 1px solid var(--vscode-panel-border); border-radius: 6px;
-    background: transparent; color: var(--vscode-foreground);
-    font-size: 12px; font-family: inherit; cursor: pointer;
-    opacity: 0.7; transition: opacity 0.15s;
-}
-.plan-cancel-btn:hover { opacity: 1; }
-
-/* ── AI Generate Task ─────────────────────────────────────────────── */
+/* ── Task Modal Title Row ─────────────────────────────────────────── */
 .tm-title-row {
     display: flex; align-items: center; gap: 8px;
-}
-.tm-ai-generate-btn {
-    height: 26px; padding: 0 10px; border: 1px solid rgba(78,201,176,0.35);
-    border-radius: 4px; background: rgba(78,201,176,0.10); color: #4ec9b0;
-    font-size: 11px; font-family: inherit; cursor: pointer;
-    display: inline-flex; align-items: center; gap: 4px;
-    opacity: 0.85; transition: opacity 0.15s, background 0.15s, border-color 0.15s;
-    white-space: nowrap; margin-left: auto;
-}
-.tm-ai-generate-btn:hover { opacity: 1; background: rgba(78,201,176,0.22); border-color: #4ec9b0; }
-.tm-ai-generate-btn:disabled { opacity: 0.4; cursor: default; }
-.tm-ai-generate-btn .spinner-sm {
-    display: inline-block; width: 10px; height: 10px;
-    border: 1.5px solid rgba(78,201,176,0.3); border-top-color: #4ec9b0;
-    border-radius: 50%; animation: spin 0.8s linear infinite;
-}
-.tm-ai-prompt-section {
-    border: 1px solid rgba(78,201,176,0.25); border-radius: 6px;
-    background: rgba(78,201,176,0.04); padding: 10px 12px; margin-bottom: 4px;
-}
-.tm-ai-prompt-section.hidden { display: none; }
-.tm-ai-prompt-label {
-    font-size: 11px; font-weight: 600; color: #4ec9b0; margin-bottom: 6px;
-    display: flex; align-items: center; gap: 4px;
-}
-.tm-ai-prompt-row {
-    display: flex; gap: 8px; align-items: flex-end;
-}
-.tm-ai-prompt-row textarea {
-    flex: 1; padding: 6px 8px; border-radius: 4px; resize: none;
-    border: 1px solid var(--vscode-panel-border);
-    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
-    font-family: inherit; font-size: 12px; outline: none;
-    min-height: 36px; max-height: 80px;
-}
-.tm-ai-prompt-row textarea:focus { border-color: var(--vscode-focusBorder); }
-.tm-ai-prompt-row textarea::placeholder { opacity: 0.45; }
-.tm-ai-prompt-send {
-    padding: 6px 14px; border: 1px solid rgba(78,201,176,0.4);
-    border-radius: 4px; font-size: 11px; font-family: inherit; cursor: pointer;
-    background: rgba(78,201,176,0.12); color: #4ec9b0;
-    white-space: nowrap; flex-shrink: 0; transition: background 0.15s;
-}
-.tm-ai-prompt-send:hover { background: rgba(78,201,176,0.25); }
-.tm-ai-prompt-send:disabled { opacity: 0.4; cursor: default; }
-.tm-ai-prompt-send .spinner-sm {
-    display: inline-block; width: 10px; height: 10px;
-    border: 1.5px solid rgba(78,201,176,0.3); border-top-color: #4ec9b0;
-    border-radius: 50%; animation: spin 0.8s linear infinite;
 }
 
 </style>
@@ -1212,14 +1028,6 @@ html, body {
     <div class="modal" style="position:relative;">
         <div class="tm-title-row">
             <div class="modal-title" id="tm-title">New Task</div>
-            <button class="tm-ai-generate-btn" id="tm-ai-generate" title="Generate task details with AI">&#x2728; AI Generate</button>
-        </div>
-        <div class="tm-ai-prompt-section hidden" id="tm-ai-prompt-section">
-            <div class="tm-ai-prompt-label">&#x2728; Describe what you need — AI will fill all fields</div>
-            <div class="tm-ai-prompt-row">
-                <textarea id="tm-ai-prompt" rows="2" placeholder="e.g. Fix the login timeout bug, Add dark mode support, Write unit tests for auth module..."></textarea>
-                <button class="tm-ai-prompt-send" id="tm-ai-prompt-send">Generate</button>
-            </div>
         </div>
         <div class="modal-body">
         <div class="field">
@@ -1456,25 +1264,6 @@ html, body {
     </div>
 </div>
 
-<!-- Plan Modal -->
-<div class="plan-modal-overlay" id="plan-modal-overlay">
-    <div class="plan-modal">
-        <div class="plan-modal-header">
-            <div class="plan-modal-title">Plan Tasks</div>
-            <div class="plan-modal-subtitle" id="plan-modal-subtitle">Describe your goal and AI will generate a dependency-aware task plan</div>
-        </div>
-        <div class="plan-chat" id="plan-chat"></div>
-        <div class="plan-input-row">
-            <textarea id="plan-input" rows="2" placeholder="Describe what you want to accomplish..."></textarea>
-            <button class="plan-generate-btn" id="plan-generate-btn">Generate Plan</button>
-        </div>
-        <div class="plan-actions">
-            <button class="plan-cancel-btn" id="plan-cancel-btn">Cancel</button>
-            <button class="plan-approve-btn" id="plan-approve-btn" disabled>Approve &amp; Create Tasks</button>
-        </div>
-    </div>
-</div>
-
 <script>
 (function() {
     var vscode = acquireVsCodeApi();
@@ -1634,42 +1423,6 @@ html, body {
     // Task modal AI provider/model refs
     var tmProvider = document.getElementById('tm-provider');
     var tmModel = document.getElementById('tm-model');
-
-    // AI Generate Task
-    var tmAiGenerate = document.getElementById('tm-ai-generate');
-    var tmAiPromptSection = document.getElementById('tm-ai-prompt-section');
-    var tmAiPrompt = document.getElementById('tm-ai-prompt');
-    var tmAiPromptSend = document.getElementById('tm-ai-prompt-send');
-    var aiGenerating = false;
-
-    tmAiGenerate.addEventListener('click', function() {
-        tmAiPromptSection.classList.toggle('hidden');
-        if (!tmAiPromptSection.classList.contains('hidden')) {
-            tmAiPrompt.focus();
-        }
-    });
-
-    function submitAiGenerate() {
-        var text = tmAiPrompt.value.trim();
-        if (!text || aiGenerating) return;
-        aiGenerating = true;
-        tmAiPromptSend.disabled = true;
-        tmAiPromptSend.innerHTML = '<span class="spinner-sm"></span> Generating...';
-        var laneId = tmLane.value || modalSwimLaneId || '';
-        vscode.postMessage({
-            type: 'generateTask',
-            text: text,
-            swimLaneId: laneId
-        });
-    }
-
-    tmAiPromptSend.addEventListener('click', submitAiGenerate);
-    tmAiPrompt.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            submitAiGenerate();
-        }
-    });
 
     /* ── Provider → Model Map (injected from TypeScript via updateState) ── */
     var PROVIDER_MODELS = {};
@@ -2051,7 +1804,6 @@ html, body {
 
     function setupDropZone(bodyEl, colId, laneId) {
         bodyEl.addEventListener('dragover', function(e) {
-            if (dragSourceLane !== laneId) return;
             e.preventDefault();
             e.dataTransfer.dropEffect = 'move';
             bodyEl.classList.add('drag-over');
@@ -2064,13 +1816,15 @@ html, body {
         bodyEl.addEventListener('drop', function(e) {
             e.preventDefault();
             bodyEl.classList.remove('drag-over');
-            if (dragSourceLane !== laneId) return;
             var taskId = e.dataTransfer.getData('text/plain');
             if (!taskId) return;
-            if (dragSourceCol === colId) return;
-            vscode.postMessage({ type: 'moveTask', taskId: taskId, kanbanColumn: colId });
+            if (dragSourceCol === colId && dragSourceLane === laneId) return;
+            vscode.postMessage({ type: 'moveTask', taskId: taskId, kanbanColumn: colId, swimLaneId: laneId });
             var t = findTask(taskId);
-            if (t) t.kanbanColumn = colId;
+            if (t) {
+                t.kanbanColumn = colId;
+                t.swimLaneId = laneId;
+            }
             render();
         });
     }
@@ -2158,7 +1912,6 @@ html, body {
         }
         headerHtml += '</div>';
         headerHtml += '<div class="swim-lane-actions">';
-        headerHtml += '<button class="swim-lane-plan-btn" data-act="plan" data-lane-id="' + esc(lane.id) + '" aria-label="Plan tasks for ' + esc(lane.name) + '" data-tip="Plan tasks with AI">&#x1F4CB; Plan</button>';
         headerHtml += '<button class="btn-icon" data-act="open-terminal" data-lane-id="' + esc(lane.id) + '" data-tip="Open terminal attached to session">&#x2328;</button>';
         headerHtml += '<button class="btn-icon" data-act="debug-window" data-lane-id="' + esc(lane.id) + '" data-tip="Open debug shell window">&#x1F41B;</button>';
         headerHtml += '<button class="btn-icon" data-act="restart-debug" data-lane-id="' + esc(lane.id) + '" data-tip="Kill &amp; restart debug window">&#x1F504;</button>';
@@ -2196,7 +1949,6 @@ html, body {
         headerHtml += '<span style="opacity:0.4">Tasks without a swim lane</span>';
         headerHtml += '</div>';
         headerHtml += '<div class="swim-lane-actions">';
-        headerHtml += '<button class="swim-lane-plan-btn" data-act="plan" data-lane-id="__default" aria-label="Plan tasks for Default Lane" data-tip="Plan tasks with AI">&#x1F4CB; Plan</button>';
         headerHtml += '</div>';
 
         headerEl.innerHTML = headerHtml;
@@ -2473,16 +2225,6 @@ html, body {
     /* ── Event delegation on board ───────────────────────────────────────── */
 
     board.addEventListener('click', function(e) {
-        // Plan button in swim lane header
-        var planBtn = e.target.closest('.swim-lane-plan-btn');
-        if (planBtn) {
-            e.stopPropagation();
-            var laneId = planBtn.dataset.laneId;
-            if (laneId === '__default') laneId = '';
-            openPlanModal(laneId);
-            return;
-        }
-
         // Swim lane header collapse toggle
         var header = e.target.closest('.swim-lane-header');
         if (header) {
@@ -3045,13 +2787,6 @@ html, body {
             tmTaskActions.classList.remove('active');
         }
 
-        // Reset AI Generate state
-        aiGenerating = false;
-        tmAiPromptSection.classList.add('hidden');
-        tmAiPrompt.value = '';
-        tmAiPromptSend.disabled = false;
-        tmAiPromptSend.textContent = 'Generate';
-
         taskOverlay.classList.add('active');
         tmDesc.focus();
     }
@@ -3572,262 +3307,8 @@ html, body {
                 if (t) { tmInput.value = t.input || ''; }
             }
         }
-        if (msg.type === 'generateTaskResult') {
-            aiGenerating = false;
-            tmAiPromptSend.disabled = false;
-            tmAiPromptSend.textContent = 'Generate';
-            if (msg.error) {
-                tmAiPromptSend.textContent = 'Failed — retry';
-                setTimeout(function() { tmAiPromptSend.textContent = 'Generate'; }, 2000);
-            } else if (msg.task) {
-                var gt = msg.task;
-                // Title & description
-                if (gt.title) tmDesc.value = gt.title;
-                if (gt.description) tmInput.value = gt.description;
-                // Role
-                if (gt.role) tmRole.value = gt.role;
-                // Priority
-                if (gt.priority) {
-                    tmPriority.value = gt.priority;
-                    tmPriorityVal.textContent = gt.priority;
-                    updatePriorityColor();
-                }
-                // Toggles
-                if (gt.autoStart !== undefined) {
-                    gt.autoStart ? tmAutoStart.classList.add('active') : tmAutoStart.classList.remove('active');
-                }
-                if (gt.autoPilot !== undefined) {
-                    gt.autoPilot ? tmAutoPilot.classList.add('active') : tmAutoPilot.classList.remove('active');
-                }
-                if (gt.autoClose !== undefined) {
-                    gt.autoClose ? tmAutoClose.classList.add('active') : tmAutoClose.classList.remove('active');
-                }
-                if (gt.useWorktree !== undefined) {
-                    gt.useWorktree ? tmWorktree.classList.add('active') : tmWorktree.classList.remove('active');
-                }
-                // AI Provider & Model
-                if (gt.aiProvider !== undefined) {
-                    tmProvider.value = gt.aiProvider || '';
-                    populateModelDropdown(tmModel, gt.aiProvider || '', gt.aiModel || '');
-                }
-                if (gt.aiModel !== undefined && !gt.aiProvider) {
-                    tmModel.value = gt.aiModel || '';
-                }
-                // Tags
-                if (gt.tags && gt.tags.length > 0) {
-                    modalTags = [];
-                    for (var tgi = 0; tgi < gt.tags.length; tgi++) {
-                        if (modalTags.indexOf(gt.tags[tgi]) === -1) {
-                            modalTags.push(gt.tags[tgi]);
-                        }
-                    }
-                    renderModalTags();
-                }
-                // Collapse AI prompt section after successful generation
-                tmAiPromptSection.classList.add('hidden');
-            }
-        }
-        if (msg.type === 'generatePlanResult') {
-            planGenerating = false;
-            planGenerateBtn.disabled = false;
-            planGenerateBtn.textContent = 'Generate Plan';
-            planInput.disabled = false;
-            if (msg.error) {
-                planConversation.push({ role: 'error', text: msg.error });
-            } else if (msg.tasks && msg.tasks.length > 0) {
-                planGeneratedTasks = msg.tasks;
-                planConversation.push({ role: 'plan', text: '', tasks: msg.tasks });
-                planApproveBtn.disabled = false;
-            } else {
-                planConversation.push({ role: 'error', text: 'No tasks generated. Try a more detailed description.' });
-            }
-            renderPlanChat();
-        }
-        if (msg.type === 'approvePlanResult') {
-            if (msg.success) {
-                closePlanModal();
-            } else {
-                planConversation.push({ role: 'error', text: msg.error || 'Failed to create tasks.' });
-                planApproveBtn.disabled = false;
-                renderPlanChat();
-            }
-        }
     });
 
-    /* ── Plan Modal ─────────────────────────────────────────────────────── */
-
-    var planOverlay = document.getElementById('plan-modal-overlay');
-    var planChat = document.getElementById('plan-chat');
-    var planInput = document.getElementById('plan-input');
-    var planGenerateBtn = document.getElementById('plan-generate-btn');
-    var planApproveBtn = document.getElementById('plan-approve-btn');
-    var planCancelBtn = document.getElementById('plan-cancel-btn');
-    var planSubtitle = document.getElementById('plan-modal-subtitle');
-    var planSwimLaneId = '';
-    var planConversation = [];
-    var planGeneratedTasks = [];
-    var planGenerating = false;
-
-    function openPlanModal(laneId) {
-        planSwimLaneId = laneId;
-        planConversation = [];
-        planGeneratedTasks = [];
-        planGenerating = false;
-        planInput.value = '';
-        planInput.disabled = false;
-        planGenerateBtn.disabled = false;
-        planGenerateBtn.textContent = 'Generate Plan';
-        planApproveBtn.disabled = true;
-        var lane = null;
-        for (var pi = 0; pi < swimLanes.length; pi++) {
-            if (swimLanes[pi].id === laneId) { lane = swimLanes[pi]; break; }
-        }
-        planSubtitle.textContent = lane
-            ? 'Planning for: ' + lane.name
-            : 'Describe your goal and AI will generate a dependency-aware task plan';
-        renderPlanChat();
-        planOverlay.classList.add('active');
-        planInput.focus();
-    }
-
-    function closePlanModal() {
-        planOverlay.classList.remove('active');
-        planConversation = [];
-        planGeneratedTasks = [];
-        planGenerating = false;
-    }
-
-    function computeWaves(planTasks) {
-        var waves = [];
-        var assigned = {};
-        var remaining = [];
-        for (var i = 0; i < planTasks.length; i++) {
-            remaining.push(i);
-        }
-        var maxIter = planTasks.length + 1;
-        var iter = 0;
-        while (remaining.length > 0 && iter < maxIter) {
-            iter++;
-            var wave = [];
-            var nextRemaining = [];
-            for (var r = 0; r < remaining.length; r++) {
-                var idx = remaining[r];
-                var deps = planTasks[idx].dependsOn || [];
-                var allMet = true;
-                for (var d = 0; d < deps.length; d++) {
-                    if (!assigned[deps[d]]) { allMet = false; break; }
-                }
-                if (allMet) {
-                    wave.push(idx);
-                } else {
-                    nextRemaining.push(idx);
-                }
-            }
-            if (wave.length === 0) {
-                // Circular deps — dump remainder into last wave
-                for (var cr = 0; cr < nextRemaining.length; cr++) {
-                    wave.push(nextRemaining[cr]);
-                }
-                nextRemaining = [];
-            }
-            waves.push(wave);
-            for (var w = 0; w < wave.length; w++) {
-                assigned[wave[w]] = true;
-            }
-            remaining = nextRemaining;
-        }
-        return waves;
-    }
-
-    function renderPlanChat() {
-        var html = '';
-        if (planConversation.length === 0) {
-            html = '<div style="text-align:center;opacity:0.4;padding:20px;font-size:12px;">Describe your goal to generate a task plan.</div>';
-        }
-        for (var ci = 0; ci < planConversation.length; ci++) {
-            var entry = planConversation[ci];
-            if (entry.role === 'user') {
-                html += '<div class="plan-msg user">' + esc(entry.text) + '</div>';
-            } else if (entry.role === 'error') {
-                html += '<div class="plan-msg error">' + esc(entry.text) + '</div>';
-            } else if (entry.role === 'thinking') {
-                html += '<div class="plan-msg thinking"><span class="spinner-sm"></span> Generating plan...</div>';
-            } else if (entry.role === 'plan' && entry.tasks) {
-                var waves = computeWaves(entry.tasks);
-                html += '<div class="plan-tasks-display">';
-                for (var wi = 0; wi < waves.length; wi++) {
-                    html += '<div class="plan-wave-header">Wave ' + (wi + 1) + ' (' + waves[wi].length + ' task' + (waves[wi].length !== 1 ? 's' : '') + ')</div>';
-                    for (var ti = 0; ti < waves[wi].length; ti++) {
-                        var tIdx = waves[wi][ti];
-                        var pt = entry.tasks[tIdx];
-                        html += '<div class="plan-task-item">';
-                        html += '<div class="plan-task-index">' + (tIdx + 1) + '</div>';
-                        html += '<div class="plan-task-body">';
-                        html += '<div class="plan-task-title">' + esc(pt.title) + '</div>';
-                        if (pt.description) { html += '<div class="plan-task-desc">' + esc(pt.description).substring(0, 120) + '</div>'; }
-                        html += '<div class="plan-task-meta">';
-                        if (pt.role) { html += '<span class="plan-task-role">' + esc(pt.role) + '</span>'; }
-                        if (pt.dependsOn && pt.dependsOn.length > 0) {
-                            html += '<span class="plan-task-deps">depends on: ' + pt.dependsOn.map(function(d) { return '#' + (d + 1); }).join(', ') + '</span>';
-                        }
-                        html += '</div></div></div>';
-                    }
-                }
-                html += '</div>';
-            }
-        }
-        planChat.innerHTML = html;
-        planChat.scrollTop = planChat.scrollHeight;
-    }
-
-    function submitPlanRequest() {
-        var text = planInput.value.trim();
-        if (!text || planGenerating) return;
-        planConversation.push({ role: 'user', text: text });
-        planConversation.push({ role: 'thinking', text: '' });
-        planGenerating = true;
-        planGenerateBtn.disabled = true;
-        planGenerateBtn.innerHTML = '<span class="spinner-sm"></span> Generating...';
-        planInput.value = '';
-        planInput.disabled = true;
-        planApproveBtn.disabled = true;
-        planGeneratedTasks = [];
-        renderPlanChat();
-        // Build conversation history (exclude thinking/plan entries)
-        var convHistory = [];
-        for (var ch = 0; ch < planConversation.length; ch++) {
-            var ce = planConversation[ch];
-            if (ce.role === 'user') { convHistory.push({ role: 'user', text: ce.text }); }
-            if (ce.role === 'plan' && ce.tasks) { convHistory.push({ role: 'assistant', text: JSON.stringify(ce.tasks) }); }
-        }
-        vscode.postMessage({
-            type: 'generatePlan',
-            swimLaneId: planSwimLaneId,
-            text: text,
-            conversation: convHistory
-        });
-    }
-
-    planGenerateBtn.addEventListener('click', submitPlanRequest);
-    planInput.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            submitPlanRequest();
-        }
-    });
-    planCancelBtn.addEventListener('click', closePlanModal);
-    planOverlay.addEventListener('click', function(e) {
-        if (e.target === planOverlay) closePlanModal();
-    });
-    planApproveBtn.addEventListener('click', function() {
-        if (!planGeneratedTasks || planGeneratedTasks.length === 0) return;
-        planApproveBtn.disabled = true;
-        vscode.postMessage({
-            type: 'approvePlan',
-            swimLaneId: planSwimLaneId,
-            tasks: planGeneratedTasks
-        });
-    });
 
     /* ── Initial render ──────────────────────────────────────────────────── */
     renderFilterTagsChips();

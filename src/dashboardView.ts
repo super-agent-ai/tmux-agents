@@ -1018,7 +1018,6 @@ section {
                 </div>
                 <span>Auto-refresh</span>
             </label>
-            <button class="btn" id="btn-chat" title="Open AI Chat">&#x1F4AC; AI Chat</button>
             <button class="btn" id="btn-refresh" title="Refresh now">&#x21BB; Refresh</button>
             <button class="btn primary" id="btn-new-agent">+ Agent</button>
             <button class="btn primary" id="btn-new-team">+ Team</button>
@@ -1884,9 +1883,6 @@ section {
     });
 
     // Header buttons
-    document.getElementById('btn-chat').addEventListener('click', function() {
-        vscode.postMessage({ type: 'openChat' });
-    });
     document.getElementById('btn-refresh').addEventListener('click', function() {
         vscode.postMessage({ type: 'refresh' });
     });

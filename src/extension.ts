@@ -1,11 +1,9 @@
 import * as vscode from 'vscode';
 import { TmuxSessionProvider, TmuxSessionTreeItem, TmuxWindowTreeItem, TmuxPaneTreeItem, ShortcutsProvider } from './treeProvider';
-import { ChatViewProvider } from './chatView';
-import { ApiCatalog } from './apiCatalog';
 import { TmuxService } from './tmuxService';
 import { TmuxServiceManager } from './serviceManager';
 import { SmartAttachmentService } from './smartAttachment';
-import { AIAssistantManager } from './aiAssistant';
+import { AIAssistantManager } from './core/aiAssistant';
 import { HotkeyManager } from './hotkeyManager';
 import { AgentOrchestrator } from './orchestrator';
 import { TaskRouter } from './taskRouter';
@@ -16,19 +14,14 @@ import { DashboardViewProvider } from './dashboardView';
 import { GraphViewProvider } from './graphView';
 import { KanbanViewProvider } from './kanbanView';
 import { Database } from './database';
-import { AIProvider, AgentRole, TaskStatus, OrchestratorTask, KanbanSwimLane, FavouriteFolder, StageType, resolveToggle } from './types';
+import { DaemonBridge } from './daemonBridge';
+import { AIProvider, AgentRole, TaskStatus, OrchestratorTask, KanbanSwimLane, FavouriteFolder, StageType } from './types';
 import { handleKanbanMessage, triggerDependents } from './commands/kanbanHandlers';
 import { registerSessionCommands } from './commands/sessionCommands';
 import { registerAgentCommands } from './commands/agentCommands';
-import { checkAutoCompletions, checkAutoPilot } from './autoMonitor';
-import { checkAutoCloseTimers, markDoneTimestamp, AutoCloseMonitorContext } from './autoCloseMonitor';
-import { syncTaskListAttachments, SessionSyncContext } from './sessionSync';
-import { buildSingleTaskPrompt, buildTaskBoxPrompt, appendPromptTail, buildPersonaContext } from './promptBuilder';
-import { ensureMemoryDir, readMemoryFile, getMemoryFilePath, buildMemoryLoadPrompt, buildMemorySavePrompt } from './memoryManager';
+import { buildTaskWindowName } from './core/taskLauncher';
 import { OrganizationManager } from './organizationManager';
 import { GuildManager } from './guildManager';
-import { PromptRegistry } from './promptRegistry';
-import { PromptExecutor } from './promptExecutor';
 
 function getServiceForItem(
     serviceManager: TmuxServiceManager,
@@ -56,16 +49,6 @@ async function pickService(serviceManager: TmuxServiceManager): Promise<TmuxServ
         { placeHolder: 'Select server' }
     );
     return choice?.service;
-}
-
-function buildTaskWindowName(task: OrchestratorTask): string {
-    const words = (task.description || '').trim().split(/\s+/).slice(0, 2).join('-')
-        .toLowerCase().replace(/[^a-z0-9\-]/g, '').slice(0, 20);
-    const shortId = task.id.slice(0, 15);
-    const uuid = Math.random().toString(36).slice(2, 8);
-    const parts = [words, shortId, uuid].filter(Boolean);
-    const name = parts.join('-') + '-task';
-    return name.slice(0, 60);
 }
 
 // ── Global Output Channel ────────────────────────────────────────────────────
@@ -102,6 +85,24 @@ export function activate(context: vscode.ExtensionContext) {
     const shortcutsProvider = new ShortcutsProvider();
     vscode.window.registerTreeDataProvider('tmux-agents-shortcuts', shortcutsProvider);
 
+    // ── VS Code Local toggle ─────────────────────────────────────────────────
+    // Restore persisted state
+    const savedShowLocal = context.globalState.get<boolean>('tmuxAgents.showVscodeLocal', false);
+    serviceManager.setShowVscodeLocal(savedShowLocal);
+    vscode.commands.executeCommand('setContext', 'tmuxAgents.showVscodeLocal', savedShowLocal);
+
+    const toggleVscodeLocalCmd = vscode.commands.registerCommand('tmux-agents.toggleVscodeLocal', () => {
+        const next = !serviceManager.showVscodeLocal;
+        serviceManager.setShowVscodeLocal(next);
+        context.globalState.update('tmuxAgents.showVscodeLocal', next);
+        vscode.commands.executeCommand('setContext', 'tmuxAgents.showVscodeLocal', next);
+    });
+
+    // Refresh tree whenever services change (daemon runtimes fetched, toggle, etc.)
+    serviceManager.onServicesChanged(() => {
+        tmuxSessionProvider.refresh();
+    });
+
     // ── Orchestration System ─────────────────────────────────────────────────
 
     const orchestrator = new AgentOrchestrator();
@@ -114,46 +115,48 @@ export function activate(context: vscode.ExtensionContext) {
     const organizationManager = new OrganizationManager();
     const guildManager = new GuildManager();
 
-    // ── Default Prompt Templates ─────────────────────────────────────────────
-    const promptRegistry = new PromptRegistry(context.extensionPath);
-    const defaultPromptsEnabled = vscode.workspace.getConfiguration('tmuxAgents').get<boolean>('defaultPromptsEnabled', true);
-    if (defaultPromptsEnabled) {
-        promptRegistry.load(context.extensionPath);
+    // ── Database (via Daemon Bridge) ────────────────────────────────────────
+    // DaemonBridge extends Database: when the daemon is running, tasks and
+    // swim lanes are proxied through the daemon so the TUI sees the same data.
+    // When the daemon is not running, everything falls back to local DB.
+    const dataDir = (() => {
+        const raw = vscode.workspace.getConfiguration('tmuxAgents').get<string>('dataDir') || '~/.tmux-agents';
+        return raw.replace(/^~(?=\/|$)/, require('os').homedir());
+    })();
+    const dbPath = require('path').join(dataDir, 'data.db');
+    const daemonUrl = vscode.workspace.getConfiguration('tmuxAgents').get<string>('daemonUrl', '');
+    const daemonClient = daemonUrl
+        ? (() => {
+            const { DaemonClient } = require('./client/daemonClient');
+            const host = daemonUrl.includes('://') ? daemonUrl : `http://${daemonUrl}`;
+            const url = new URL(host);
+            const httpEndpoint = url.toString().replace(/\/$/, '');
+            const wsPort = (parseInt(url.port || '3456') + 1).toString();
+            const wsEndpoint = `ws://${url.hostname}:${wsPort}`;
+            console.log(`[TmuxAgents] Remote daemon: HTTP=${httpEndpoint}  WS=${wsEndpoint}`);
+            return new DaemonClient({
+                httpUrl: httpEndpoint,
+                wsUrl: wsEndpoint,
+                preferUnixSocket: false,
+            });
+        })()
+        : undefined;
+    const database = new DaemonBridge(dbPath, daemonClient);
+
+    // ── Fetch runtimes from daemon ─────────────────────────────────────────
+    // Pull the daemon's runtime list and populate VS Code services from it.
+    // Server aliases map daemon runtime IDs to VS Code SSH config aliases,
+    // so VS Code can reach the same machines through its own SSH config.
+    async function fetchDaemonRuntimes(): Promise<void> {
+        try {
+            const runtimes = await database.rpcClient.call('runtime.list', {});
+            const aliases = vscode.workspace.getConfiguration('tmuxAgents').get<Record<string, string>>('serverAliases') || {};
+            serviceManager.updateFromDaemonRuntimes(runtimes, aliases);
+        } catch (err: any) {
+            console.warn('[Extension] Failed to fetch runtimes from daemon:', err.message);
+        }
     }
-    const promptExecutor = new PromptExecutor();
 
-    // ── Database ──────────────────────────────────────────────────────────────
-    const dbDir = context.globalStorageUri.fsPath;
-    const dbPath = require('path').join(dbDir, 'tmux-agents.db');
-    const database = new Database(dbPath);
-
-    // ── API Catalog & Chat View ──────────────────────────────────────────────
-
-    const apiCatalog = new ApiCatalog({
-        serviceManager, orchestrator, teamManager,
-        pipelineEngine, templateManager, taskRouter, aiManager,
-        refreshTree: () => tmuxSessionProvider.refresh(),
-        getSwimLanes: () => swimLanes,
-        addSwimLane: (lane) => { swimLanes.push(lane); database.saveSwimLane(lane); },
-        deleteSwimLane: (id) => {
-            const idx = swimLanes.findIndex(l => l.id === id);
-            if (idx !== -1) { swimLanes.splice(idx, 1); database.deleteSwimLane(id); }
-        },
-        saveSwimLane: (lane) => database.saveSwimLane(lane),
-        updateKanban: () => updateKanban(),
-        getKanbanTasks: () => orchestrator.getTaskQueue(),
-        saveTask: (task) => database.saveTask(task),
-        deleteTask: (taskId) => { orchestrator.cancelTask(taskId); database.deleteTask(taskId); },
-        startTaskFlow: (task, options) => startTaskFlow(task, options),
-    });
-
-    const chatViewProvider = new ChatViewProvider(
-        serviceManager, context.extensionUri, apiCatalog,
-        { orchestrator, teamManager, pipelineEngine, templateManager },
-        aiManager
-    );
-    chatViewProvider.setRefreshCallback(() => tmuxSessionProvider.refresh());
-    vscode.window.registerWebviewViewProvider('tmux-agents-chat', chatViewProvider);
     const dashboardView = new DashboardViewProvider(context.extensionUri);
     const graphView = new GraphViewProvider(context.extensionUri);
     const kanbanView = new KanbanViewProvider(context.extensionUri);
@@ -169,8 +172,39 @@ export function activate(context: vscode.ExtensionContext) {
     // Initialize database and load persisted data
     (async () => {
         try {
-            await vscode.workspace.fs.createDirectory(context.globalStorageUri);
+            log(`Connecting to ${daemonUrl ? `remote daemon at ${daemonUrl}` : 'local daemon'}...`);
+            await vscode.workspace.fs.createDirectory(vscode.Uri.file(dataDir));
             await database.initialize();
+            log(database.isDaemonConnected
+                ? `Connected to daemon (all data via ${daemonUrl || 'unix socket'})`
+                : `Daemon unreachable, using local DB fallback: ${dbPath}`);
+
+            // Populate services from daemon's runtime list
+            await fetchDaemonRuntimes();
+
+            // Migrate from old VS Code globalStorage location if new DB is empty
+            const oldDbPath = require('path').join(context.globalStorageUri.fsPath, 'tmux-agents.db');
+            if (database.getAllSwimLanes().length === 0 && database.getAllTasks().length === 0) {
+                try {
+                    const fs = require('fs');
+                    if (fs.existsSync(oldDbPath) && oldDbPath !== dbPath) {
+                        const oldDb = new Database(oldDbPath);
+                        await oldDb.initialize();
+                        const oldLanes = oldDb.getAllSwimLanes();
+                        const oldTasks = oldDb.getAllTasks();
+                        const oldFavs = oldDb.getAllFavouriteFolders();
+                        if (oldLanes.length > 0 || oldTasks.length > 0) {
+                            for (const lane of oldLanes) { database.saveSwimLane(lane); }
+                            for (const task of oldTasks) { database.saveTask(task); }
+                            for (const fav of oldFavs) { database.saveFavouriteFolder(fav); }
+                            console.log(`Migrated ${oldLanes.length} lanes, ${oldTasks.length} tasks from old database`);
+                        }
+                        oldDb.close();
+                    }
+                } catch (err) {
+                    console.warn('Migration from old database location failed:', err);
+                }
+            }
 
             for (const lane of database.getAllSwimLanes()) {
                 swimLanes.push(lane);
@@ -194,14 +228,57 @@ export function activate(context: vscode.ExtensionContext) {
             organizationManager.loadOrgUnits(database.getAllOrgUnits());
             guildManager.loadGuilds(database.getAllGuilds());
 
-            // Load conversations into chat view
-            chatViewProvider.loadConversations(database.getAllConversations());
-
             updateKanban();
             updateDashboard();
-            console.log('tmux-agents: Database loaded successfully');
+            const mode = database.isDaemonConnected ? 'daemon (shared)' : 'local DB (standalone)';
+            console.log(`tmux-agents: Database loaded successfully [${mode}]`);
+            if (!database.isDaemonConnected) {
+                const hint = daemonUrl
+                    ? `Check that the daemon is running on ${daemonUrl} and the port is open.`
+                    : 'Start the daemon with: tmux-agents daemon start';
+                vscode.window.showWarningMessage(
+                    `tmux-agents: Daemon not reachable (${daemonUrl || 'local socket'}). ${hint}`,
+                    'Dismiss'
+                );
+            }
+
+            // Register warning callback so connection issues surface in VS Code
+            database.onWarning((message) => {
+                vscode.window.showWarningMessage(`tmux-agents: ${message}`, 'Dismiss');
+            });
+
+            // Register sync callback so external changes (from TUI) refresh the UI
+            database.onSync(() => {
+                // Refresh swim lanes
+                swimLanes.length = 0;
+                for (const lane of database.getAllSwimLanes()) {
+                    swimLanes.push(lane);
+                }
+                // Refresh favourite folders
+                favouriteFolders.length = 0;
+                for (const fav of database.getAllFavouriteFolders()) {
+                    favouriteFolders.push(fav);
+                }
+                // Refresh tasks in orchestrator from DB
+                const dbTasks = database.getAllTasks();
+                const existingIds = new Set(orchestrator.getTaskQueue().map(t => t.id));
+                const dbIds = new Set(dbTasks.map(t => t.id));
+                for (const task of dbTasks) {
+                    if (existingIds.has(task.id)) {
+                        const existing = orchestrator.getTask(task.id);
+                        if (existing) { Object.assign(existing, task); }
+                    } else {
+                        orchestrator.submitTask(task);
+                    }
+                }
+                for (const id of existingIds) {
+                    if (!dbIds.has(id)) { orchestrator.cancelTask(id); }
+                }
+                updateKanban();
+                updateDashboard();
+            });
         } catch (error) {
-            console.warn('tmux-agents: Failed to load database:', error);
+            log(`[ERROR] Failed to load database: ${error}`);
         }
     })();
 
@@ -219,105 +296,8 @@ export function activate(context: vscode.ExtensionContext) {
         updateDashboard();
     });
     const taskCompletedDisposable = orchestrator.onTaskCompleted(async task => {
-        if (task.assignedAgentId) {
-            const output = await orchestrator.captureAgentOutput(task.assignedAgentId, 50);
-            if (output) { task.output = output; }
-            database.saveTask(task);
-        }
-        if (task.parentTaskId) {
-            const parent = orchestrator.getTask(task.parentTaskId);
-            if (parent && parent.subtaskIds) {
-                const allDone = parent.subtaskIds.every(sid => {
-                    const sub = orchestrator.getTask(sid);
-                    return sub && sub.status === TaskStatus.COMPLETED;
-                });
-                if (allDone) {
-                    const lane = parent.swimLaneId ? swimLanes.find(l => l.id === parent.swimLaneId) : undefined;
-                    if (lane && lane.sessionActive) {
-                        const service = serviceManager.getService(lane.serverId);
-                        if (service) {
-                            try {
-                                const verifyWindowName = `verify-${parent.id.slice(0, 20)}`;
-                                await service.newWindow(lane.sessionName, verifyWindowName);
-
-                                const sessions = await service.getTmuxTreeFresh();
-                                const session = sessions.find(s => s.name === lane.sessionName);
-                                const win = session?.windows.find(w => w.name === verifyWindowName);
-                                const winIndex = win?.index || '0';
-                                const paneIndex = win?.panes[0]?.index || '0';
-
-                                if (lane.workingDirectory) {
-                                    await service.sendKeys(lane.sessionName, winIndex, paneIndex, `cd ${lane.workingDirectory}`);
-                                }
-
-                                let verifyPrompt = `You are a verification reviewer. Check whether the following subtasks completed successfully.\n\nParent task: ${parent.description}\n`;
-                                for (const sid of parent.subtaskIds) {
-                                    const sub = orchestrator.getTask(sid);
-                                    if (sub) {
-                                        verifyPrompt += `\n--- Subtask ${sub.id.slice(0, 8)}: ${sub.description} ---\n`;
-                                        verifyPrompt += sub.output ? sub.output.slice(-500) : '(no output captured)';
-                                        verifyPrompt += '\n';
-                                    }
-                                }
-                                verifyPrompt += `\nReview all subtask outputs. Check for:
-1. **Correctness**: Does each subtask's output indicate it completed successfully? Are there errors, test failures, or stack traces?
-2. **Completeness**: Did each subtask produce meaningful output, or did any appear to stop prematurely or produce no output?
-3. **Integration**: Do the subtasks produce changes that conflict with each other (e.g., modifying the same file in incompatible ways)?
-
-Keep your review concise — this is a sanity check on outputs, not a full code re-review.
-
-End with a verdict on a new line, exactly in this format:
-VERDICT: PASS
-or
-VERDICT: FAIL — [brief reason]
-
-If any subtask output shows errors, test failures, or incomplete work, the verdict should be FAIL.`;
-
-                                const verifyProvider = aiManager.resolveProvider(undefined, lane.aiProvider);
-                                const launchCmd = aiManager.getLaunchCommand(verifyProvider);
-                                await service.sendKeys(lane.sessionName, winIndex, paneIndex, launchCmd);
-
-                                const capturedPrompt = verifyPrompt;
-                                const capturedSession = lane.sessionName;
-                                const capturedWin = winIndex;
-                                const capturedPane = paneIndex;
-                                setTimeout(async () => {
-                                    try {
-                                        await service.sendKeys(capturedSession, capturedWin, capturedPane, '');
-                                        await service.sendKeys(capturedSession, capturedWin, capturedPane, capturedPrompt);
-                                        await service.sendKeys(capturedSession, capturedWin, capturedPane, '');
-                                    } catch (err) {
-                                        console.warn('Failed to send verification prompt:', err);
-                                    }
-                                }, 3000);
-
-                                parent.verificationStatus = 'pending';
-                                parent.kanbanColumn = 'in_review';
-                                database.saveTask(parent);
-                            } catch (error) {
-                                console.warn('Failed to launch verification:', error);
-                                parent.verificationStatus = 'passed';
-                                parent.kanbanColumn = 'done';
-                                parent.status = TaskStatus.COMPLETED;
-                                parent.completedAt = Date.now();
-                                markDoneTimestamp(parent);
-                                database.saveTask(parent);
-                            }
-                        }
-                    } else {
-                        parent.verificationStatus = 'passed';
-                        parent.kanbanColumn = 'done';
-                        parent.status = TaskStatus.COMPLETED;
-                        parent.completedAt = Date.now();
-                        markDoneTimestamp(parent);
-                        database.saveTask(parent);
-                    }
-                    updateKanban();
-                }
-            }
-        }
-        // Trigger dependents for the completed task
-        await triggerDependentsInline(task.id);
+        // Daemon handles verification and dependent launching
+        updateKanban();
         if (task.pipelineStageId) {
             for (const run of pipelineEngine.getActiveRuns()) {
                 const pipeline = pipelineEngine.getPipeline(run.pipelineId);
@@ -345,17 +325,6 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
     const agentMessageDisposable = orchestrator.onAgentMessage(msg => {
         database.saveAgentMessage(msg);
         updateDashboard();
-    });
-
-    // Wire up conversation persistence from chat view
-    chatViewProvider.onConversationChanged((conv) => {
-        database.saveConversation(conv);
-    });
-    chatViewProvider.onConversationMessageAdded(({ conversationId, entry }) => {
-        database.saveConversationMessage(conversationId, entry);
-    });
-    chatViewProvider.onConversationDeleted((convId) => {
-        database.deleteConversation(convId);
     });
 
     // Wire up dashboard actions
@@ -422,9 +391,6 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
                 vscode.window.showTextDocument(doc);
                 break;
             }
-            case 'openChat':
-                vscode.commands.executeCommand('tmux-agents-chat.focus');
-                break;
             case 'sendAgentMessage': {
                 const msg = orchestrator.sendMessage(payload.fromAgentId, payload.toAgentId, payload.content);
                 database.saveAgentMessage(msg);
@@ -480,161 +446,18 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
         }
     });
 
-    // ── startTaskFlow: reusable function to launch a task in tmux ──────────
+    // ── startTaskFlow: launch a task via daemon RPC ────────────────────────
     async function startTaskFlow(
         t: OrchestratorTask,
         options?: { additionalInstructions?: string; askForContext?: boolean }
     ): Promise<void> {
-        const lane = t.swimLaneId ? swimLanes.find(l => l.id === t.swimLaneId) : undefined;
-        if (lane) {
-            const ready = await ensureLaneSession(lane);
-            if (!ready) return;
-
-            // Resolve effective server and working directory (task overrides → lane defaults)
-            const effectiveServerId = t.serverOverride || lane.serverId;
-            const effectiveWorkingDir = t.workingDirectoryOverride || lane.workingDirectory;
-
-            const service = serviceManager.getService(effectiveServerId);
-            if (!service) return;
-
-            try {
-                const windowName = buildTaskWindowName(t);
-                await service.newWindow(lane.sessionName, windowName);
-                await cleanupInitWindow(service, lane.sessionName);
-
-                const sessions = await service.getTmuxTreeFresh();
-                const session = sessions.find(s => s.name === lane.sessionName);
-                const win = session?.windows.find(w => w.name === windowName);
-                const winIndex = win?.index || '0';
-                const paneIndex = win?.panes[0]?.index || '0';
-
-                if (resolveToggle(t, 'useWorktree', lane) && effectiveWorkingDir) {
-                    const shortId = t.id.slice(-8);
-                    const branchName = `task-${shortId}`;
-                    try {
-                        // Resolve ~ on the target server (local or remote) via shell
-                        const resolvedDir = (await service.execCommand(`cd ${effectiveWorkingDir} && pwd`)).trim();
-                        const parentDir = resolvedDir.substring(0, resolvedDir.lastIndexOf('/'));
-                        const worktreeDir = `${parentDir}/.worktrees`;
-                        const worktreePath = `${worktreeDir}/${branchName}`;
-                        // Ensure .worktrees parent directory exists
-                        await service.execCommand(`mkdir -p ${JSON.stringify(worktreeDir)}`);
-                        // Clean up previous worktree if it exists (e.g. on restart)
-                        if (t.worktreePath) {
-                            try {
-                                await service.execCommand(`git -C ${JSON.stringify(resolvedDir)} worktree remove ${JSON.stringify(t.worktreePath)} --force`);
-                            } catch { /* may already be gone */ }
-                            t.worktreePath = undefined;
-                        }
-                        // Delete stale branch if it exists from a previous run
-                        try {
-                            await service.execCommand(`git -C ${JSON.stringify(resolvedDir)} branch -D ${branchName}`);
-                        } catch { /* branch may not exist */ }
-                        await service.execCommand(`git -C ${JSON.stringify(resolvedDir)} worktree add ${JSON.stringify(worktreePath)} -b ${branchName}`);
-                        t.worktreePath = worktreePath;
-                        await service.sendKeys(lane.sessionName, winIndex, paneIndex, `cd ${worktreePath}`);
-                    } catch (err) {
-                        vscode.window.showWarningMessage(`[Worktree] Failed to create worktree: ${err}`);
-                        await service.sendKeys(lane.sessionName, winIndex, paneIndex, `cd ${effectiveWorkingDir}`);
-                    }
-                } else if (effectiveWorkingDir) {
-                    await service.sendKeys(lane.sessionName, winIndex, paneIndex, `cd ${effectiveWorkingDir}`);
-                }
-
-                let prompt = '';
-                if (t.subtaskIds && t.subtaskIds.length > 0) {
-                    const subtasks = t.subtaskIds.map(id => orchestrator.getTask(id)).filter((s): s is OrchestratorTask => !!s);
-                    prompt = buildTaskBoxPrompt(t, subtasks, lane);
-                    for (const sub of subtasks) {
-                        sub.kanbanColumn = 'in_progress';
-                        sub.status = TaskStatus.IN_PROGRESS;
-                        sub.startedAt = Date.now();
-                        sub.tmuxSessionName = lane.sessionName;
-                        sub.tmuxWindowIndex = winIndex;
-                        sub.tmuxPaneIndex = paneIndex;
-                        sub.tmuxServerId = lane.serverId;
-                        database.saveTask(sub);
-                    }
-                } else {
-                    prompt = buildSingleTaskPrompt(t, lane);
-                }
-
-                // Build persona/guild context if the task is assigned to an agent
-                let personaContext: string | undefined;
-                let guildContext: string | undefined;
-                if (t.assignedAgentId) {
-                    const agent = orchestrator.getAgent(t.assignedAgentId);
-                    if (agent?.persona) {
-                        personaContext = buildPersonaContext(agent.persona);
-                    }
-                    if (agent) {
-                        guildContext = guildManager.getGuildContextForAgent(agent.id) || undefined;
-                    }
-                }
-
-                // Build memory context if enabled
-                let memoryLoadContext: string | undefined;
-                let memorySaveContext: string | undefined;
-                if (resolveToggle(t, 'useMemory', lane) && lane.memoryFileId) {
-                    try {
-                        await ensureMemoryDir(service, lane);
-                        const memoryContent = await readMemoryFile(service, lane);
-                        const memoryFilePath = getMemoryFilePath(lane)!;
-                        memoryLoadContext = buildMemoryLoadPrompt(memoryContent, memoryFilePath);
-                        memorySaveContext = buildMemorySavePrompt(memoryFilePath);
-                    } catch (err) {
-                        console.warn('[Memory] Failed to load memory:', err);
-                    }
-                }
-
-                prompt = appendPromptTail(prompt, {
-                    additionalInstructions: options?.additionalInstructions,
-                    askForContext: options?.askForContext,
-                    autoClose: t.autoClose,
-                    signalId: t.autoClose ? t.id.slice(-8) : undefined,
-                    personaContext,
-                    guildContext,
-                    memoryLoadContext,
-                    memorySaveContext,
-                });
-
-                const resolvedProvider = aiManager.resolveProvider(t.aiProvider, lane?.aiProvider);
-                const resolvedModel = aiManager.resolveModel(t.aiModel, lane?.aiModel);
-                const isAutoPilot = resolveToggle(t, 'autoPilot', lane);
-                const launchCmd = aiManager.getInteractiveLaunchCommand(resolvedProvider, resolvedModel, isAutoPilot);
-
-                const launchDelay = vscode.workspace.getConfiguration('tmuxAgents').get<number>('cliLaunchDelayMs', 3000);
-                setTimeout(async () => {
-                    try {
-                        await service.sendKeys(lane.sessionName, winIndex, paneIndex, launchCmd);
-                        // Wait for CLI to start before pasting prompt
-                        await new Promise(resolve => setTimeout(resolve, launchDelay));
-                        await service.pasteText(lane.sessionName, winIndex, paneIndex, prompt);
-                        // Allow CLI to process the paste before pressing Enter
-                        await new Promise(resolve => setTimeout(resolve, 500));
-                        await service.sendRawKeys(lane.sessionName, winIndex, paneIndex, 'Enter');
-                    } catch (err) {
-                        console.warn('Failed to send prompt:', err);
-                    }
-                }, launchDelay);
-
-                t.tmuxSessionName = lane.sessionName;
-                t.tmuxWindowIndex = winIndex;
-                t.tmuxPaneIndex = paneIndex;
-                t.tmuxServerId = effectiveServerId;
-                t.kanbanColumn = 'in_progress';
-                t.status = TaskStatus.IN_PROGRESS;
-                t.startedAt = Date.now();
-                database.saveTask(t);
-                tmuxSessionProvider.refresh();
-            } catch (error) {
-                vscode.window.showErrorMessage(`Failed to start task: ${error}`);
-            }
-        } else {
-            t.kanbanColumn = 'in_progress';
-            t.status = TaskStatus.IN_PROGRESS;
-            t.startedAt = Date.now();
-            database.saveTask(t);
+        const client = database.getClient();
+        if (client) {
+            await client.call('kanban.startTask', {
+                taskId: t.id,
+                additionalInstructions: options?.additionalInstructions,
+                askForContext: options?.askForContext,
+            });
         }
         updateKanban();
         updateDashboard();
@@ -646,7 +469,6 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
             serviceManager,
             tmuxSessionProvider,
             smartAttachment,
-            aiManager,
             orchestrator,
             teamManager,
             kanbanView,
@@ -686,67 +508,82 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
     }
 
     function updateKanban(): void {
-        const servers = serviceManager.getAllServices().map(s => ({ id: s.serverId, label: s.serverLabel }));
+        // Exclude vscode-local from kanban servers — it's for tree view browsing only,
+        // the daemon doesn't know about it and can't run tasks on it.
+        const servers = serviceManager.getAllServices()
+            .filter(s => s.serverId !== 'vscode-local')
+            .map(s => ({ id: s.serverId, label: s.serverLabel }));
         kanbanView.updateState(orchestrator.getTaskQueue(), swimLanes, servers, favouriteFolders);
     }
 
-    async function triggerDependentsInline(completedTaskId: string): Promise<void> {
-        const allTasks = orchestrator.getTaskQueue();
-        for (const t of allTasks) {
-            if (!t.dependsOn || !t.dependsOn.includes(completedTaskId)) { continue; }
-            const allMet = t.dependsOn.every(depId => {
-                const dep = orchestrator.getTask(depId);
-                return dep && dep.status === TaskStatus.COMPLETED;
-            });
-            if (allMet && t.autoStart && (t.kanbanColumn === 'todo' || t.kanbanColumn === 'backlog') && t.swimLaneId) {
-                t.kanbanColumn = 'todo';
-                database.saveTask(t);
-                await startTaskFlow(t);
+    // Subscribe to daemon events for UI notifications
+    function subscribeToDaemonEvents(): void {
+        const client = database.getClient();
+        if (!client) { return; }
+        client.subscribe((event: string, data?: any) => {
+            if (event === 'task.completed') {
+                const desc = data?.description?.slice(0, 50) || data?.taskId || 'unknown';
+                vscode.window.showInformationMessage(`Task completed: ${desc}`);
+                updateKanban();
+                updateDashboard();
             }
-        }
+            if (event === 'task.moved') {
+                updateKanban();
+                updateDashboard();
+            }
+            if (event === 'task.updated') {
+                updateKanban();
+            }
+            if (event === 'task.autoclose.completed') {
+                updateKanban();
+            }
+            if (event === 'task.verification.started') {
+                updateKanban();
+            }
+        });
     }
 
-    // ── Auto-Close / Auto-Pilot Monitor ──────────────────────────────────────
-    const autoMonitorCtx = {
-        serviceManager,
-        tmuxSessionProvider,
-        orchestrator,
-        database,
-        updateKanban,
-        updateDashboard,
-        startTaskFlow,
-        swimLanes,
-    };
+    // Subscribe to daemon events
+    subscribeToDaemonEvents();
 
-    const autoCloseCtx: AutoCloseMonitorContext = {
-        serviceManager,
-        tmuxSessionProvider,
-        orchestrator,
-        database,
-        updateKanban,
-        updateDashboard,
-    };
+    // ── Daemon Connection Status Bar ──────────────────────────────────────
+    const daemonStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0);
+    daemonStatusBar.command = 'tmux-agents.reconnectDaemon';
 
-    const sessionSyncCtx: SessionSyncContext = {
-        serviceManager,
-        tmuxSessionProvider,
-        orchestrator,
-        database,
-        swimLanes,
-        updateKanban,
-    };
+    function updateDaemonStatusBar(connected: boolean): void {
+        if (connected) {
+            daemonStatusBar.text = '$(plug) Daemon Connected';
+            daemonStatusBar.backgroundColor = undefined;
+            daemonStatusBar.tooltip = 'tmux-agents daemon is connected. Click to reconnect.';
+        } else {
+            daemonStatusBar.text = '$(warning) Daemon Disconnected';
+            daemonStatusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+            daemonStatusBar.tooltip = 'tmux-agents daemon is disconnected. Click to reconnect.';
+        }
+        daemonStatusBar.show();
+    }
 
-    // Run initial session sync to attach task lists to active (maximized) sessions
-    syncTaskListAttachments(sessionSyncCtx).catch(err =>
-        console.warn('tmux-agents: Initial session sync failed:', err)
-    );
+    updateDaemonStatusBar(database.isDaemonConnected);
 
-    const autoMonitorTimer = setInterval(async () => {
-        await checkAutoCompletions(autoMonitorCtx);
-        await checkAutoPilot(autoMonitorCtx);
-        await checkAutoCloseTimers(autoCloseCtx);
-        await syncTaskListAttachments(sessionSyncCtx);
-    }, 15000);
+    const reconnectCmd = vscode.commands.registerCommand('tmux-agents.reconnectDaemon', async () => {
+        daemonStatusBar.text = '$(sync~spin) Reconnecting...';
+        const success = await database.reconnect();
+        if (success) {
+            vscode.window.showInformationMessage('tmux-agents: Reconnected to daemon');
+        } else {
+            vscode.window.showWarningMessage('tmux-agents: Failed to reconnect — daemon may not be running');
+        }
+        updateDaemonStatusBar(database.isDaemonConnected);
+    });
+
+    // Handle connection state changes
+    database.onConnectionChange((connected) => {
+        if (connected) {
+            subscribeToDaemonEvents();
+            fetchDaemonRuntimes(); // Re-fetch runtimes on reconnect
+        }
+        updateDaemonStatusBar(connected);
+    });
 
     async function ensureLaneSession(lane: KanbanSwimLane): Promise<boolean> {
         const service = serviceManager.getService(lane.serverId);
@@ -847,106 +684,15 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
         pickService: () => pickService(serviceManager),
     });
 
-    // ── Default Prompt Commands ──────────────────────────────────────────────
-
-    const promptExecutorContext = {
-        promptRegistry,
-        submitTask: (task: OrchestratorTask) => orchestrator.submitTask(task),
-        saveTask: (task: OrchestratorTask) => database.saveTask(task),
-        startTaskFlow: (task: OrchestratorTask, options?: Parameters<typeof startTaskFlow>[1]) => startTaskFlow(task, options),
-        swimLanes,
-    };
-
-    const listDefaultPromptsCmd = vscode.commands.registerCommand('tmux-agents.listDefaultPrompts', async () => {
-        if (!defaultPromptsEnabled) {
-            vscode.window.showWarningMessage('Default prompts are disabled. Enable tmuxAgents.defaultPromptsEnabled to use them.');
-            return;
-        }
-        const templates = promptRegistry.getAllTemplates();
-        const items = templates.map(t => ({
-            label: t.name,
-            description: `[${t.category}] ${t.description}`,
-            detail: `Slug: ${t.slug} | Inputs: ${t.inputs.map(i => i.name + (i.required ? '*' : '')).join(', ')}`,
-            slug: t.slug,
-        }));
-        const picked = await vscode.window.showQuickPick(items, {
-            placeHolder: 'Select a default prompt template to execute',
-        });
-        if (picked) {
-            vscode.commands.executeCommand('tmux-agents.executeDefaultPrompt', picked.slug);
-        }
-    });
-
-    const executeDefaultPromptCmd = vscode.commands.registerCommand('tmux-agents.executeDefaultPrompt', async (slug?: string) => {
-        if (!defaultPromptsEnabled) {
-            vscode.window.showWarningMessage('Default prompts are disabled. Enable tmuxAgents.defaultPromptsEnabled to use them.');
-            return;
-        }
-
-        if (!slug) {
-            const templates = promptRegistry.getAllTemplates();
-            const picked = await vscode.window.showQuickPick(
-                templates.map(t => ({ label: t.name, description: t.description, slug: t.slug })),
-                { placeHolder: 'Select a prompt to execute' }
-            );
-            if (!picked) { return; }
-            slug = picked.slug;
-        }
-
-        const template = promptRegistry.getTemplate(slug);
-        if (!template) {
-            vscode.window.showErrorMessage(`Unknown prompt template: ${slug}`);
-            return;
-        }
-
-        // Gather inputs from user
-        const inputs: Record<string, string> = {};
-        for (const inputDef of template.inputs) {
-            const value = await vscode.window.showInputBox({
-                prompt: `${inputDef.description}${inputDef.required ? ' (required)' : ''}`,
-                placeHolder: inputDef.name,
-                value: inputDef.default || '',
-            });
-            if (value === undefined) { return; } // Cancelled
-            if (value) { inputs[inputDef.name] = value; }
-        }
-
-        // Pick swim lane if available
-        let swimLaneId: string | undefined;
-        if (swimLanes.length > 0) {
-            const lanePick = await vscode.window.showQuickPick(
-                [
-                    { label: '(none)', description: 'No swim lane', id: undefined as string | undefined },
-                    ...swimLanes.map(l => ({ label: l.name, description: l.workingDirectory, id: l.id as string | undefined })),
-                ],
-                { placeHolder: 'Assign to a swim lane?' }
-            );
-            swimLaneId = lanePick?.id;
-        }
-
-        const result = promptExecutor.execute({
-            slug,
-            inputs,
-            swimLaneId,
-            autoStart: true,
-        }, promptExecutorContext);
-
-        if (result.success) {
-            vscode.window.showInformationMessage(`Prompt "${template.name}" queued as task ${result.taskId}`);
-            updateKanban();
-        } else {
-            vscode.window.showErrorMessage(`Failed to execute prompt: ${result.error}`);
-        }
-    });
-
     // ── Register All ──────────────────────────────────────────────────────────
 
     context.subscriptions.push(
         ...sessionDisposables,
         ...agentDisposables,
-        // Default prompt commands
-        listDefaultPromptsCmd,
-        executeDefaultPromptCmd,
+        // VS Code local toggle + Daemon status bar + reconnect command
+        toggleVscodeLocalCmd,
+        reconnectCmd,
+        daemonStatusBar,
         // Event subscriptions
         agentStateChangedDisposable,
         taskCompletedDisposable,
@@ -957,7 +703,7 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
         graphActionDisposable,
         kanbanActionDisposable,
         // Disposables
-        { dispose: () => clearInterval(autoMonitorTimer) },
+        // (daemon handles all monitoring)
         { dispose: () => database.close() },
         outputChannel,
         serviceManager,
@@ -970,7 +716,6 @@ If any subtask output shows errors, test failures, or incomplete work, the verdi
         dashboardView,
         graphView,
         kanbanView,
-        promptRegistry
     );
 
     log('Tmux Agents activated successfully');

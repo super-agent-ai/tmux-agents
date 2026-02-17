@@ -373,6 +373,68 @@ export class AIAssistantManager {
         return { command: config.pipeCommand, args, env: config.env, cwd, shell };
     }
 
+    // ─── MCP Integration ────────────────────────────────────────────────
+
+    /**
+     * Get spawn config for non-interactive MCP mode (AI generate).
+     * Returns null if the provider doesn't support MCP via CLI flags.
+     */
+    getMcpSpawnConfig(
+        provider: AIProvider,
+        model?: string,
+        mcpConfigPath?: string,
+        allowedTools?: string[]
+    ): { command: string; args: string[]; env: Record<string, string>; cwd?: string; shell: boolean } | null {
+        const config = this.getProviderConfig(provider);
+        const resolvedModel = model ? resolveModelAlias(model) : undefined;
+        const cwd = config.defaultWorkingDirectory
+            || this.config.defaultWorkingDirectory
+            || undefined;
+
+        switch (provider) {
+            case AIProvider.CLAUDE: {
+                const args: string[] = [];
+                if (resolvedModel) { args.push('--model', resolvedModel); }
+                args.push('--print', '-');
+                if (mcpConfigPath) { args.push('--mcp-config', mcpConfigPath); }
+                if (allowedTools?.length) {
+                    args.push('--allowedTools', allowedTools.join(','));
+                }
+                return { command: config.pipeCommand, args, env: config.env, cwd, shell: config.shell };
+            }
+            default:
+                return null;
+        }
+    }
+
+    /**
+     * Get the CLI command for an interactive AI session with MCP tools.
+     * Returns the interactive command string, or null if MCP is not supported.
+     */
+    getMcpInteractiveCommand(
+        provider: AIProvider,
+        model?: string,
+        mcpConfigPath?: string,
+        autoPilot?: boolean
+    ): string | null {
+        const config = this.getProviderConfig(provider);
+        const envPrefix = this.buildEnvPrefix(config.env);
+        const resolvedModel = model ? resolveModelAlias(model) : undefined;
+
+        switch (provider) {
+            case AIProvider.CLAUDE: {
+                const args: string[] = [];
+                if (resolvedModel) { args.push('--model', resolvedModel); }
+                if (mcpConfigPath) { args.push('--mcp-config', mcpConfigPath); }
+                if (autoPilot) { args.push(...this.getAutoPilotFlags(provider)); }
+                return [envPrefix + config.command, ...args].join(' ');
+            }
+            default:
+                // Fall back to interactive launch without MCP
+                return this.getInteractiveLaunchCommand(provider, model, autoPilot);
+        }
+    }
+
     /**
      * Enrich a TmuxPane with AI session info if it is running an AI CLI.
      * Returns a new copy of the pane (does not mutate the original).

@@ -1,27 +1,24 @@
 import * as vscode from 'vscode';
-import * as cp from 'child_process';
-import * as fs from 'fs';
 import { TmuxServiceManager } from '../serviceManager';
 import { TmuxSessionProvider } from '../treeProvider';
 import { SmartAttachmentService } from '../smartAttachment';
-import { AIAssistantManager } from '../aiAssistant';
+import { DaemonBridge } from '../daemonBridge';
 import { AgentOrchestrator } from '../orchestrator';
 import { TeamManager } from '../teamManager';
 import { KanbanViewProvider } from '../kanbanView';
 import { Database } from '../database';
 import { OrchestratorTask, TaskStatus, KanbanSwimLane, FavouriteFolder, TaskStatusHistoryEntry, TaskComment, applySwimLaneDefaults, resolveToggle } from '../types';
 import { markDoneTimestamp, cancelAutoClose } from '../autoCloseMonitor';
-import { buildBundleTaskPrompt, buildDebugPrompt, appendPromptTail } from '../promptBuilder';
+import { buildBundleTaskPrompt, buildDebugPrompt, appendPromptTail } from '../core/promptBuilder';
 
 export interface KanbanHandlerContext {
     serviceManager: TmuxServiceManager;
     tmuxSessionProvider: TmuxSessionProvider;
     smartAttachment: SmartAttachmentService;
-    aiManager: AIAssistantManager;
     orchestrator: AgentOrchestrator;
     teamManager: TeamManager;
     kanbanView: KanbanViewProvider;
-    database: Database;
+    database: Database | DaemonBridge;
     swimLanes: KanbanSwimLane[];
     favouriteFolders: FavouriteFolder[];
     updateKanban: () => void;
@@ -30,11 +27,6 @@ export interface KanbanHandlerContext {
     startTaskFlow: (task: OrchestratorTask, options?: { additionalInstructions?: string; askForContext?: boolean }) => Promise<void>;
     buildTaskWindowName: (task: OrchestratorTask) => string;
     cleanupInitWindow: (serverId: string, sessionName: string) => Promise<void>;
-}
-
-function safeCwd(dir?: string): string | undefined {
-    if (!dir) { return undefined; }
-    try { return fs.existsSync(dir) ? dir : undefined; } catch { return undefined; }
 }
 
 export async function triggerDependents(ctx: KanbanHandlerContext, completedTaskId: string): Promise<void> {
@@ -232,9 +224,14 @@ export async function handleKanbanMessage(
                         if (lane.workingDirectory) {
                             await service.sendKeys(lane.sessionName, win.index, pIdx, `cd ${lane.workingDirectory}`);
                         }
-                        const debugProvider = ctx.aiManager.resolveProvider(undefined, lane.aiProvider);
-                        const debugModel = ctx.aiManager.resolveModel(undefined, lane.aiModel);
-                        const launchCmd = ctx.aiManager.getInteractiveLaunchCommand(debugProvider, debugModel);
+                        const debugClient = (ctx.database as DaemonBridge).getClient?.();
+                        let launchCmd = 'claude'; // fallback
+                        if (debugClient) {
+                            try {
+                                const resolved = await debugClient.call('ai.resolveConfig', { laneId: lane.id });
+                                launchCmd = resolved.launchCommand;
+                            } catch { /* use fallback */ }
+                        }
 
                         // Auto-insert swim lane instructions after CLI is ready
                         const debugPrompt = buildDebugPrompt(lane);
@@ -300,9 +297,14 @@ export async function handleKanbanMessage(
                     if (lane.workingDirectory) {
                         await service.sendKeys(lane.sessionName, win.index, pIdx, `cd ${lane.workingDirectory}`);
                     }
-                    const restartProvider = ctx.aiManager.resolveProvider(undefined, lane.aiProvider);
-                    const restartModel = ctx.aiManager.resolveModel(undefined, lane.aiModel);
-                    const launchCmd = ctx.aiManager.getInteractiveLaunchCommand(restartProvider, restartModel);
+                    const restartClient = (ctx.database as DaemonBridge).getClient?.();
+                    let launchCmd = 'claude'; // fallback
+                    if (restartClient) {
+                        try {
+                            const resolved = await restartClient.call('ai.resolveConfig', { laneId: lane.id });
+                            launchCmd = resolved.launchCommand;
+                        } catch { /* use fallback */ }
+                    }
 
                     // Auto-insert swim lane instructions after CLI is ready
                     const restartDebugPrompt = buildDebugPrompt(lane);
@@ -856,10 +858,15 @@ export async function handleKanbanMessage(
                             signalId: t.autoClose ? t.id.slice(-8) : undefined,
                         });
 
-                        const bundleProvider = ctx.aiManager.resolveProvider(t.aiProvider, lane.aiProvider);
-                        const bundleModel = ctx.aiManager.resolveModel(t.aiModel, lane?.aiModel);
                         const isAutoPilot = resolveToggle(t, 'autoPilot', lane);
-                        const launchCmd = ctx.aiManager.getInteractiveLaunchCommand(bundleProvider, bundleModel, isAutoPilot);
+                        const bundleClient = (ctx.database as DaemonBridge).getClient?.();
+                        let launchCmd = 'claude'; // fallback
+                        if (bundleClient) {
+                            try {
+                                const resolved = await bundleClient.call('ai.resolveConfig', { laneId: lane.id, taskId: t.id });
+                                launchCmd = resolved.launchCommand;
+                            } catch { /* use fallback */ }
+                        }
 
                         const capturedPrompt = prompt;
                         const capturedSession = lane.sessionName;
@@ -1127,8 +1134,7 @@ export async function handleKanbanMessage(
             }
             try {
                 const content = await svc.capturePaneContent(t.tmuxSessionName, t.tmuxWindowIndex, t.tmuxPaneIndex, 50);
-                const summary = await new Promise<string>((resolve) => {
-                    const prompt = `Summarize this terminal session concisely for a kanban task card. Use this structure:
+                const prompt = `Summarize this terminal session concisely for a kanban task card. Use this structure:
 1. What tool/command was run (e.g., "Ran vitest", "Built with tsc", "Claude agent session")
 2. What was accomplished — mention concrete artifacts: files created/modified, tests passed/failed, errors encountered
 3. Final outcome: success, failure, or still in-progress. Note if the process exited cleanly or if errors remain.
@@ -1137,14 +1143,13 @@ Keep it technical but brief (3-5 sentences). Do not speculate beyond what the ou
 
 Terminal output:
 ${content.slice(-3000)}`;
-                    const spawnCfg = ctx.aiManager.getSpawnConfig(ctx.aiManager.getDefaultProvider());
-                    const cmdStr = [spawnCfg.command, ...spawnCfg.args].join(' ');
-                    const proc = cp.exec(cmdStr, { env: { ...process.env, ...spawnCfg.env }, cwd: safeCwd(spawnCfg.cwd), maxBuffer: 10 * 1024 * 1024, timeout: 20000 }, (error, stdout) => {
-                        resolve(error ? '' : stdout.trim());
-                    });
-                    proc.stdin!.on('error', () => {});
-                    process.nextTick(() => { if (proc.stdin && proc.stdin.writable && !proc.killed) { proc.stdin.write(prompt); proc.stdin.end(); } });
-                });
+                const summarizeClient = (ctx.database as DaemonBridge).getClient?.();
+                let summary = '';
+                if (summarizeClient) {
+                    try {
+                        summary = await summarizeClient.call('ai.summarize', { text: prompt });
+                    } catch { /* summarization failed */ }
+                }
                 if (summary) {
                     const separator = t.input ? '\n\n---\n' : '';
                     t.input = (t.input || '') + separator + '**Output Summary:**\n' + summary;
@@ -1155,325 +1160,6 @@ ${content.slice(-3000)}`;
                 ctx.kanbanView.sendMessage({ type: 'summarizeResult', taskId: payload.taskId, success: !!summary });
             } catch (err) {
                 ctx.kanbanView.sendMessage({ type: 'summarizeResult', taskId: payload.taskId, error: String(err) });
-            }
-            break;
-        }
-        case 'generateTask': {
-            const genLaneId = payload.swimLaneId || '';
-            const genLane = genLaneId ? ctx.swimLanes.find(l => l.id === genLaneId) : undefined;
-            const genText = payload.text || '';
-            if (!genText) { break; }
-
-            const genProvider = genLane?.aiProvider || ctx.aiManager.getDefaultProvider();
-            const genSpawnCfg = ctx.aiManager.getSpawnConfig(genProvider);
-
-            try {
-                const genResult = await new Promise<string>((resolve) => {
-                    const validProviders = ['claude', 'gemini', 'codex', 'opencode', 'cursor', 'copilot', 'aider', 'amp', 'cline', 'kiro'];
-                    let prompt = `You are a task generator for a software development team. Given a brief task description, generate a fully specified task with all configuration fields. The description MUST be detailed enough for an AI coding agent to complete the task autonomously in a single session.
-
-Respond ONLY with valid JSON (no markdown, no code fences) — a single JSON object with ALL of these fields:
-{
-  "title": "Clear action-oriented title",
-  "description": "Structured task description (see format below)",
-  "role": "coder",
-  "priority": 5,
-  "tags": ["feature"],
-  "autoStart": true,
-  "autoPilot": true,
-  "autoClose": false,
-  "useWorktree": false,
-  "aiProvider": "",
-  "aiModel": ""
-}
-
-## Description Format (REQUIRED — include ALL four sections as plain text with section headers)
-
-The "description" field MUST contain these four sections separated by blank lines:
-
-### 1. Problem Statement
-One or two sentences explaining WHAT needs to change and WHY. State the current behavior or gap and the desired outcome.
-
-### 2. Feature/Bug Requirements
-A bullet list of specific functional requirements (for features) or reproduction steps (for bugs). Each bullet should be a concrete, actionable item — not vague guidance.
-
-### 3. Definition of Done
-Explicit acceptance criteria that can be objectively verified. Use checkable statements like "X returns Y when given Z" or "Error message appears when input is empty". An outside reviewer should be able to confirm each criterion with a yes/no answer.
-
-### 4. Test Plan
-Concrete steps to validate the implementation. Include what to run (commands, manual steps, or scenarios), expected outputs, and edge cases to check.
-
-## Description Example
-
-Problem Statement:
-The /api/users endpoint returns a 500 error when the email query parameter contains a plus sign, because the parameter is not URL-decoded before the database lookup.
-
-Feature/Bug Requirements:
-- URL-decode the email query parameter before passing it to the database query in src/routes/users.ts
-- Ensure plus signs, spaces, and other encoded characters are handled correctly
-- Return 400 with a clear error message if the decoded email is not a valid email format
-
-Definition of Done:
-- GET /api/users?email=user%2Btest@example.com returns the correct user record
-- GET /api/users?email=invalid returns 400 with error body { "error": "Invalid email format" }
-- Existing tests in users.test.ts continue to pass
-- A new test covers the plus-sign encoding case
-
-Test Plan:
-- Run the existing test suite: npm test -- --grep users
-- Manually test with curl: curl 'localhost:3000/api/users?email=user%2Btest@example.com'
-- Verify 400 response: curl 'localhost:3000/api/users?email=not-an-email'
-- Check edge case: curl 'localhost:3000/api/users?email=user%40example.com' (encoded @)
-
-## Field Rules
-- title: string, under 60 chars, starts with an action verb (e.g. "Implement", "Fix", "Add", "Refactor", "Write")
-- description: string, structured with all four sections above. An AI coding agent should be able to complete the task from this description alone.
-- role: one of "coder", "reviewer", "tester", "devops", "researcher", or "" (empty string if unclear). Choose based on what the task involves.
-- priority: integer 1-10. 1-3 for nice-to-haves, 4-6 for normal tasks, 7-8 for important/bugs, 9-10 for critical/urgent.
-- tags: array of 1-3 relevant tags from: "bug", "feature", "refactor", "test", "docs", "urgent", "blocked"
-- autoStart: boolean — true to auto-launch the task immediately upon creation. Default true for most tasks.
-- autoPilot: boolean — true to let the AI agent work without requiring manual confirmations. Default true for well-defined tasks.
-- autoClose: boolean — true to automatically close the tmux window when the task completes. Default false unless the task is simple and self-contained.
-- useWorktree: boolean — true to run the task in a dedicated git worktree for isolation. Default false, set true for tasks that modify many files or could conflict with other work.
-- aiProvider: one of ${JSON.stringify(validProviders)} or "" to use the default provider. Only set if the user specifies a particular tool.
-- aiModel: string model name or "" to use the default. Only set if the user specifies a model.`;
-
-                    if (genLane) {
-                        prompt += `\n\n## Context\n- Swim lane: ${genLane.name}\n- Working directory: ${genLane.workingDirectory}`;
-                        if (genLane.contextInstructions) { prompt += `\n- Lane instructions: ${genLane.contextInstructions}`; }
-                        if (genLane.aiProvider) { prompt += `\n- Lane default AI provider: ${genLane.aiProvider}`; }
-                        if (genLane.aiModel) { prompt += `\n- Lane default AI model: ${genLane.aiModel}`; }
-                        const dt = genLane.defaultToggles;
-                        if (dt) {
-                            const toggleDefaults: string[] = [];
-                            if (dt.autoStart) { toggleDefaults.push('autoStart=on'); }
-                            if (dt.autoPilot) { toggleDefaults.push('autoPilot=on'); }
-                            if (dt.autoClose) { toggleDefaults.push('autoClose=on'); }
-                            if (dt.useWorktree) { toggleDefaults.push('useWorktree=on'); }
-                            if (toggleDefaults.length > 0) {
-                                prompt += `\n- Lane default toggles: ${toggleDefaults.join(', ')}. Use these defaults unless the task requires different settings.`;
-                            }
-                        }
-                    }
-
-                    prompt += `\n\nUser's task description: ${genText}`;
-
-                    const cmdStr = [genSpawnCfg.command, ...genSpawnCfg.args].join(' ');
-                    const proc = cp.exec(cmdStr, {
-                        env: { ...process.env, ...genSpawnCfg.env },
-                        cwd: safeCwd(genSpawnCfg.cwd),
-                        maxBuffer: 10 * 1024 * 1024,
-                        timeout: 30000
-                    }, (error, stdout, stderr) => {
-                        if (error) {
-                            console.warn(`[generateTask] Error: ${error.message}. stderr: ${(stderr || '').slice(0, 500)}`);
-                        }
-                        resolve(error ? '' : stdout.trim());
-                    });
-                    proc.stdin!.on('error', () => {});
-                    process.nextTick(() => { if (proc.stdin && proc.stdin.writable && !proc.killed) { proc.stdin.write(prompt); proc.stdin.end(); } });
-                });
-
-                if (genResult) {
-                    let json = genResult;
-                    const fenceMatch = genResult.match(/```(?:json)?\s*([\s\S]*?)```/);
-                    if (fenceMatch) { json = fenceMatch[1].trim(); }
-                    try {
-                        const parsed = JSON.parse(json);
-                        const validProviders = ['claude', 'gemini', 'codex', 'opencode', 'cursor', 'copilot', 'aider', 'amp', 'cline', 'kiro'];
-                        // Sanitize and validate all fields
-                        const task: Record<string, unknown> = {
-                            title: typeof parsed.title === 'string' ? parsed.title.slice(0, 60) : '',
-                            description: typeof parsed.description === 'string' ? parsed.description : '',
-                            role: ['coder', 'reviewer', 'tester', 'devops', 'researcher'].includes(parsed.role) ? parsed.role : '',
-                            priority: typeof parsed.priority === 'number' ? Math.max(1, Math.min(10, Math.round(parsed.priority))) : 5,
-                            tags: Array.isArray(parsed.tags) ? parsed.tags.filter((t: unknown) => typeof t === 'string').slice(0, 5) : [],
-                            autoStart: typeof parsed.autoStart === 'boolean' ? parsed.autoStart : undefined,
-                            autoPilot: typeof parsed.autoPilot === 'boolean' ? parsed.autoPilot : undefined,
-                            autoClose: typeof parsed.autoClose === 'boolean' ? parsed.autoClose : undefined,
-                            useWorktree: typeof parsed.useWorktree === 'boolean' ? parsed.useWorktree : undefined,
-                            aiProvider: validProviders.includes(parsed.aiProvider) ? parsed.aiProvider : '',
-                            aiModel: typeof parsed.aiModel === 'string' ? parsed.aiModel : '',
-                        };
-                        ctx.kanbanView.sendMessage({ type: 'generateTaskResult', task });
-                    } catch {
-                        ctx.kanbanView.sendMessage({ type: 'generateTaskResult', error: 'Failed to parse AI response. Try again with a clearer description.' });
-                    }
-                } else {
-                    ctx.kanbanView.sendMessage({ type: 'generateTaskResult', error: `AI command failed. Check Output panel "Tmux Agents" for details.` });
-                }
-            } catch (err) {
-                console.error(`[generateTask] Unexpected error: ${err}`);
-                ctx.kanbanView.sendMessage({ type: 'generateTaskResult', error: String(err) });
-            }
-            break;
-        }
-        case 'generatePlan': {
-            const planLaneId = payload.swimLaneId || '';
-            const planLane = planLaneId ? ctx.swimLanes.find(l => l.id === planLaneId) : undefined;
-            const planText = payload.text || '';
-            if (!planText) { break; }
-
-            const planProvider = planLane?.aiProvider || ctx.aiManager.getDefaultProvider();
-            const planSpawnCfg = ctx.aiManager.getSpawnConfig(planProvider);
-            console.log(`[generatePlan] Spawning: ${planSpawnCfg.command} ${planSpawnCfg.args.join(' ')}`);
-
-            try {
-                const planResult = await new Promise<string>((resolve) => {
-                    let prompt = `You are a task planner for a software development team. Given a high-level goal, break it down into a dependency-aware set of tasks. Each task description MUST be detailed enough for an AI coding agent to complete autonomously in a single session.
-
-Respond ONLY with valid JSON (no markdown, no code fences) — a JSON array of task objects:
-[{"title": "Short title", "description": "Structured description (see format below)", "role": "coder", "dependsOn": []}]
-
-## Rules
-- Each task has: title (string, under 60 chars, starts with action verb), description (string, structured per format below), role (string), dependsOn (array of 0-based indices referencing earlier tasks in the array)
-- dependsOn indices must reference tasks earlier in the array (lower index). A task cannot depend on itself or on later tasks.
-- Order tasks so dependencies come first. Tasks with no dependencies should come first.
-- Role options: coder, reviewer, tester, devops, researcher (or empty string)
-- Generate 2-10 tasks depending on complexity
-- Tasks should be specific, actionable, and completable by an AI coding agent in a single session
-
-## Description Format (REQUIRED — each task description MUST include ALL four sections)
-
-Each task's "description" field must contain these four sections as plain text with section headers:
-
-1. Problem Statement — one or two sentences: WHAT needs to change and WHY.
-2. Feature/Bug Requirements — bullet list of specific, actionable requirements or reproduction steps.
-3. Definition of Done — explicit acceptance criteria verifiable with yes/no answers.
-4. Test Plan — concrete validation steps: commands to run, expected outputs, edge cases to check.`;
-
-                    if (planLane) {
-                        prompt += `\n\n## Context\n- Swim lane: ${planLane.name}\n- Working directory: ${planLane.workingDirectory}`;
-                        if (planLane.contextInstructions) { prompt += `\n- Lane instructions: ${planLane.contextInstructions}`; }
-                    }
-
-                    // Include conversation history for iterative refinement
-                    const convHistory = payload.conversation || [];
-                    if (convHistory.length > 1) {
-                        prompt += `\n\n## Conversation History`;
-                        for (const entry of convHistory) {
-                            if (entry.role === 'user') { prompt += `\n\nUser: ${entry.text}`; }
-                            if (entry.role === 'assistant') { prompt += `\n\nPrevious plan: ${entry.text}`; }
-                        }
-                        prompt += `\n\nThe user wants to refine the plan. Consider their latest message and update the plan accordingly.`;
-                    }
-
-                    prompt += `\n\nUser's goal: ${planText}`;
-
-                    const cmdStr = [planSpawnCfg.command, ...planSpawnCfg.args].join(' ');
-                    const proc = cp.exec(cmdStr, {
-                        env: { ...process.env, ...planSpawnCfg.env },
-                        cwd: safeCwd(planSpawnCfg.cwd),
-                        maxBuffer: 10 * 1024 * 1024,
-                        timeout: 60000
-                    }, (error, stdout, stderr) => {
-                        if (error) {
-                            console.warn(`[generatePlan] Error: ${error.message}. stderr: ${(stderr || '').slice(0, 500)}`);
-                        }
-                        resolve(error ? '' : stdout.trim());
-                    });
-                    proc.stdin!.on('error', () => {});
-                    process.nextTick(() => { if (proc.stdin && proc.stdin.writable && !proc.killed) { proc.stdin.write(prompt); proc.stdin.end(); } });
-                });
-
-                if (planResult) {
-                    let json = planResult;
-                    const fenceMatch = planResult.match(/```(?:json)?\s*([\s\S]*?)```/);
-                    if (fenceMatch) { json = fenceMatch[1].trim(); }
-                    try {
-                        const parsed = JSON.parse(json);
-                        const tasks = Array.isArray(parsed) ? parsed : [];
-                        // Validate and sanitize dependsOn
-                        for (let i = 0; i < tasks.length; i++) {
-                            if (!tasks[i].dependsOn) { tasks[i].dependsOn = []; }
-                            tasks[i].dependsOn = tasks[i].dependsOn.filter(
-                                (d: number) => typeof d === 'number' && d >= 0 && d < i
-                            );
-                        }
-                        ctx.kanbanView.sendMessage({ type: 'generatePlanResult', tasks });
-                    } catch {
-                        ctx.kanbanView.sendMessage({ type: 'generatePlanResult', error: 'Failed to parse AI response as a task plan. Try again with a clearer description.' });
-                    }
-                } else {
-                    ctx.kanbanView.sendMessage({ type: 'generatePlanResult', error: `AI command failed. Check Output panel "Tmux Agents" for details. Command: ${planSpawnCfg.command}` });
-                }
-            } catch (err) {
-                console.error(`[generatePlan] Unexpected error: ${err}`);
-                ctx.kanbanView.sendMessage({ type: 'generatePlanResult', error: String(err) });
-            }
-            break;
-        }
-        case 'approvePlan': {
-            const approveLaneId = payload.swimLaneId || '';
-            const approveLane = approveLaneId ? ctx.swimLanes.find(l => l.id === approveLaneId) : undefined;
-            const planTasks: Array<{title: string; description: string; role: string; dependsOn: number[]}> = payload.tasks || [];
-
-            try {
-                // Phase 1: Create all tasks, collect IDs
-                const idMap: string[] = [];
-                const createdTasks: OrchestratorTask[] = [];
-                for (let i = 0; i < planTasks.length; i++) {
-                    const pt = planTasks[i];
-                    const task: OrchestratorTask = {
-                        id: 'task-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '-' + i,
-                        description: pt.title || `Plan task ${i + 1}`,
-                        input: pt.description || undefined,
-                        targetRole: (pt.role || undefined) as OrchestratorTask['targetRole'],
-                        status: TaskStatus.PENDING,
-                        priority: 5,
-                        kanbanColumn: 'todo',
-                        swimLaneId: approveLaneId || undefined,
-                        createdAt: Date.now() + i,
-                    };
-                    if (approveLane) { applySwimLaneDefaults(task, approveLane); }
-                    idMap.push(task.id);
-                    createdTasks.push(task);
-                }
-
-                // Phase 2: Map index-based dependsOn to actual task IDs
-                for (let i = 0; i < planTasks.length; i++) {
-                    const deps = planTasks[i].dependsOn || [];
-                    if (deps.length > 0) {
-                        createdTasks[i].dependsOn = deps
-                            .filter((d: number) => d >= 0 && d < idMap.length && d !== i)
-                            .map((d: number) => idMap[d]);
-                    }
-                }
-
-                // Phase 3: Submit and save all tasks
-                for (const task of createdTasks) {
-                    ctx.orchestrator.submitTask(task);
-                    ctx.database.saveTask(task);
-                }
-
-                // Phase 4: Auto-start cascade — if task has autoStart + deps, force deps to autoStart/autoPilot/autoClose
-                for (const task of createdTasks) {
-                    if (task.autoStart && task.dependsOn && task.dependsOn.length > 0) {
-                        for (const depId of task.dependsOn) {
-                            const dep = ctx.orchestrator.getTask(depId);
-                            if (dep) {
-                                dep.autoStart = true;
-                                dep.autoPilot = true;
-                                dep.autoClose = true;
-                                ctx.database.saveTask(dep);
-                            }
-                        }
-                    }
-                }
-
-                // Phase 5: Start Wave 1 tasks (no deps, autoStart on, in todo, has lane)
-                for (const task of createdTasks) {
-                    const effectiveAutoStart = resolveToggle(task, 'autoStart', approveLane);
-                    if (effectiveAutoStart && (!task.dependsOn || task.dependsOn.length === 0) && task.kanbanColumn === 'todo' && task.swimLaneId) {
-                        await ctx.startTaskFlow(task);
-                    }
-                }
-
-                ctx.updateKanban();
-                ctx.kanbanView.sendMessage({ type: 'approvePlanResult', success: true });
-            } catch (err) {
-                console.error(`[approvePlan] Unexpected error: ${err}`);
-                ctx.kanbanView.sendMessage({ type: 'approvePlanResult', success: false, error: String(err) });
             }
             break;
         }
@@ -1507,8 +1193,7 @@ Each task's "description" field must contain these four sections as plain text w
                         if (paneContents.length > 0) {
                             const combinedContent = paneContents.join('\n---\n').slice(0, 3000);
                             try {
-                                summary = await new Promise<string>((resolve, reject) => {
-                                    const prompt = `Summarize this tmux session in exactly 3 short lines:
+                                const scanPrompt = `Summarize this tmux session in exactly 3 short lines:
 Line 1: Project/repo name and primary language (e.g., "myapp — TypeScript/React")
 Line 2: What is actively running — build, test suite, dev server, AI agent (name it: Claude, Gemini, Codex), or idle shell
 Line 3: Current status — building, passing, failing, waiting for input, error, or complete
@@ -1516,14 +1201,10 @@ Line 3: Current status — building, passing, failing, waiting for input, error,
 If a shell is idle with no running process, say "Idle shell" on Line 2.
 
 ${combinedContent}`;
-                                    const spawnCfg = ctx.aiManager.getSpawnConfig(ctx.aiManager.getDefaultProvider());
-                                    const cmdStr3 = [spawnCfg.command, ...spawnCfg.args].join(' ');
-                                    const proc = cp.exec(cmdStr3, { env: { ...process.env, ...spawnCfg.env }, cwd: safeCwd(spawnCfg.cwd), maxBuffer: 10 * 1024 * 1024, timeout: 15000 }, (error, stdout) => {
-                                        resolve(error ? '' : stdout.trim());
-                                    });
-                                    proc.stdin!.on('error', () => {});
-                                    process.nextTick(() => { if (proc.stdin && proc.stdin.writable && !proc.killed) { proc.stdin.write(prompt); proc.stdin.end(); } });
-                                });
+                                const scanClient = (ctx.database as DaemonBridge).getClient?.();
+                                if (scanClient) {
+                                    summary = await scanClient.call('ai.summarize', { text: scanPrompt });
+                                }
                             } catch { /* summarization failed, not critical */ }
                         }
 

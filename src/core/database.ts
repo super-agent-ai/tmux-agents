@@ -5,9 +5,10 @@ import {
     Pipeline, PipelineRun, TaskStatus, AgentState, AgentRole,
     AIProvider, PipelineStatus, StageResult, PipelineStage,
     FavouriteFolder, OrganizationUnit, OrgUnitType, Guild,
-    GuildKnowledge, AgentMessage, ChatConversation, ConversationEntry,
-    AgentProfileStats, TaskStatusHistoryEntry, TaskComment
+    GuildKnowledge, AgentMessage,
+    AgentProfileStats, TaskStatusHistoryEntry, TaskComment, CustomRole
 } from './types';
+import type { BackendMapping, SyncError, BackendConfig } from '../backends/types.js';
 
 // sql.js types (loaded dynamically to avoid node_modules dependency in packaged extension)
 type SqlJsDatabase = any;
@@ -108,6 +109,33 @@ CREATE TABLE IF NOT EXISTS task_tags (
     taskId TEXT NOT NULL, tag TEXT NOT NULL,
     PRIMARY KEY (taskId, tag),
     FOREIGN KEY (taskId) REFERENCES tasks(id));
+CREATE TABLE IF NOT EXISTS task_backend_mappings (
+    local_id TEXT NOT NULL,
+    backend_name TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    last_synced INTEGER NOT NULL,
+    sync_status TEXT NOT NULL DEFAULT 'synced',
+    PRIMARY KEY (local_id, backend_name),
+    FOREIGN KEY (local_id) REFERENCES tasks(id) ON DELETE CASCADE);
+CREATE TABLE IF NOT EXISTS task_sync_errors (
+    id TEXT PRIMARY KEY,
+    local_id TEXT NOT NULL,
+    backend_name TEXT NOT NULL,
+    operation TEXT NOT NULL,
+    error TEXT NOT NULL,
+    timestamp INTEGER NOT NULL,
+    retryable INTEGER DEFAULT 1,
+    FOREIGN KEY (local_id) REFERENCES tasks(id) ON DELETE CASCADE);
+CREATE TABLE IF NOT EXISTS backend_configs (
+    backend_name TEXT PRIMARY KEY,
+    backend_type TEXT NOT NULL,
+    config_json TEXT NOT NULL,
+    enabled INTEGER DEFAULT 1,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS custom_roles (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE,
+    description TEXT, systemPrompt TEXT, createdAt INTEGER NOT NULL);
 `;
 
 export class Database {
@@ -367,6 +395,10 @@ export class Database {
                 );
                 for (const depId of task.dependsOn) { depStmt.run([task.id, depId]); }
                 depStmt.free();
+            }
+            // Rebuild tags
+            if (task.tags) {
+                this.saveTags(task.id, task.tags);
             }
             this.scheduleSave();
         } catch (err) { console.error('[Database] saveTask:', err); }
@@ -909,65 +941,6 @@ export class Database {
         content: r.content, timestamp: r.timestamp, read: r.read === 1,
     });
 
-    // ─── Conversations ─────────────────────────────────────────────────────
-
-    saveConversation(conv: ChatConversation): void {
-        if (!this.db) { return; }
-        try {
-            this.run(
-                `INSERT OR REPLACE INTO conversations (id,title,createdAt,lastMessageAt,aiProvider,model)
-                 VALUES (?,?,?,?,?,?)`,
-                [conv.id, conv.title, conv.createdAt, conv.lastMessageAt, conv.aiProvider, conv.model]
-            );
-            this.scheduleSave();
-        } catch (err) { console.error('[Database] saveConversation:', err); }
-    }
-
-    deleteConversation(id: string): void {
-        if (!this.db) { return; }
-        try {
-            this.run('DELETE FROM conversation_messages WHERE conversationId=?', [id]);
-            this.run('DELETE FROM conversations WHERE id=?', [id]);
-            this.scheduleSave();
-        } catch (err) { console.error('[Database] deleteConversation:', err); }
-    }
-
-    getAllConversations(): ChatConversation[] {
-        return this.queryAll('SELECT * FROM conversations ORDER BY lastMessageAt DESC', r => this.rowToConversation(r));
-    }
-
-    saveConversationMessage(conversationId: string, entry: ConversationEntry): void {
-        if (!this.db) { return; }
-        const id = crypto.randomUUID?.() || 'msg-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
-        try {
-            this.run(
-                `INSERT INTO conversation_messages (id,conversationId,role,content,timestamp)
-                 VALUES (?,?,?,?,?)`,
-                [id, conversationId, entry.role, entry.content, entry.timestamp]
-            );
-            this.run('UPDATE conversations SET lastMessageAt=? WHERE id=?', [entry.timestamp, conversationId]);
-            this.scheduleSave();
-        } catch (err) { console.error('[Database] saveConversationMessage:', err); }
-    }
-
-    getConversationMessages(conversationId: string): ConversationEntry[] {
-        return this.queryAll(
-            'SELECT * FROM conversation_messages WHERE conversationId=? ORDER BY timestamp ASC',
-            r => ({ role: r.role as 'user' | 'assistant' | 'tool', content: r.content, timestamp: r.timestamp }),
-            [conversationId]
-        );
-    }
-
-    private rowToConversation(r: Record<string, any>): ChatConversation {
-        return {
-            id: r.id, title: r.title, createdAt: r.createdAt,
-            lastMessageAt: r.lastMessageAt, aiProvider: r.aiProvider,
-            model: r.model, messages: this.getConversationMessages(r.id),
-            status: 'idle', isCollapsed: true,
-            lastPreview: '',
-        };
-    }
-
     // ─── Agent Profile Stats ───────────────────────────────────────────────
 
     getAgentProfileStats(agentId: string): AgentProfileStats | undefined {
@@ -1007,6 +980,206 @@ export class Database {
         }
         return stats;
     }
+
+    // ─── Backend Synchronization ───────────────────────────────────────
+
+    saveBackendMapping(localId: string, backend: string, externalId: string, status: 'synced' | 'pending' | 'error' = 'synced'): void {
+        if (!this.db) { return; }
+        try {
+            this.run(
+                `INSERT OR REPLACE INTO task_backend_mappings (local_id, backend_name, external_id, last_synced, sync_status)
+                 VALUES (?, ?, ?, ?, ?)`,
+                [localId, backend, externalId, Date.now(), status]
+            );
+            this.scheduleSave();
+        } catch (err) { console.error('[Database] saveBackendMapping:', err); }
+    }
+
+    getBackendMapping(localId: string, backend: string): BackendMapping | null {
+        const result = this.queryOne(
+            'SELECT * FROM task_backend_mappings WHERE local_id=? AND backend_name=?',
+            [localId, backend],
+            this.rowToBackendMapping
+        );
+        return result ?? null;
+    }
+
+    getAllMappingsForBackend(backend: string): BackendMapping[] {
+        return this.queryAll(
+            'SELECT * FROM task_backend_mappings WHERE backend_name=?',
+            this.rowToBackendMapping,
+            [backend]
+        );
+    }
+
+    getAllMappingsForTask(localId: string): BackendMapping[] {
+        return this.queryAll(
+            'SELECT * FROM task_backend_mappings WHERE local_id=?',
+            this.rowToBackendMapping,
+            [localId]
+        );
+    }
+
+    deleteBackendMapping(localId: string, backend: string): void {
+        if (!this.db) { return; }
+        try {
+            this.run('DELETE FROM task_backend_mappings WHERE local_id=? AND backend_name=?', [localId, backend]);
+            this.scheduleSave();
+        } catch (err) { console.error('[Database] deleteBackendMapping:', err); }
+    }
+
+    private rowToBackendMapping = (r: Record<string, any>): BackendMapping => ({
+        local_id: r.local_id,
+        backend_name: r.backend_name,
+        external_id: r.external_id,
+        last_synced: r.last_synced,
+        sync_status: r.sync_status as 'synced' | 'pending_push' | 'pending_pull' | 'conflict' | 'error',
+    });
+
+    logSyncError(error: SyncError): void {
+        if (!this.db) { return; }
+        try {
+            this.run(
+                `INSERT OR REPLACE INTO task_sync_errors (id, local_id, backend_name, operation, error, timestamp, retryable)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                [error.id, error.local_id, error.backend_name, error.operation, error.error, error.timestamp, error.retryable ? 1 : 0]
+            );
+            this.scheduleSave();
+        } catch (err) { console.error('[Database] logSyncError:', err); }
+    }
+
+    getSyncErrors(backend?: string): SyncError[] {
+        if (backend) {
+            return this.queryAll(
+                'SELECT * FROM task_sync_errors WHERE backend_name=? ORDER BY timestamp DESC',
+                this.rowToSyncError,
+                [backend]
+            );
+        } else {
+            return this.queryAll(
+                'SELECT * FROM task_sync_errors ORDER BY timestamp DESC',
+                this.rowToSyncError
+            );
+        }
+    }
+
+    clearSyncError(errorId: string): void {
+        if (!this.db) { return; }
+        try {
+            this.run('DELETE FROM task_sync_errors WHERE id=?', [errorId]);
+            this.scheduleSave();
+        } catch (err) { console.error('[Database] clearSyncError:', err); }
+    }
+
+    private rowToSyncError = (r: Record<string, any>): SyncError => ({
+        id: r.id,
+        local_id: r.local_id,
+        backend_name: r.backend_name,
+        operation: r.operation as 'push' | 'pull' | 'delete',
+        error: r.error,
+        timestamp: r.timestamp,
+        retryable: r.retryable === 1,
+    });
+
+    saveBackendConfig(config: BackendConfig): void {
+        if (!this.db) { return; }
+        try {
+            this.run(
+                `INSERT OR REPLACE INTO backend_configs (backend_name, backend_type, config_json, enabled, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?)`,
+                [config.backend_name, config.backend_type, config.config_json, config.enabled ? 1 : 0, config.created_at, config.updated_at]
+            );
+            this.scheduleSave();
+        } catch (err) { console.error('[Database] saveBackendConfig:', err); }
+    }
+
+    getBackendConfig(name: string): BackendConfig | null {
+        const result = this.queryOne(
+            'SELECT * FROM backend_configs WHERE backend_name=?',
+            [name],
+            this.rowToBackendConfig
+        );
+        return result ?? null;
+    }
+
+    getAllBackendConfigs(): BackendConfig[] {
+        return this.queryAll(
+            'SELECT * FROM backend_configs',
+            this.rowToBackendConfig
+        );
+    }
+
+    deleteBackendConfig(name: string): void {
+        if (!this.db) { return; }
+        try {
+            this.run('DELETE FROM backend_configs WHERE backend_name=?', [name]);
+            this.scheduleSave();
+        } catch (err) { console.error('[Database] deleteBackendConfig:', err); }
+    }
+
+    updateBackendConfig(name: string, updates: Partial<BackendConfig>): void {
+        if (!this.db) { return; }
+        const existing = this.getBackendConfig(name);
+        if (!existing) {
+            console.error('[Database] updateBackendConfig: Config not found:', name);
+            return;
+        }
+
+        try {
+            const updated: BackendConfig = {
+                ...existing,
+                ...updates,
+                backend_name: name, // Ensure name doesn't change
+                updated_at: Date.now(),
+            };
+            this.saveBackendConfig(updated);
+        } catch (err) { console.error('[Database] updateBackendConfig:', err); }
+    }
+
+    private rowToBackendConfig = (r: Record<string, any>): BackendConfig => ({
+        backend_name: r.backend_name,
+        backend_type: r.backend_type,
+        config_json: r.config_json,
+        enabled: r.enabled === 1,
+        created_at: r.created_at,
+        updated_at: r.updated_at,
+    });
+
+    // ─── Custom Roles ──────────────────────────────────────────────────────
+
+    saveCustomRole(role: CustomRole): void {
+        if (!this.db) { return; }
+        try {
+            this.run(
+                `INSERT OR REPLACE INTO custom_roles (id,name,description,systemPrompt,createdAt)
+                 VALUES (?,?,?,?,?)`,
+                [role.id, role.name, role.description || null,
+                 role.systemPrompt || null, role.createdAt]
+            );
+            this.scheduleSave();
+        } catch (err) { console.error('[Database] saveCustomRole:', err); }
+    }
+
+    getCustomRole(id: string): CustomRole | undefined {
+        return this.queryOne('SELECT * FROM custom_roles WHERE id=?', [id], this.rowToCustomRole);
+    }
+
+    getAllCustomRoles(): CustomRole[] {
+        return this.queryAll('SELECT * FROM custom_roles ORDER BY name', this.rowToCustomRole);
+    }
+
+    deleteCustomRole(id: string): void {
+        if (!this.db) { return; }
+        try { this.run('DELETE FROM custom_roles WHERE id=?', [id]); this.scheduleSave(); }
+        catch (err) { console.error('[Database] deleteCustomRole:', err); }
+    }
+
+    private rowToCustomRole = (r: Record<string, any>): CustomRole => ({
+        id: r.id, name: r.name,
+        description: r.description || undefined,
+        systemPrompt: r.systemPrompt || undefined,
+        createdAt: r.createdAt,
+    });
 
     // ─── Disposal ───────────────────────────────────────────────────────────
 

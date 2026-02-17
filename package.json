@@ -9,6 +9,7 @@
     "type": "git",
     "url": "https://github.com/super-agent-ai/tmux-agents.git"
   },
+  "private": true,
   "workspaces": [
     "packages/*"
   ],
@@ -24,93 +25,30 @@
   ],
   "main": "./out/extension.js",
   "bin": {
-    "tmux-agents-mcp": "./out/mcp/mcp/server.js"
+    "tmux-agents-mcp": "./packages/mcp/dist/server.js"
   },
   "contributes": {
     "configuration": {
       "title": "Tmux Agents",
       "properties": {
-        "tmuxAgents.sshServers": {
-          "type": "object",
-          "default": {
-            "servers": [],
-            "script": {}
-          },
-          "description": "SSH remote servers. Static list and/or dynamic script-based discovery.",
-          "properties": {
-            "servers": {
-              "type": "array",
-              "default": [],
-              "description": "Static SSH server list.",
-              "items": {
-                "type": "object",
-                "required": [
-                  "label",
-                  "host"
-                ],
-                "properties": {
-                  "label": {
-                    "type": "string",
-                    "description": "Display name in the tree view"
-                  },
-                  "host": {
-                    "type": "string",
-                    "description": "SSH hostname or IP address"
-                  },
-                  "port": {
-                    "type": "number",
-                    "default": 22,
-                    "description": "SSH port. Default: 22"
-                  },
-                  "user": {
-                    "type": "string",
-                    "description": "SSH username"
-                  },
-                  "configFile": {
-                    "type": "string",
-                    "description": "Path to SSH config file (-F flag)"
-                  },
-                  "enabled": {
-                    "type": "boolean",
-                    "default": true,
-                    "description": "Whether this server is active"
-                  }
-                },
-                "additionalProperties": false
-              }
-            },
-            "script": {
-              "type": "object",
-              "default": {},
-              "description": "Script-based SSH server discovery. Script must output JSON array of { label, host, ... } to stdout.",
-              "properties": {
-                "path": {
-                  "type": "string",
-                  "description": "Path to the script (e.g., '~/.config/tmux-agents/servers.sh')"
-                },
-                "interval": {
-                  "type": "number",
-                  "default": 300,
-                  "minimum": 10,
-                  "description": "Re-run interval in seconds. Default: 300"
-                },
-                "timeout": {
-                  "type": "number",
-                  "default": 10,
-                  "minimum": 1,
-                  "maximum": 60,
-                  "description": "Max wait for script in seconds. Default: 10"
-                }
-              },
-              "additionalProperties": false
-            }
-          },
-          "additionalProperties": false
+        "tmuxAgents.daemonUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Remote daemon address (e.g. 192.168.1.10:3456). When set, the extension connects to a remote daemon via HTTP+WebSocket instead of the local Unix socket. Leave empty for local daemon."
         },
-        "tmuxAgents.showLocalSessions": {
-          "type": "boolean",
-          "default": true,
-          "description": "Whether to show local tmux sessions. Disable if you only want to monitor remote servers."
+        "tmuxAgents.serverAliases": {
+          "type": "object",
+          "default": {},
+          "description": "Maps daemon runtime IDs to VS Code SSH config aliases. Use when the daemon runs on a different machine and VS Code needs a different SSH host to reach the same servers. Example: { \"local\": \"mini-server\", \"dev1\": \"dev2\" } — VS Code will 'ssh mini-server' to reach the daemon host, and 'ssh dev2' to reach the server the daemon knows as dev1.",
+          "additionalProperties": {
+            "type": "string",
+            "description": "VS Code SSH config alias for this daemon runtime"
+          }
+        },
+        "tmuxAgents.dataDir": {
+          "type": "string",
+          "default": "~/.tmux-agents",
+          "description": "Directory for the shared database and daemon files. Both the VS Code plugin and the daemon use this path. The database file is 'data.db' inside this directory."
         },
         "tmuxAgents.daemonRefresh": {
           "type": "object",
@@ -197,251 +135,12 @@
           "default": [],
           "description": "Custom agent templates for quick spawning"
         },
-        "tmuxAgents.defaultProvider": {
-          "type": "string",
-          "default": "claude",
-          "enum": [
-            "claude",
-            "gemini",
-            "codex",
-            "opencode",
-            "cursor",
-            "copilot",
-            "aider",
-            "amp",
-            "cline",
-            "kiro"
-          ],
-          "description": "Default AI provider used for tasks and swimlanes when no provider is explicitly set."
-        },
-        "tmuxAgents.fallbackProvider": {
-          "type": "string",
-          "default": "gemini",
-          "enum": [
-            "claude",
-            "gemini",
-            "codex",
-            "opencode",
-            "cursor",
-            "copilot",
-            "aider",
-            "amp",
-            "cline",
-            "kiro"
-          ],
-          "description": "Fallback AI provider used when the default provider fails or is unavailable."
-        },
-        "tmuxAgents.defaultPromptsEnabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable built-in default prompt templates (Create Test Plans, Auto-Pass Tests, Install Plugins). Disable for gradual rollout."
-        },
         "tmuxAgents.cliLaunchDelayMs": {
           "type": "number",
           "default": 3000,
           "minimum": 500,
           "maximum": 30000,
           "description": "Milliseconds to wait after creating a tmux window before sending the AI CLI command and prompt."
-        },
-        "tmuxAgents.aiProviders": {
-          "type": "object",
-          "default": {
-            "claude": {
-              "command": "claude",
-              "pipeCommand": "claude",
-              "args": [],
-              "forkArgs": [
-                "--continue"
-              ],
-              "resumeFlag": "--resume",
-              "autoPilotFlags": [
-                "--dangerously-skip-permissions"
-              ],
-              "env": {}
-            },
-            "gemini": {
-              "command": "gemini",
-              "pipeCommand": "gemini",
-              "args": [],
-              "forkArgs": [],
-              "resumeFlag": "--resume",
-              "autoPilotFlags": [
-                "--yolo"
-              ],
-              "env": {}
-            },
-            "codex": {
-              "command": "codex",
-              "pipeCommand": "codex",
-              "args": [],
-              "forkArgs": [],
-              "resumeFlag": "--resume",
-              "autoPilotFlags": [
-                "--full-auto"
-              ],
-              "env": {}
-            },
-            "opencode": {
-              "command": "opencode",
-              "pipeCommand": "opencode",
-              "args": [],
-              "forkArgs": [
-                "--continue"
-              ],
-              "resumeFlag": "--resume",
-              "autoPilotFlags": [
-                "--yolo"
-              ],
-              "env": {}
-            },
-            "cursor": {
-              "command": "agent",
-              "pipeCommand": "agent",
-              "args": [],
-              "forkArgs": [
-                "--resume"
-              ],
-              "resumeFlag": "--resume",
-              "autoPilotFlags": [
-                "--yolo"
-              ],
-              "env": {}
-            },
-            "copilot": {
-              "command": "copilot",
-              "pipeCommand": "copilot",
-              "args": [],
-              "forkArgs": [
-                "--continue"
-              ],
-              "resumeFlag": "--resume",
-              "autoPilotFlags": [],
-              "env": {}
-            },
-            "aider": {
-              "command": "aider",
-              "pipeCommand": "aider",
-              "args": [],
-              "forkArgs": [],
-              "resumeFlag": "--resume",
-              "autoPilotFlags": [
-                "--yes-always"
-              ],
-              "env": {}
-            },
-            "amp": {
-              "command": "amp",
-              "pipeCommand": "amp",
-              "args": [],
-              "forkArgs": [],
-              "resumeFlag": "--resume",
-              "autoPilotFlags": [
-                "--dangerously-allow-all"
-              ],
-              "env": {}
-            },
-            "cline": {
-              "command": "cline",
-              "pipeCommand": "cline",
-              "args": [],
-              "forkArgs": [],
-              "resumeFlag": "--resume",
-              "autoPilotFlags": [
-                "--yolo"
-              ],
-              "env": {}
-            },
-            "kiro": {
-              "command": "kiro-cli",
-              "pipeCommand": "kiro-cli",
-              "args": [],
-              "forkArgs": [
-                "--resume"
-              ],
-              "resumeFlag": "--resume",
-              "autoPilotFlags": [
-                "--trust-all-tools"
-              ],
-              "env": {}
-            }
-          },
-          "description": "AI provider configurations. Each key (claude, gemini, codex, opencode, cursor, copilot, aider, amp, cline, kiro) supports: command (interactive CLI), pipeCommand (pipe mode CLI), args (launch arguments), forkArgs (fork/continue arguments), env (environment variables).",
-          "additionalProperties": {
-            "type": "object",
-            "properties": {
-              "command": {
-                "type": "string",
-                "description": "CLI command for interactive tmux sessions"
-              },
-              "pipeCommand": {
-                "type": "string",
-                "description": "CLI command for pipe mode (AI Generate, summarize)"
-              },
-              "args": {
-                "oneOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  }
-                ],
-                "description": "Additional arguments for launch. String or array of strings."
-              },
-              "forkArgs": {
-                "oneOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  }
-                ],
-                "description": "Arguments for forking/continuing a session (no session ID). String or array."
-              },
-              "resumeFlag": {
-                "type": "string",
-                "description": "Flag to resume a specific session by ID (e.g. '--resume'). Used as: command <resumeFlag> <sessionId>."
-              },
-              "autoPilotFlags": {
-                "oneOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  }
-                ],
-                "description": "CLI flags appended when Pilot toggle is enabled (e.g. '--dangerously-skip-permissions' for Claude). String or array of strings."
-              },
-              "env": {
-                "type": "object",
-                "additionalProperties": {
-                  "type": "string"
-                },
-                "description": "Environment variables set before launching"
-              },
-              "defaultWorkingDirectory": {
-                "type": "string",
-                "description": "Default working directory for pipe mode (AI Chat, AI Generate). Falls back to the first open workspace folder."
-              },
-              "shell": {
-                "type": "boolean",
-                "default": false,
-                "description": "Run pipe commands through the system shell. Enable if pipeCommand is a shell script or needs shell features."
-              }
-            },
-            "additionalProperties": false
-          }
         }
       }
     },
@@ -459,11 +158,6 @@
         {
           "id": "tmux-agents",
           "name": "Sessions"
-        },
-        {
-          "id": "tmux-agents-chat",
-          "name": "AI Chat",
-          "type": "webview"
         },
         {
           "id": "tmux-agents-shortcuts",
@@ -582,6 +276,12 @@
         "title": "Configure SSH Servers",
         "category": "Tmux",
         "icon": "$(gear)"
+      },
+      {
+        "command": "tmux-agents.toggleVscodeLocal",
+        "title": "Toggle VS Code Local Sessions",
+        "category": "Tmux",
+        "icon": "$(vm)"
       },
       {
         "command": "tmux-agents.newClaudeSession",
@@ -738,18 +438,6 @@
         "title": "Create Pipeline from Description",
         "category": "Tmux Orchestrator",
         "icon": "$(wand)"
-      },
-      {
-        "command": "tmux-agents.listDefaultPrompts",
-        "title": "List Default Prompts",
-        "category": "Tmux Orchestrator",
-        "icon": "$(list-unordered)"
-      },
-      {
-        "command": "tmux-agents.executeDefaultPrompt",
-        "title": "Execute Default Prompt",
-        "category": "Tmux Orchestrator",
-        "icon": "$(play)"
       }
     ],
     "menus": {
@@ -783,6 +471,11 @@
           "command": "tmux-agents.configureServers",
           "when": "view == tmux-agents",
           "group": "1_settings"
+        },
+        {
+          "command": "tmux-agents.toggleVscodeLocal",
+          "when": "view == tmux-agents",
+          "group": "navigation"
         },
         {
           "command": "tmux-agents.openDashboard",
@@ -828,11 +521,6 @@
           "command": "tmux-agents.quickTeamResearch",
           "when": "view == tmux-agents",
           "group": "2_orchestrator"
-        },
-        {
-          "command": "tmux-agents.listDefaultPrompts",
-          "when": "view == tmux-agents",
-          "group": "3_prompts"
         }
       ],
       "editor/title": [
@@ -1041,11 +729,6 @@
         "mac": "ctrl+alt+k"
       },
       {
-        "command": "tmux-agents-chat.focus",
-        "key": "ctrl+alt+a",
-        "mac": "ctrl+alt+a"
-      },
-      {
         "command": "tmux-agents.spawnAgent",
         "key": "ctrl+alt+p",
         "mac": "ctrl+alt+p"
@@ -1103,7 +786,9 @@
     "publish:cli": "npm publish -w packages/cli",
     "publish:tui": "npm publish -w packages/tui",
     "publish:mcp": "npm publish -w packages/mcp",
-    "publish:k8s": "npm publish -w packages/k8s-runtime"
+    "publish:k8s": "npm publish -w packages/k8s-runtime",
+    "build:install": "npm run build -w packages/install",
+    "publish:all": "npm run compile && npm run compile --workspaces && npm publish -w packages/cli && npm publish -w packages/tui && npm publish -w packages/mcp && npm run build -w packages/install && npm publish -w packages/install"
   },
   "devDependencies": {
     "@types/dockerode": "^4.0.1",

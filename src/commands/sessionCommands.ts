@@ -5,7 +5,7 @@ import { TmuxService } from '../tmuxService';
 import { TmuxServiceManager } from '../serviceManager';
 import { TmuxSessionProvider, TmuxSessionTreeItem, TmuxWindowTreeItem, TmuxPaneTreeItem, TmuxServerTreeItem } from '../treeProvider';
 import { SmartAttachmentService } from '../smartAttachment';
-import { AIAssistantManager } from '../aiAssistant';
+import { AIAssistantManager } from '../core/aiAssistant';
 import { HotkeyManager } from '../hotkeyManager';
 import { AIProvider, TmuxSession } from '../types';
 

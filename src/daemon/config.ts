@@ -15,6 +15,7 @@ export interface DaemonConfig {
 	unixSocket: string;
 	httpPort: number;
 	wsPort: number;
+	bindAddress: string;
 	logLevel: 'debug' | 'info' | 'warn' | 'error';
 	logFile: string;
 	pidFile: string;
@@ -37,12 +38,19 @@ export interface DaemonConfig {
 	corsOrigins: string[];
 	maxRequestSize: string;
 	requestTimeout: number;
+
+	// AI provider configuration
+	defaultProvider: string;
+	fallbackProvider: string;
+	aiProviders: Record<string, Partial<import('../core/aiAssistant').ProviderConfig>>;
+	defaultWorkingDirectory: string;
 }
 
 const DEFAULT_CONFIG: DaemonConfig = {
 	unixSocket: path.join(os.homedir(), '.tmux-agents', 'daemon.sock'),
 	httpPort: 3456,
 	wsPort: 3457,
+	bindAddress: '127.0.0.1',
 	logLevel: 'info',
 	logFile: path.join(os.homedir(), '.tmux-agents', 'daemon.log'),
 	pidFile: path.join(os.homedir(), '.tmux-agents', 'daemon.pid'),
@@ -64,6 +72,11 @@ const DEFAULT_CONFIG: DaemonConfig = {
 	corsOrigins: ['http://localhost:*', 'http://127.0.0.1:*'],
 	maxRequestSize: '10mb',
 	requestTimeout: 30000,
+
+	defaultProvider: 'claude',
+	fallbackProvider: 'gemini',
+	aiProviders: {},
+	defaultWorkingDirectory: '',
 };
 
 /**
@@ -72,26 +85,40 @@ const DEFAULT_CONFIG: DaemonConfig = {
 export function loadConfig(configPath?: string): DaemonConfig {
 	const finalPath = configPath || path.join(os.homedir(), '.tmux-agents', 'config.toml');
 
-	// If config file doesn't exist, return defaults
+	let config: DaemonConfig;
+
+	// If config file doesn't exist, use defaults
 	if (!fs.existsSync(finalPath)) {
-		return { ...DEFAULT_CONFIG };
+		config = { ...DEFAULT_CONFIG };
+	} else {
+		try {
+			// Parse TOML (simple key=value parser for now, can upgrade to full TOML library)
+			const content = fs.readFileSync(finalPath, 'utf-8');
+			const parsed = parseTOML(content);
+
+			// Merge with defaults
+			config = {
+				...DEFAULT_CONFIG,
+				...parsed,
+				runtimes: parsed.runtimes || DEFAULT_CONFIG.runtimes,
+				aiProviders: parsed.aiProviders || DEFAULT_CONFIG.aiProviders,
+			};
+		} catch (error) {
+			console.error('[Config] Failed to load config file:', error);
+			config = { ...DEFAULT_CONFIG };
+		}
 	}
 
-	try {
-		// Parse TOML (simple key=value parser for now, can upgrade to full TOML library)
-		const content = fs.readFileSync(finalPath, 'utf-8');
-		const parsed = parseTOML(content);
-
-		// Merge with defaults
-		return {
-			...DEFAULT_CONFIG,
-			...parsed,
-			runtimes: parsed.runtimes || DEFAULT_CONFIG.runtimes,
-		};
-	} catch (error) {
-		console.error('[Config] Failed to load config file:', error);
-		return { ...DEFAULT_CONFIG };
+	// Environment variable overrides
+	if (process.env.DAEMON_BIND_ADDRESS) {
+		config.bindAddress = process.env.DAEMON_BIND_ADDRESS;
 	}
+
+	if (process.env.DAEMON_DEFAULT_PROVIDER) {
+		config.defaultProvider = process.env.DAEMON_DEFAULT_PROVIDER;
+	}
+
+	return config;
 }
 
 /**

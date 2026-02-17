@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { AgentOrchestrator as CoreOrchestrator } from './core/orchestrator';
 import { TmuxServiceManager } from './serviceManager';
-import { AIAssistantManager } from './aiAssistant';
+import { AIAssistantManager } from './core/aiAssistant';
 import {
     AgentInstance,
     AgentRole,

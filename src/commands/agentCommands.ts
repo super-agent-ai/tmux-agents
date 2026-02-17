@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { TmuxService } from '../tmuxService';
 import { TmuxServiceManager } from '../serviceManager';
 import { TmuxSessionProvider } from '../treeProvider';
-import { AIAssistantManager } from '../aiAssistant';
+import { AIAssistantManager } from '../core/aiAssistant';
 import { AgentOrchestrator } from '../orchestrator';
 import { TaskRouter } from '../taskRouter';
 import { PipelineEngine } from '../pipelineEngine';

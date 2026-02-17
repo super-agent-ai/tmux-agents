@@ -4,7 +4,7 @@ import { TmuxSession, TmuxWindow, TmuxPane, ServerIdentity, CcPaneMetadata,
          ProcessCategory, PROCESS_CATEGORY_COLORS, PROCESS_CATEGORY_ICONS,
          AIStatus, AI_STATUS_COLORS, AI_STATUS_ICONS, ActivityPriority } from './types';
 import { ProcessTracker } from './processTracker';
-import { AIAssistantManager } from './aiAssistant';
+import { AIAssistantManager } from './core/aiAssistant';
 import { ActivityRollupService } from './activityRollup';
 import { HotkeyManager } from './hotkeyManager';
 import { DaemonRefreshService } from './daemonRefresh';
@@ -173,22 +173,7 @@ export class TmuxSessionProvider implements vscode.TreeDataProvider<TmuxTreeItem
             // ROOT LEVEL
             const services = this.serviceManager.getAllServices();
 
-            // If only local server (no SSH servers configured), skip server level
-            if (services.length === 1 && services[0].serverId === 'local') {
-                const sessions = await services[0].getTmuxTree();
-                if (sessions.length > 0) {
-                    const enriched = await this.enrichSessions(sessions);
-
-                    const sessionNodes = enriched.map(session => new TmuxSessionTreeItem(session));
-                    return sessionNodes;
-                } else {
-
-                    const item = new vscode.TreeItem('No running tmux sessions found.', vscode.TreeItemCollapsibleState.None);
-                    return [item as TmuxTreeItem];
-                }
-            }
-
-            // Multiple servers: collect all sessions first, then enrich together
+            // Always show server-level nodes — collect all sessions, then enrich together
             const serverResults: { service: typeof services[0]; sessions: TmuxSession[]; hasError: boolean }[] = [];
             const allSessions: TmuxSession[] = [];
 
