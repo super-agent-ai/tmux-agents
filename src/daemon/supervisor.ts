@@ -181,13 +181,18 @@ export class Supervisor {
 			}
 
 			// Check circuit breaker
-			if (this.shouldRestart()) {
+			if (this.config.maxRestarts === 0) {
+				// Restart disabled — exit cleanly
+				console.log('[Supervisor] Restarts disabled (maxRestarts=0), shutting down');
+				this.removePidFile();
+				process.exit(code || 1);
+			} else if (this.shouldRestart()) {
 				console.log('[Supervisor] Restarting worker (restart %d)', this.restartCount + 1);
 				this.restartCount++;
 				this.restartWindow.push({ timestamp: Date.now() });
 				setTimeout(() => this.forkWorker(), 1000);
 			} else {
-				console.error('[Supervisor] Circuit breaker triggered, backing off for 60s');
+				console.error('[Supervisor] Circuit breaker triggered, backing off for %ds', this.config.backoffDelay / 1000);
 				setTimeout(() => {
 					this.restartWindow = [];
 					this.restartCount = 0;
@@ -296,12 +301,10 @@ async function main() {
 			case 'stop':
 				await supervisor.stop();
 				process.exit(0);
-				break;
 
 			case 'reload':
 				await supervisor.reload();
 				process.exit(0);
-				break;
 
 			case 'status':
 				if (supervisor.isRunning()) {
@@ -312,7 +315,6 @@ async function main() {
 					console.log('Daemon is not running');
 					process.exit(1);
 				}
-				break;
 
 			default:
 				console.error(`Unknown command: ${command}`);

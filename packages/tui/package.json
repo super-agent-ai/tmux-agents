@@ -1,6 +1,6 @@
 {
   "name": "@tmux-agents/tui",
-  "version": "0.1.19",
+  "version": "1.0.0",
   "description": "Terminal UI for tmux-agents daemon",
   "type": "module",
   "main": "tui.cjs",

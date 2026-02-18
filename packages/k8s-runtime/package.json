@@ -1,6 +1,6 @@
 {
   "name": "@tmux-agents/k8s-runtime",
-  "version": "0.1.19",
+  "version": "1.0.0",
   "description": "Kubernetes runtime for tmux-agents - run agents in K8s pods",
   "type": "module",
   "main": "dist/index.js",
@@ -11,7 +11,13 @@
     "test": "vitest run",
     "prepublishOnly": "npm run build"
   },
-  "keywords": ["kubernetes", "k8s", "tmux", "agents", "runtime"],
+  "keywords": [
+    "kubernetes",
+    "k8s",
+    "tmux",
+    "agents",
+    "runtime"
+  ],
   "author": "super-agent.ai",
   "license": "MIT",
   "repository": {

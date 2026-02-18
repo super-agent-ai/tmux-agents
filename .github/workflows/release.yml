@@ -43,29 +43,84 @@ jobs:
         id: version
         run: |
           BUMP="${{ inputs.bump }}"
-          npm version "${BUMP:-patch}" --no-git-tag-version
+          VERSION_BUMP="${BUMP:-patch}"
+
+          # Bump root package.json
+          npm version "$VERSION_BUMP" --no-git-tag-version
+
           VERSION=$(node -p "require('./package.json').version")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
 
+          # Sync version to all workspace packages
+          for pkg in packages/cli packages/tui packages/mcp packages/k8s-runtime packages/install; do
+            if [ -f "$pkg/package.json" ]; then
+              node -e "
+                const fs = require('fs');
+                const p = JSON.parse(fs.readFileSync('$pkg/package.json', 'utf8'));
+                p.version = '$VERSION';
+                fs.writeFileSync('$pkg/package.json', JSON.stringify(p, null, 2) + '\n');
+              "
+            fi
+          done
+
       - name: Install dependencies
         run: npm ci
 
-      - name: Compile
+      - name: Compile main extension
         run: npm run compile
 
-      - name: Run tests
-        run: npm test
+      - name: Build workspace packages
+        run: |
+          npm run build -w packages/cli
+          npm run build -w packages/tui
+          npm run build -w packages/mcp
+          npm run build -w packages/k8s-runtime
+
+      - name: Run main tests
+        run: npx vitest run --no-coverage
+
+      - name: Run workspace tests
+        run: |
+          npm test -w packages/cli
+          npm test -w packages/tui
+          npm test -w packages/mcp
+
+      - name: Build install package
+        run: npm run build -w packages/install
+
+      - name: Verify install package
+        run: |
+          test -f packages/install/dist/daemon/supervisor.js
+          test -f packages/install/dist/cli/cli/index.js
+          test -f packages/install/dist/skill/SKILL.md
+          test -f packages/install/dist/skill/.version
+          echo "Install package verification passed"
 
       - name: Install vsce
         run: npm install -g @vscode/vsce
 
-      - name: Package vsix
-        run: vsce package --no-dependencies
+      - name: Package VSIX
+        run: |
+          vsce package --no-dependencies
+          # Inject runtime dependencies into VSIX
+          mkdir -p .vsix-inject/extension/node_modules
+          cp -r node_modules/ws .vsix-inject/extension/node_modules/
+          cp -r node_modules/zod .vsix-inject/extension/node_modules/
+          VSIX="tmux-agents-${{ steps.version.outputs.version }}.vsix"
+          cd .vsix-inject && zip -rq "../$VSIX" extension/node_modules/
+          cd .. && rm -rf .vsix-inject
+
+      - name: Package npm tarballs
+        run: |
+          npm pack -w packages/cli
+          npm pack -w packages/tui
+          npm pack -w packages/mcp
+          npm pack -w packages/install
 
       - name: Commit version bump
         run: |
-          git add package.json package-lock.json
+          git add package.json package-lock.json packages/*/package.json
           git commit -m "release: v${{ steps.version.outputs.version }}"
           git tag "${{ steps.version.outputs.tag }}"
           git push origin main --follow-tags
@@ -76,4 +131,6 @@ jobs:
           tag_name: ${{ steps.version.outputs.tag }}
           name: v${{ steps.version.outputs.version }}
           generate_release_notes: true
-          files: "*.vsix"
+          files: |
+            *.vsix
+            *.tgz

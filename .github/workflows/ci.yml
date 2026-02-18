@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [18, 20]
+        node-version: [18, 20, 22]
 
     steps:
       - uses: actions/checkout@v4
@@ -25,8 +25,38 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Compile
+      - name: Compile main extension
         run: npm run compile
 
-      - name: Run tests
-        run: npm test
+      - name: Build workspace packages
+        run: |
+          npm run build -w packages/cli
+          npm run build -w packages/tui
+          npm run build -w packages/mcp
+          npm run build -w packages/k8s-runtime
+
+      - name: Run main tests
+        run: npx vitest run --no-coverage
+
+      - name: Run CLI tests
+        run: npm test -w packages/cli
+
+      - name: Run TUI tests
+        run: npm test -w packages/tui
+
+      - name: Run MCP tests
+        run: npm test -w packages/mcp
+
+      - name: Build install package
+        run: npm run build -w packages/install
+
+      - name: Verify install package
+        run: |
+          # Check critical files exist in install dist
+          test -f packages/install/dist/daemon/supervisor.js
+          test -f packages/install/dist/cli/cli/index.js
+          test -f packages/install/dist/skill/SKILL.md
+          test -f packages/install/dist/skill/references/commands.md
+          test -f packages/install/dist/skill/references/workflows.md
+          test -f packages/install/dist/skill/.version
+          echo "Install package verification passed"
